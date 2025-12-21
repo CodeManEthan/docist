@@ -277,10 +277,14 @@
         function handleFiles(files) {
             if (files.length === 0) return;
             
-            selectedFiles = files;
+            // Append new files to existing list instead of replacing
+            selectedFiles = [...selectedFiles, ...files];
             displayFiles();
             mergeBtn.disabled = false;
             message.style.display = 'none';
+            
+            // Clear the file input so the same files can be selected again if needed
+            fileInput.value = '';
         }
         
         function displayFiles() {
