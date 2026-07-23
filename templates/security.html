@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watermark &amp; Security</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="tool-nav">
+        <a href="/">Merge &amp; Convert</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print">Print Prep</a>
+        <a href="/export">Export</a>
+        <a href="/security" class="active">Watermark &amp; Security</a>
+    </nav>
+    <div class="container">
+        <h1>🔒 Watermark &amp; Security</h1>
+        <p class="subtitle">Add a watermark, header/footer text or Bates numbers to every page, or password-protect and unlock a PDF.</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Click to select a PDF or drag it here</div>
+            <div class="upload-hint" id="uploadHint">Supported: PDF</div>
+            <input type="file" id="fileInput" accept=".pdf">
+        </div>
+
+        <div class="file-list" id="fileList"></div>
+
+        <div class="options-panel">
+            <label>
+                Operation
+                <select id="operation">
+                    <option value="watermark">Watermark</option>
+                    <option value="headerfooter">Header / Footer text</option>
+                    <option value="bates">Bates numbering</option>
+                    <option value="protect">Protect (add password)</option>
+                    <option value="unlock">Unlock (remove password)</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="options-panel" id="watermarkOptions">
+            <label>
+                Watermark text
+                <input type="text" id="text" placeholder="CONFIDENTIAL">
+            </label>
+            <label>
+                Position
+                <select id="position">
+                    <option value="center">Center (diagonal)</option>
+                    <option value="header">Header (top)</option>
+                    <option value="footer">Footer (bottom)</option>
+                </select>
+            </label>
+            <label>
+                Opacity (0–1)
+                <input type="number" id="opacity" value="0.15" min="0" max="1" step="0.05">
+            </label>
+            <label>
+                Font size
+                <input type="number" id="fontSize" value="48" min="1" step="1">
+            </label>
+            <label>
+                Rotation (°)
+                <input type="number" id="rotation" value="45" step="1">
+            </label>
+        </div>
+
+        <div class="options-panel" id="headerFooterOptions" style="display:none;">
+            <div class="stamp-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+                <label>
+                    Header left
+                    <input type="text" id="headerLeft" placeholder="e.g. Acme Corp">
+                </label>
+                <label>
+                    Header center
+                    <input type="text" id="headerCenter" placeholder="e.g. Draft">
+                </label>
+                <label>
+                    Header right
+                    <input type="text" id="headerRight" placeholder="e.g. {page}/{pages}">
+                </label>
+            </div>
+            <div class="stamp-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+                <label>
+                    Footer left
+                    <input type="text" id="footerLeft" placeholder="e.g. Confidential">
+                </label>
+                <label>
+                    Footer center
+                    <input type="text" id="footerCenter" placeholder="e.g. Page {page} of {pages}">
+                </label>
+                <label>
+                    Footer right
+                    <input type="text" id="footerRight" placeholder="e.g. 2026">
+                </label>
+            </div>
+            <p class="upload-hint">
+                Tip: use <code>{page}</code> for the current page number and
+                <code>{pages}</code> for the total (e.g. "Page {page} of {pages}").
+                Fill any subset of the six slots.
+            </p>
+        </div>
+
+        <div class="options-panel" id="batesOptions" style="display:none;">
+            <label>
+                Prefix
+                <input type="text" id="prefix" placeholder="e.g. ACME">
+            </label>
+            <label>
+                Start number
+                <input type="number" id="start" value="1" min="0" step="1">
+            </label>
+            <label>
+                Digits (padding)
+                <input type="number" id="digits" value="6" min="3" max="10" step="1">
+            </label>
+            <label>
+                Position
+                <select id="batesPosition">
+                    <option value="bottom-right">Bottom right</option>
+                    <option value="bottom-left">Bottom left</option>
+                    <option value="top-right">Top right</option>
+                    <option value="top-left">Top left</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="options-panel" id="stampCommonOptions" style="display:none;">
+            <label>
+                Stamp font size
+                <input type="number" id="stampFontSize" value="9" min="1" step="1">
+            </label>
+        </div>
+
+        <div class="options-panel" id="passwordOptions" style="display:none;">
+            <label>
+                Password
+                <input type="password" id="password" placeholder="Enter password">
+            </label>
+        </div>
+
+        <button class="btn" id="runBtn" disabled>Apply</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #666;">Processing your PDF...</p>
+        </div>
+
+        <div class="message" id="message"></div>
+
+        <div class="features">
+            <div class="feature-item">Stamp a text watermark on every page (center, header or footer)</div>
+            <div class="feature-item">Add header/footer text in six margin slots with {page}/{pages} placeholders</div>
+            <div class="feature-item">Apply incrementing Bates numbers (prefix + zero-padded counter)</div>
+            <div class="feature-item">Password-protect or unlock a PDF</div>
+        </div>
+    </div>
+
+    <script src="/static/security.js"></script>
+</body>
+</html>

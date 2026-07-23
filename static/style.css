@@ -1,0 +1,331 @@
+/* Shared theme for all tool pages. */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    gap: 18px;
+}
+
+/* Navigation between tool pages */
+.tool-nav {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.tool-nav a {
+    color: rgba(255, 255, 255, 0.85);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.92em;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tool-nav a:hover {
+    background: rgba(255, 255, 255, 0.25);
+    color: #fff;
+}
+
+.tool-nav a.active {
+    background: #fff;
+    color: #667eea;
+}
+
+.container {
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    padding: 40px;
+    max-width: 600px;
+    width: 100%;
+}
+
+h1 {
+    color: #333;
+    margin-bottom: 10px;
+    font-size: 2em;
+}
+
+.subtitle {
+    color: #666;
+    margin-bottom: 30px;
+    font-size: 0.95em;
+}
+
+.upload-area {
+    border: 3px dashed #667eea;
+    border-radius: 15px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: #f8f9ff;
+}
+
+.upload-area:hover {
+    border-color: #764ba2;
+    background: #f0f2ff;
+}
+
+.upload-area.dragover {
+    background: #e8ebff;
+    border-color: #764ba2;
+}
+
+.upload-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+    color: #667eea;
+}
+
+.upload-text {
+    color: #333;
+    font-size: 1.1em;
+    margin-bottom: 5px;
+}
+
+.upload-hint {
+    color: #999;
+    font-size: 0.9em;
+}
+
+input[type="file"] {
+    display: none;
+}
+
+.file-list {
+    margin-top: 20px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.file-item {
+    background: #f8f9ff;
+    padding: 10px 12px;
+    margin: 8px 0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9em;
+    border-top: 3px solid transparent;
+    transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.file-item.dragging {
+    opacity: 0.45;
+}
+
+.file-item.drag-over-top {
+    border-top: 3px solid #764ba2;
+}
+
+.file-item.drag-over-bottom {
+    border-bottom: 3px solid #764ba2;
+}
+
+.drag-handle {
+    cursor: grab;
+    color: #b7b7d8;
+    font-size: 1.1em;
+    user-select: none;
+    line-height: 1;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.file-info {
+    color: #333;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-item .file-number {
+    color: #667eea;
+    font-weight: bold;
+    margin-right: 8px;
+}
+
+.file-size {
+    color: #999;
+    white-space: nowrap;
+}
+
+.file-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #667eea;
+    font-size: 0.95em;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+    line-height: 1;
+}
+
+.icon-btn:hover:not(:disabled) {
+    background: #e8ebff;
+}
+
+.icon-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.icon-btn.remove-btn {
+    color: #c0392b;
+}
+
+.icon-btn.remove-btn:hover:not(:disabled) {
+    background: #fde8e6;
+}
+
+.btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 10px;
+    font-size: 1em;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 20px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    font-weight: 600;
+}
+
+.btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.message {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: center;
+    display: none;
+}
+
+.message.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.message.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.download-btn {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    margin-top: 10px;
+}
+
+.loading {
+    display: none;
+    margin-top: 20px;
+    text-align: center;
+}
+
+.spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #667eea;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.features {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.feature-item {
+    display: flex;
+    align-items: center;
+    margin: 10px 0;
+    color: #666;
+    font-size: 0.9em;
+}
+
+.feature-item::before {
+    content: "✓";
+    color: #667eea;
+    font-weight: bold;
+    margin-right: 10px;
+    font-size: 1.2em;
+}
+
+/* Form controls for tool option panels */
+.options-panel {
+    margin-top: 20px;
+    padding: 16px;
+    background: #f8f9ff;
+    border-radius: 10px;
+}
+
+.options-panel label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #444;
+    font-size: 0.92em;
+    margin: 8px 0;
+}
+
+.options-panel select,
+.options-panel input[type="text"],
+.options-panel input[type="number"],
+.options-panel input[type="password"] {
+    border: 1px solid #d5d9f2;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 0.92em;
+    color: #333;
+    background: #fff;
+}
