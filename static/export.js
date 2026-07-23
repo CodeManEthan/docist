@@ -51,9 +51,18 @@ function validateExportOptions(state) {
     return { valid: true };
 }
 
+// Normalize a Tesseract language code: trim, lowercase, fall back to 'eng'.
+function normalizeLanguage(lang) {
+    const s = String(lang == null ? '' : lang).trim().toLowerCase();
+    return s === '' ? 'eng' : s;
+}
+
 // Given the current UI state, validate it and build the FormData field map
 // that POST /export/run expects. Returns { ok: true, fields: {...} } or
-// { ok: false, error: '...' }. `state` shape: { operation, fmt, dpi }.
+// { ok: false, error: '...' }. `state` shape:
+//   { operation, fmt, dpi, ocrFallback, language }.
+// OCR fields are only emitted for the text operation when ocrFallback is on,
+// so a plain text export still sends just { operation: 'text' }.
 // (file is appended separately by the caller.)
 function buildExportPayload(state) {
     const check = validateExportOptions(state);
@@ -64,6 +73,9 @@ function buildExportPayload(state) {
     if (op === 'images') {
         fields.fmt = String(state.fmt).toLowerCase();
         fields.dpi = String(parseInt(state.dpi, 10));
+    } else if (op === 'text' && state.ocrFallback) {
+        fields.ocr_fallback = 'true';
+        fields.language = normalizeLanguage(state.language);
     }
     return { ok: true, fields };
 }
@@ -157,10 +169,14 @@ function initExportApp() {
 
         const fmtEl = document.getElementById('imageFormat');
         const dpiEl = document.getElementById('imageDpi');
+        const ocrEl = document.getElementById('ocrFallback');
+        const langEl = document.getElementById('ocrLanguage');
         const state = {
             operation: currentOperation(),
             fmt: fmtEl ? fmtEl.value : '',
             dpi: dpiEl ? dpiEl.value : '',
+            ocrFallback: !!(ocrEl && !ocrEl.disabled && ocrEl.checked),
+            language: langEl ? langEl.value : 'eng',
         };
 
         const payload = buildExportPayload(state);
@@ -237,6 +253,7 @@ if (typeof module !== 'undefined' && module.exports) {
         isPdf,
         validateExportOptions,
         buildExportPayload,
+        normalizeLanguage,
         escapeHtml,
     };
 }

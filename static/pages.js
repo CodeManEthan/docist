@@ -82,9 +82,29 @@ function validateOptionalInt(raw, min, max, label) {
     return { valid: true, value: n };
 }
 
+// Validate/normalise an OCR language spec. The browser can't know which
+// packs Tesseract has installed, so this checks only shape: one or more
+// codes (letters/digits) joined with '+'. Empty -> defaults to 'eng'.
+// Returns { valid: true, value: 'eng' } or { valid: false, error: '...' }.
+function validateLanguage(raw) {
+    if (raw === null || raw === undefined || String(raw).trim() === '') {
+        return { valid: true, value: 'eng' };
+    }
+    const codes = String(raw).trim().split('+').map(c => c.trim());
+    for (const code of codes) {
+        if (!/^[A-Za-z0-9_]+$/.test(code)) {
+            return {
+                valid: false,
+                error: "Language must be Tesseract codes like 'eng' or 'eng+deu'.",
+            };
+        }
+    }
+    return { valid: true, value: codes.join('+') };
+}
+
 function buildRunPayload(state) {
     const op = state.operation;
-    if (!['extract', 'remove', 'rotate', 'split', 'compress'].includes(op)) {
+    if (!['extract', 'remove', 'rotate', 'split', 'compress', 'ocr'].includes(op)) {
         return { ok: false, error: 'Choose an operation.' };
     }
     const fields = { operation: op };
@@ -112,6 +132,12 @@ function buildRunPayload(state) {
         const dpi = validateOptionalInt(state.imageMaxDpi, 72, 300, 'Max image DPI');
         if (!dpi.valid) return { ok: false, error: dpi.error };
         if (!dpi.omit) fields.image_max_dpi = String(dpi.value);
+    } else if (op === 'ocr') {
+        const lang = validateLanguage(state.language);
+        if (!lang.valid) return { ok: false, error: lang.error };
+        fields.language = lang.value;
+        if (state.deskew) fields.deskew = 'true';
+        if (state.force) fields.force = 'true';
     } else { // split
         const mode = state.splitMode;
         if (mode !== 'every_n' && mode !== 'ranges') {
@@ -166,6 +192,7 @@ function initPagesApp() {
         rotate: document.getElementById('panel-rotate'),
         split: document.getElementById('panel-split'),
         compress: document.getElementById('panel-compress'),
+        ocr: document.getElementById('panel-ocr'),
     };
 
     let selectedFile = null;
@@ -251,6 +278,12 @@ function initPagesApp() {
                 ? document.getElementById('compressQuality').value : '',
             imageMaxDpi: document.getElementById('compressDpi')
                 ? document.getElementById('compressDpi').value : '',
+            language: document.getElementById('ocrLanguage')
+                ? document.getElementById('ocrLanguage').value : '',
+            deskew: !!(document.getElementById('ocrDeskew')
+                && document.getElementById('ocrDeskew').checked),
+            force: !!(document.getElementById('ocrForce')
+                && document.getElementById('ocrForce').checked),
         };
         if (state.splitMode === 'every_n') {
             state.splitValue = document.getElementById('splitEveryN').value;
@@ -332,6 +365,7 @@ if (typeof module !== 'undefined' && module.exports) {
         isPdf,
         validateRangeSpec,
         validateOptionalInt,
+        validateLanguage,
         buildRunPayload,
         escapeHtml,
     };

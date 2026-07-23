@@ -13,3 +13,5 @@ striprtf
 pypdfium2
 html2text
 PyYAML
+ocrmypdf
+pytesseract

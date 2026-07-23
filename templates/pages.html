@@ -36,6 +36,15 @@
             <label><input type="radio" name="operation" value="rotate"> Rotate pages</label>
             <label><input type="radio" name="operation" value="split"> Split PDF</label>
             <label><input type="radio" name="operation" value="compress"> Compress PDF</label>
+            {% if ocr_available %}
+            <label><input type="radio" name="operation" value="ocr"> OCR (make searchable)</label>
+            {% else %}
+            <label class="op-disabled" title="Requires Tesseract + Ghostscript">
+                <input type="radio" name="operation" value="ocr" disabled>
+                OCR (make searchable)
+                <span class="upload-hint">Requires Tesseract + Ghostscript</span>
+            </label>
+            {% endif %}
         </div>
 
         <div class="options-panel" id="panel-extract">
@@ -86,6 +95,24 @@
                 Text and page count are preserved.
             </div>
         </div>
+
+        {% if ocr_available %}
+        <div class="options-panel" id="panel-ocr" style="display:none">
+            <label>Language
+                <input type="text" id="ocrLanguage" value="eng" placeholder="eng">
+            </label>
+            <div class="upload-hint">
+                A Tesseract language code (or several joined with '+', e.g.
+                "eng+deu"). Only installed language packs work.
+            </div>
+            <label><input type="checkbox" id="ocrDeskew"> Deskew crooked scans</label>
+            <label><input type="checkbox" id="ocrForce"> Force re-OCR (replace any existing text layer)</label>
+            <div class="upload-hint">
+                Adds an invisible searchable text layer. Pages that already
+                have text are left untouched unless "Force re-OCR" is on.
+            </div>
+        </div>
+        {% endif %}
 
         <button class="btn" id="runBtn" disabled>Run</button>
 

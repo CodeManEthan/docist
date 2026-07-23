@@ -48,10 +48,24 @@
             <p class="upload-hint">One image per page, delivered as a .zip. Higher DPI means sharper but larger images (30–600).</p>
         </div>
 
-        <div class="options-panel" id="panel-text" style="display:none">
+        <div class="options-panel" id="panel-text" style="display:none"
+             data-ocr-available="{{ 'true' if ocr_available else 'false' }}">
             <p class="upload-hint">Extracts the PDF's text layer to a .txt file, with a
-            <code>--- Page N ---</code> separator between pages. This is not OCR:
-            scanned or image-only PDFs have no text layer, so those pages come out empty.</p>
+            <code>--- Page N ---</code> separator between pages. Pages that carry a text
+            layer are extracted directly; scanned or image-only pages have none and come
+            out empty &mdash; unless you enable OCR below to read them as images.</p>
+            <label>
+                <input type="checkbox" id="ocrFallback"{% if not ocr_available %} disabled{% endif %}>
+                Use OCR for scanned pages
+            </label>
+            <label>Language
+                <input type="text" id="ocrLanguage" value="eng" size="8"{% if not ocr_available %} disabled{% endif %}>
+            </label>
+            {% if not ocr_available %}
+            <p class="upload-hint" id="ocrHint">OCR is unavailable: requires Tesseract + Ghostscript on the server.</p>
+            {% else %}
+            <p class="upload-hint">OCR only runs on pages with no text layer, so pages that already have text are never re-scanned. Language is a Tesseract code (e.g. <code>eng</code>, <code>deu</code>, <code>fra</code>).</p>
+            {% endif %}
         </div>
 
         <button class="btn" id="runBtn" disabled>Export</button>

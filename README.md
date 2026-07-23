@@ -27,6 +27,7 @@ Universal file-to-file conversion — upload a file, pick a target format. The p
 - **Documents**: Markdown ↔ HTML, HTML → Markdown/text, DOCX → HTML/Markdown/text, RTF → text, Markdown → text
 - **Data**: CSV ↔ XLSX, CSV/XLSX → JSON, JSON → CSV, JSON ↔ YAML, CSV → HTML table
 - **PDF bridge**: any supported format → PDF; PDF → PNG/JPG (zip when multi-page) or text
+- **Image → text (OCR)**: any raster image → `.txt` via Tesseract
 - **Pivot routing**: when no direct path exists, conversions chain automatically through PDF (e.g. Markdown → PNG, SVG → JPG)
 
 ### Page Tools (`/pages`)
@@ -34,6 +35,7 @@ Universal file-to-file conversion — upload a file, pick a target format. The p
 - **Rotate pages** (90°/180°/270°, all pages or a range)
 - **Split PDF** — every N pages, or by ranges (`;`-separated), delivered as a zip
 - **Compress** — lossless content-stream compression plus image downsampling/re-encoding (quality and DPI caps); output never larger than input
+- **OCR (make searchable)** — adds an invisible text layer to scanned PDFs via OCRmyPDF/Tesseract; language selection, optional deskew, force re-OCR; pages that already have text pass through untouched
 
 ### Print Prep (`/print`)
 - **N-up** — 2 or 4 pages per sheet, aspect-preserving, centered
@@ -41,7 +43,7 @@ Universal file-to-file conversion — upload a file, pick a target format. The p
 
 ### Export (`/export`)
 - **PDF → images** — PNG or JPG per page at 30–600 DPI, zipped
-- **PDF → text** — UTF-8 text with page separators (no OCR; needs a text-based PDF)
+- **PDF → text** — UTF-8 text with page separators, with optional OCR fallback for scanned pages (only pages without a text layer are OCR'd)
 
 ### Watermark & Security (`/security`)
 - **Text watermark** — center (diagonal), header, or footer; opacity, font size, rotation, color
@@ -155,6 +157,23 @@ node --test tests/frontend/*.test.js    # frontend pure-logic tests
 ```
 
 ## Requirements
+
+### System prerequisites (optional, for OCR features)
+
+OCR features (Make Searchable, image → text, OCR fallback in Export) require
+system binaries; without them the app runs normally and OCR options appear
+disabled with an explanatory hint:
+
+```bash
+# Fedora
+sudo dnf install tesseract ghostscript
+# Debian/Ubuntu
+sudo apt install tesseract-ocr ghostscript
+```
+
+Additional OCR languages are Tesseract data packages (e.g. `tesseract-langpack-deu`).
+
+### Python
 
 - Python 3.8+
 - Flask, PyPDF2, reportlab, werkzeug

@@ -20,11 +20,17 @@ from pdf_ops.pages import (
     split_pdf,
 )
 from pdf_ops.optimize import compress_pdf
+from pdf_ops import ocr as ocr_ops
 from PyPDF2 import PdfReader
 
 bp = Blueprint('pages', __name__)
 
-VALID_OPERATIONS = {'extract', 'remove', 'rotate', 'split', 'compress'}
+VALID_OPERATIONS = {'extract', 'remove', 'rotate', 'split', 'compress', 'ocr'}
+
+
+def _is_truthy(raw):
+    """Interpret a form value as a boolean (checkboxes send 'on'/'true'/'1')."""
+    return str(raw).strip().lower() in ('1', 'true', 'on', 'yes')
 
 
 def _human_size(num_bytes):
@@ -40,7 +46,7 @@ def _human_size(num_bytes):
 
 @bp.route('/pages')
 def pages_index():
-    return render_template('pages.html')
+    return render_template('pages.html', ocr_available=ocr_ops.is_available())
 
 
 def _output_name(base, suffix, ext):
@@ -152,6 +158,23 @@ def run_operation():
                         f"({percent_saved:.1f}% smaller). "
                         f"{stats['images_recompressed']} image(s) recompressed."
                     )
+
+            elif operation == 'ocr':
+                if not ocr_ops.is_available():
+                    return jsonify({'error': ocr_ops.UNAVAILABLE_HINT}), 400
+                language = (request.form.get('language') or 'eng').strip() or 'eng'
+                deskew = _is_truthy(request.form.get('deskew'))
+                force = _is_truthy(request.form.get('force'))
+                out_name = _output_name(base, 'searchable', '.pdf')
+                out_path = os.path.join(output_folder, out_name)
+                stats = ocr_ops.make_searchable(
+                    input_path, out_path,
+                    language=language, deskew=deskew, force=force,
+                )
+                message = (
+                    f"OCR complete — {stats['pages']} page(s) now searchable "
+                    f"({stats['language']})."
+                )
 
             else:  # split
                 mode = (request.form.get('split_mode') or '').strip().lower()
