@@ -1,14 +1,59 @@
-# PDF Merger Application
+# PDF Merger & Converter
 
-A simple web application to merge PDF files with automatic page numbering and blank page insertion.
+A web application that merges PDFs — and converts common document and image formats to PDF on the fly — with configurable page numbering, blank page insertion, bookmarks, page tools, watermarking, and password protection.
 
 ## Features
 
-- **Multiple PDF Upload**: Select and upload multiple PDF files at once
-- **Order Preservation**: PDFs are merged in the order you select them
-- **Automatic Page Numbering**: Adds page numbers to the bottom right corner of each page
-- **Blank Page Insertion**: Automatically adds a blank page after any PDF with an odd number of pages
-- **Front Page Alignment**: Ensures each new PDF starts on the front of a page (perfect for duplex printing)
+### Merge & Convert (`/`)
+- **Multiple File Upload**: Select and upload multiple files at once
+- **Format Conversion**: Non-PDF files are automatically converted to PDF before merging:
+  - Markdown (`.md`, `.markdown`) — headings, tables, code blocks, lists
+  - Word documents (`.docx`)
+  - HTML (`.html`, `.htm`)
+  - Plain text (`.txt`) — monospace, line-wrapped, multi-page
+  - Rich text (`.rtf`) — plain-text extraction
+  - Spreadsheets (`.csv`, `.xlsx`) — rendered as tables, one per sheet, landscape for wide sheets
+  - Images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`, `.tiff`, `.tif`, `.heic`, `.heif`) — centered on letter pages, multi-frame TIFF/GIF becomes multiple pages
+  - Vector graphics (`.svg`) — scaled to fit a letter page
+- **Reorder & Remove**: Drag rows (or use ▲/▼ buttons) to reorder files before merging; remove files with ✕
+- **Merge Options**: Toggle page numbers (position: bottom left/center/right, custom start number), toggle blank-page insertion, toggle bookmarks
+- **Bookmarks**: The merged PDF gets one outline entry per source file
+- **Front Page Alignment**: Blank pages after odd-page documents keep every file starting on a front page (perfect for duplex printing)
+- **Interleave Mode**: Combine two separately-scanned stacks (fronts + backs) by alternating pages, with reverse-order handling for flatbed/ADF back-side scans
+
+### Page Tools (`/pages`)
+- **Extract / Remove pages** by range spec (e.g. `1-3,5,8-10`)
+- **Rotate pages** (90°/180°/270°, all pages or a range)
+- **Split PDF** — every N pages, or by ranges (`;`-separated), delivered as a zip
+- **Compress** — lossless content-stream compression plus image downsampling/re-encoding (quality and DPI caps); output never larger than input
+
+### Print Prep (`/print`)
+- **N-up** — 2 or 4 pages per sheet, aspect-preserving, centered
+- **Booklet** — saddle-stitch imposition: print duplex (flip on short edge), fold in half, read in order
+
+### Export (`/export`)
+- **PDF → images** — PNG or JPG per page at 30–600 DPI, zipped
+- **PDF → text** — UTF-8 text with page separators (no OCR; needs a text-based PDF)
+
+### Watermark & Security (`/security`)
+- **Text watermark** — center (diagonal), header, or footer; opacity, font size, rotation, color
+- **Header / Footer** — six slots (left/center/right × top/bottom) with `{page}` and `{pages}` placeholders
+- **Bates numbering** — prefix + zero-padded counter (e.g. ACME000001), four corner positions
+- **Protect** — password-encrypt a PDF (RC4-128 via PyPDF2)
+- **Unlock** — remove password protection (requires the current password)
+
+## Adding a New Converter
+
+Converters are plugins auto-discovered from the `converters/` package. Drop in a module that defines:
+
+```python
+EXTENSIONS = ['.ext']
+
+def convert(input_path, output_path):
+    ...  # write a PDF to output_path, raise converters.ConversionError on failure
+```
+
+Restart the app and the new format is accepted automatically (the UI reads `/formats`).
 
 ## Setup
 
@@ -65,27 +110,53 @@ A simple web application to merge PDF files with automatic page numbering and bl
 
 ```
 PDF-Merger/
-├── app.py                      # Flask application
-├── templates/
-│   └── index.html             # Web interface
+├── app.py                      # Flask bootstrap (auto-registers blueprints)
+├── routes/                    # Flask blueprints (auto-discovered)
+│   ├── merge.py               # Merge & convert endpoints
+│   ├── pages.py               # Page tools endpoints
+│   ├── print.py               # Print prep endpoints
+│   ├── export.py              # Export endpoints
+│   └── security.py            # Watermark & security endpoints
+├── pdf_ops/                   # Pure PDF operations (no Flask)
+│   ├── merge.py               # Configurable merge pipeline + bookmarks + interleave
+│   ├── pages.py               # Split / extract / remove / rotate
+│   ├── optimize.py            # Compression
+│   ├── imposition.py          # N-up / booklet
+│   ├── export.py              # PDF → images / text
+│   ├── watermark.py           # Text watermarking
+│   ├── stamp.py               # Header/footer, Bates numbering
+│   └── security.py            # Protect / unlock
+├── converters/                # Format-to-PDF converter plugins (auto-discovered)
+├── templates/                 # Web interface (one page per tool area)
+├── static/                    # Shared theme CSS + per-page JS
+├── tests/                     # Backend (pytest) and frontend (node:test) suites
 ├── uploads/                   # Temporary upload storage
 ├── output/                    # Processed PDF output
 ├── Blank PDF Document.pdf     # Blank page template
-├── requirements.txt           # Python dependencies
-└── README.md                  # This file
+├── requirements.txt           # Runtime dependencies
+└── requirements-dev.txt       # + pytest
+```
+
+## Testing
+
+```bash
+.venv/bin/python -m pytest tests        # backend + page-serving tests
+node --test tests/frontend/*.test.js    # frontend pure-logic tests
 ```
 
 ## Requirements
 
 - Python 3.8+
-- Flask
-- PyPDF2
-- reportlab
-- werkzeug
+- Flask, PyPDF2, reportlab, werkzeug
+- Markdown, xhtml2pdf (Markdown/HTML/DOCX rendering)
+- Pillow, pillow-heif, svglib (image/vector conversion)
+- mammoth (DOCX → HTML), openpyxl (XLSX), striprtf (RTF)
+- pypdfium2 (PDF page rendering for export)
 
 ## Notes
 
 - Maximum file size: 50MB per upload
-- Only PDF files are accepted
+- Accepted formats are listed by the `/formats` endpoint and shown in the UI
 - Uploaded files are temporarily stored and cleaned on each new upload
 - The blank page ensures proper alignment for duplex printing
+- Conversion fidelity notes: DOCX styling is simplified (semantic structure is kept, Word theme fonts/colors are not); HTML rendering ignores external resources and JavaScript; plain text supports Latin-1 glyphs (others render as `?`)

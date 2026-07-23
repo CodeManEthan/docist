@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Print Prep</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="tool-nav">
+        <a href="/">Merge &amp; Convert</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print" class="active">Print Prep</a>
+        <a href="/export">Export</a>
+        <a href="/security">Watermark &amp; Security</a>
+    </nav>
+    <div class="container">
+        <h1>🖨️ PDF Print Prep</h1>
+        <p class="subtitle">Impose a PDF for printing: fit several pages on a sheet (N-up) or lay it out as a fold-and-staple booklet.</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📄</div>
+            <div class="upload-text">Click to select a PDF or drag it here</div>
+            <div class="upload-hint">Single PDF file only</div>
+            <input type="file" id="fileInput" accept=".pdf">
+        </div>
+
+        <div class="file-list">
+            <div class="file-item" id="fileName" style="display:none"></div>
+        </div>
+
+        <div class="options-panel">
+            <label><input type="radio" name="operation" value="nup" checked> N-up (pages per sheet)</label>
+            <label><input type="radio" name="operation" value="booklet"> Booklet</label>
+        </div>
+
+        <div class="options-panel" id="panel-nup">
+            <label>Pages per sheet
+                <select id="nupN">
+                    <option value="2">2-up (2 per sheet, landscape)</option>
+                    <option value="4">4-up (2×2 grid, portrait)</option>
+                </select>
+            </label>
+            <p class="upload-hint">
+                Places 2 or 4 source pages, scaled to fit and centered, onto each
+                output sheet in reading order (left→right, top→bottom). Great for
+                handouts and saving paper.
+            </p>
+        </div>
+
+        <div class="options-panel" id="panel-booklet" style="display:none">
+            <p class="upload-hint">
+                Reorders and pairs pages (2-up landscape) as a saddle-stitch
+                signature, padding to a multiple of 4 with blanks.
+                <strong>Print duplex, flip on the short edge, and fold in half</strong>
+                to get a correctly ordered booklet you can staple along the spine.
+            </p>
+        </div>
+
+        <button class="btn" id="runBtn" disabled>Run</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #666;">Imposing your PDF...</p>
+        </div>
+
+        <div class="message" id="message"></div>
+    </div>
+
+    <script src="/static/print.js"></script>
+</body>
+</html>

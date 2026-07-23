@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Export</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="tool-nav">
+        <a href="/">Merge &amp; Convert</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print">Print Prep</a>
+        <a href="/export" class="active">Export</a>
+        <a href="/security">Watermark &amp; Security</a>
+    </nav>
+    <div class="container">
+        <h1>📤 PDF Export</h1>
+        <p class="subtitle">Turn a PDF into page images or extract its text.</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📄</div>
+            <div class="upload-text">Click to select a PDF or drag it here</div>
+            <div class="upload-hint">Single PDF file only</div>
+            <input type="file" id="fileInput" accept=".pdf">
+        </div>
+
+        <div class="file-list">
+            <div class="file-item" id="fileName" style="display:none"></div>
+        </div>
+
+        <div class="options-panel">
+            <label><input type="radio" name="operation" value="images" checked> Export as images</label>
+            <label><input type="radio" name="operation" value="text"> Extract text</label>
+        </div>
+
+        <div class="options-panel" id="panel-images">
+            <label>Format
+                <select id="imageFormat">
+                    <option value="png">PNG (lossless)</option>
+                    <option value="jpg">JPEG (smaller)</option>
+                </select>
+            </label>
+            <label>Resolution (DPI)
+                <input type="number" id="imageDpi" min="30" max="600" value="150">
+            </label>
+            <p class="upload-hint">One image per page, delivered as a .zip. Higher DPI means sharper but larger images (30–600).</p>
+        </div>
+
+        <div class="options-panel" id="panel-text" style="display:none">
+            <p class="upload-hint">Extracts the PDF's text layer to a .txt file, with a
+            <code>--- Page N ---</code> separator between pages. This is not OCR:
+            scanned or image-only PDFs have no text layer, so those pages come out empty.</p>
+        </div>
+
+        <button class="btn" id="runBtn" disabled>Export</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #666;">Processing your PDF...</p>
+        </div>
+
+        <div class="message" id="message"></div>
+    </div>
+
+    <script src="/static/export.js"></script>
+</body>
+</html>
