@@ -11,3 +11,5 @@ svglib
 pillow-heif
 striprtf
 pypdfium2
+html2text
+PyYAML

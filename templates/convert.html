@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convert Files</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="tool-nav">
+        <a href="/">Merge</a>
+        <a href="/convert" class="active">Convert Files</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print">Print Prep</a>
+        <a href="/export">Export</a>
+        <a href="/security">Watermark &amp; Security</a>
+    </nav>
+    <div class="container">
+        <h1>🔄 Convert Files</h1>
+        <p class="subtitle">Turn a file into another format — images, documents, data and PDF.</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Click to select a file or drag it here</div>
+            <div class="upload-hint">Any supported file — pick the target format after selecting</div>
+            <input type="file" id="fileInput">
+        </div>
+
+        <div class="file-list">
+            <div class="file-item" id="fileName" style="display:none"></div>
+        </div>
+
+        <div class="options-panel" id="targetPanel">
+            <label>Convert to
+                <select id="targetSelect" disabled>
+                    <option value="">Select a file first…</option>
+                </select>
+            </label>
+            <p class="upload-hint" id="targetHint"></p>
+        </div>
+
+        <button class="btn" id="runBtn" disabled>Convert</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #666;">Converting your file…</p>
+        </div>
+
+        <div class="message" id="message"></div>
+
+        <div class="options-panel" id="matrixPanel">
+            <button type="button" class="btn" id="matrixToggle"
+                    style="width:auto;padding:8px 16px;">What can I convert?</button>
+            <div id="matrixBody" style="display:none;margin-top:12px;">
+                <p class="upload-hint">Every supported source and its available targets:</p>
+                <ul id="matrixList" style="list-style:none;padding:0;margin:0;"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/convert.js"></script>
+</body>
+</html>

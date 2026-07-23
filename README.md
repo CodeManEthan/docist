@@ -21,6 +21,14 @@ A web application that merges PDFs — and converts common document and image fo
 - **Front Page Alignment**: Blank pages after odd-page documents keep every file starting on a front page (perfect for duplex printing)
 - **Interleave Mode**: Combine two separately-scanned stacks (fronts + backs) by alternating pages, with reverse-order handling for flatbed/ADF back-side scans
 
+### Convert Files (`/convert`)
+Universal file-to-file conversion — upload a file, pick a target format. The page shows the full conversion matrix.
+- **Images ↔ images**: PNG, JPG, WebP, BMP, TIFF, GIF, HEIC/HEIF — every direction (alpha flattened for JPEG/BMP, adaptive palette for GIF)
+- **Documents**: Markdown ↔ HTML, HTML → Markdown/text, DOCX → HTML/Markdown/text, RTF → text, Markdown → text
+- **Data**: CSV ↔ XLSX, CSV/XLSX → JSON, JSON → CSV, JSON ↔ YAML, CSV → HTML table
+- **PDF bridge**: any supported format → PDF; PDF → PNG/JPG (zip when multi-page) or text
+- **Pivot routing**: when no direct path exists, conversions chain automatically through PDF (e.g. Markdown → PNG, SVG → JPG)
+
 ### Page Tools (`/pages`)
 - **Extract / Remove pages** by range spec (e.g. `1-3,5,8-10`)
 - **Rotate pages** (90°/180°/270°, all pages or a range)
@@ -127,6 +135,8 @@ PDF-Merger/
 │   ├── stamp.py               # Header/footer, Bates numbering
 │   └── security.py            # Protect / unlock
 ├── converters/                # Format-to-PDF converter plugins (auto-discovered)
+├── transforms/                # File-to-file transform plugins (auto-discovered,
+│                              #   with automatic pivot-through-PDF routing)
 ├── templates/                 # Web interface (one page per tool area)
 ├── static/                    # Shared theme CSS + per-page JS
 ├── tests/                     # Backend (pytest) and frontend (node:test) suites
@@ -152,6 +162,7 @@ node --test tests/frontend/*.test.js    # frontend pure-logic tests
 - Pillow, pillow-heif, svglib (image/vector conversion)
 - mammoth (DOCX → HTML), openpyxl (XLSX), striprtf (RTF)
 - pypdfium2 (PDF page rendering for export)
+- html2text (HTML → Markdown/text), PyYAML (JSON ↔ YAML)
 
 ## Notes
 
