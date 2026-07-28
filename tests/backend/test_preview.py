@@ -199,3 +199,26 @@ def test_thumbs_empty_filename(client):
 
 def test_thumbs_rejects_get(client):
     assert client.get('/preview/thumbs').status_code == 405
+
+
+def test_concurrent_rendering_is_safe(tmp_path, builders):
+    """PDFium is not thread-safe; pdf_ops serializes it via PDFIUM_LOCK.
+
+    Without the lock this test can crash the whole process (malloc
+    corruption), which is exactly the regression it guards against: the merge
+    UI fires one /preview/thumbs request per selected PDF, concurrently,
+    under the threaded dev server.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pdf_ops.preview import render_thumbnails
+
+    pdfs = [
+        str(builders.pdf(tmp_path / f"c{i}.pdf", pages=4, marker=f"Conc{i}"))
+        for i in range(4)
+    ]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(render_thumbnails, pdfs * 3))
+
+    assert len(results) == 12
+    assert all(r["pages"] == 4 and r["rendered"] == 4 for r in results)

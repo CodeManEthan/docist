@@ -106,7 +106,7 @@ def upload_files():
 
             return jsonify({
                 'success': True,
-                'message': f'Successfully merged {len(uploaded_files)} PDFs',
+                'message': f'Successfully merged {len(uploaded_files)} file(s)',
                 'download_url': '/download',
                 'filename': output_filename
             })

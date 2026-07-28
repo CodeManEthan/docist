@@ -15,6 +15,8 @@ import io
 
 import pypdfium2 as pdfium
 
+from pdf_ops.pdfium_lock import PDFIUM_LOCK
+
 # How many pages we are willing to rasterize for one preview request.
 MAX_THUMBS = 24
 
@@ -78,14 +80,15 @@ def render_thumbnails(input_path, max_pages=MAX_THUMBS, width=TARGET_WIDTH):
     width = max(16, min(600, width))
 
     thumbs = []
-    doc = pdfium.PdfDocument(input_path)
-    try:
-        total = len(doc)
-        for i in range(min(total, max_pages)):
-            page = doc[i]
-            image = page.render(scale=_scale_for(page.get_width(), width)).to_pil()
-            thumbs.append(_to_data_url(image.convert("RGB")))
-    finally:
-        doc.close()
+    with PDFIUM_LOCK:
+        doc = pdfium.PdfDocument(input_path)
+        try:
+            total = len(doc)
+            for i in range(min(total, max_pages)):
+                page = doc[i]
+                image = page.render(scale=_scale_for(page.get_width(), width)).to_pil()
+                thumbs.append(_to_data_url(image.convert("RGB")))
+        finally:
+            doc.close()
 
     return {"pages": total, "rendered": len(thumbs), "thumbs": thumbs}

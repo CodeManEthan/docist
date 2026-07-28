@@ -21,6 +21,8 @@ import os
 import pypdfium2 as pdfium
 from pypdf import PdfReader
 
+from pdf_ops.pdfium_lock import PDFIUM_LOCK
+
 from pdf_ops.ocr import is_available as _ocr_is_available
 
 # Accepted raster formats and the sane DPI window we render within.
@@ -61,22 +63,23 @@ def pdf_to_images(input_path, output_dir, fmt="png", dpi=150):
     pil_format = "PNG" if fmt == "png" else "JPEG"
     ext = "." + fmt
 
-    doc = pdfium.PdfDocument(input_path)
     created = []
-    try:
-        page_count = len(doc)
-        for i in range(page_count):
-            page = doc[i]
-            bitmap = page.render(scale=scale)
-            image = bitmap.to_pil()
-            out_path = os.path.join(output_dir, f"page_{i + 1:03d}{ext}")
-            if pil_format == "JPEG":
-                image.convert("RGB").save(out_path, "JPEG", quality=90)
-            else:
-                image.save(out_path, "PNG")
-            created.append(out_path)
-    finally:
-        doc.close()
+    with PDFIUM_LOCK:
+        doc = pdfium.PdfDocument(input_path)
+        try:
+            page_count = len(doc)
+            for i in range(page_count):
+                page = doc[i]
+                bitmap = page.render(scale=scale)
+                image = bitmap.to_pil()
+                out_path = os.path.join(output_dir, f"page_{i + 1:03d}{ext}")
+                if pil_format == "JPEG":
+                    image.convert("RGB").save(out_path, "JPEG", quality=90)
+                else:
+                    image.save(out_path, "PNG")
+                created.append(out_path)
+        finally:
+            doc.close()
 
     return created
 
@@ -168,19 +171,25 @@ def _ocr_render_pages(input_path, page_indices, language):
     import pytesseract
 
     scale = OCR_DPI / 72.0
+    # Render everything under the pypdfium2 lock, but run Tesseract (slow,
+    # thread-safe) outside it so OCR doesn't starve thumbnail requests.
+    images = []
+    with PDFIUM_LOCK:
+        doc = pdfium.PdfDocument(input_path)
+        try:
+            for i in page_indices:
+                page = doc[i]
+                bitmap = page.render(scale=scale)
+                images.append((i, bitmap.to_pil().convert("RGB")))
+        finally:
+            doc.close()
+
     results = {}
-    doc = pdfium.PdfDocument(input_path)
-    try:
-        for i in page_indices:
-            page = doc[i]
-            bitmap = page.render(scale=scale)
-            image = bitmap.to_pil().convert("RGB")
-            try:
-                results[i] = pytesseract.image_to_string(image, lang=language)
-            except pytesseract.TesseractError as exc:
-                raise ValueError(_map_tesseract_error(exc, language))
-    finally:
-        doc.close()
+    for i, image in images:
+        try:
+            results[i] = pytesseract.image_to_string(image, lang=language)
+        except pytesseract.TesseractError as exc:
+            raise ValueError(_map_tesseract_error(exc, language))
     return results
 
 

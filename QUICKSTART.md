@@ -45,8 +45,11 @@ See `DEPLOYMENT.md` for the full production setup (reverse proxy, systemd, envir
 
 1. Visit http://localhost:5010
 2. Click the upload area
-3. Select 2-3 PDF files (in the order you want them merged)
-4. Click "Merge PDFs"
-5. Download your merged, numbered PDF
+3. Select 2-3 files — PDFs, or a mix of PDFs, Markdown, Word, images and more
+4. Each PDF shows a first-page thumbnail; reorder rows with ▲/▼ or by dragging
+5. Click "Merge Files"
+6. Download your merged, numbered PDF
 
-Beyond merging, the nav bar reaches every tool: Convert Files, Page Tools, Print Prep, Export, and Watermark & Security.
+Beyond merging, the nav bar reaches every tool: Convert Files, Page Tools, Print Prep, Export, and Watermark & Security. The same operations are available over HTTP — see the API reference at http://localhost:5010/api.
+
+The port is configurable: `DOCIST_PORT=8080 ./run.sh`. Full variable list in `DEPLOYMENT.md`.

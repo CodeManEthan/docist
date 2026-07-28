@@ -152,8 +152,13 @@ input[type="file"] {
 
 .file-list {
     margin-top: 20px;
-    max-height: 240px;
+    max-height: 420px;
     overflow-y: auto;
+}
+
+/* An empty list must not leave a phantom gap under the upload area. */
+.file-list:empty {
+    display: none;
 }
 
 .file-item {
