@@ -1,21 +1,26 @@
 """PDF password security: protect (encrypt) and unlock (decrypt) documents.
 
 ``protect_pdf`` clones the input into a fresh writer and encrypts it with a
-user password using PyPDF2's default algorithm (RC4-128). ``unlock_pdf``
+user password using **AES-256** (PDF 2.0 ``/V 5 /R 6``). ``unlock_pdf``
 reverses that, writing a decrypted copy.
 
-Note on algorithms: PyPDF2 3.x can *always* handle RC4 (what ``protect_pdf``
-produces here) with no extra packages. Decrypting AES-encrypted inputs created
-elsewhere additionally needs an AES backend (PyPDF2 looks for PyCryptodome);
-that optional package is not installed, so AES-encrypted inputs may fail to
-decrypt. Round-tripping documents produced by ``protect_pdf`` always works.
+Note on algorithms: AES-256 needs a crypto backend, which pypdf takes from the
+``cryptography`` package (a hard dependency of this project — see
+``requirements.txt``). With that backend present pypdf also decrypts every
+legacy scheme, so ``unlock_pdf`` opens both the AES-256 files ``protect_pdf``
+produces *and* older RC4-40/RC4-128/AES-128 documents created elsewhere.
 """
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
+
+# Encryption used by :func:`protect_pdf`. AES-256 (``/V 5 /R 6``) is the
+# strongest scheme in the PDF 2.0 spec; the older RC4-128 default is broken.
+ENCRYPTION_ALGORITHM = 'AES-256'
 
 
 def protect_pdf(input_path, output_path, password):
     """Encrypt the PDF at ``input_path`` with ``password``.
 
+    Encryption is AES-256 (see :data:`ENCRYPTION_ALGORITHM`).
     Empty/whitespace-only passwords raise ``ValueError``.
     """
     if password is None or str(password) == '':
@@ -26,7 +31,7 @@ def protect_pdf(input_path, output_path, password):
     for page in reader.pages:
         writer.add_page(page)
 
-    writer.encrypt(password)
+    writer.encrypt(password, algorithm=ENCRYPTION_ALGORITHM)
 
     with open(output_path, 'wb') as fh:
         writer.write(fh)
@@ -36,6 +41,10 @@ def protect_pdf(input_path, output_path, password):
 
 def unlock_pdf(input_path, output_path, password):
     """Write a decrypted copy of an encrypted PDF.
+
+    Handles every scheme pypdf supports with the ``cryptography`` backend --
+    the AES-256 files :func:`protect_pdf` produces as well as legacy
+    RC4-40/RC4-128/AES-128 documents created elsewhere.
 
     * Not-encrypted input           -> ValueError('PDF is not password-protected')
     * Wrong password / undecryptable -> ValueError('Incorrect password')
@@ -51,7 +60,7 @@ def unlock_pdf(input_path, output_path, password):
     try:
         result = reader.decrypt(password)
     except Exception:
-        # PyPDF2 raises for e.g. AES inputs without an AES backend.
+        # pypdf raises for e.g. an unsupported/corrupt encryption dictionary.
         raise ValueError('Incorrect password')
 
     # decrypt() returns a falsy PasswordType (NOT_DECRYPTED == 0) on failure.

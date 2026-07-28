@@ -7,7 +7,7 @@ import os
 import zipfile
 
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pdf_ops.pages import (
     parse_page_ranges,

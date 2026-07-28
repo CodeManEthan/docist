@@ -43,7 +43,7 @@ def installed_languages():
 def _page_count(path):
     """Number of pages in a PDF, or 0 if it can't be read."""
     try:
-        from PyPDF2 import PdfReader
+        from pypdf import PdfReader
         return len(PdfReader(path).pages)
     except Exception:
         return 0

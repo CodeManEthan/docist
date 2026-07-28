@@ -1,6 +1,6 @@
 """Print-prep imposition: N-up (2/4 pages per sheet) and saddle-stitch booklets.
 
-Pure PDF-processing functions with no Flask dependency, built on PyPDF2. Every
+Pure PDF-processing functions with no Flask dependency, built on pypdf. Every
 source page is scaled *preserving its aspect ratio* and centered inside its
 target slot; empty slots are left blank (nothing is merged onto them).
 
@@ -18,7 +18,7 @@ booklet-> letter *landscape* 2-up sheets ordered as a saddle-stitch signature
           so that printing duplex (flip on short edge) and folding in half
           yields correct reading order.
 """
-from PyPDF2 import PdfReader, PdfWriter, Transformation, PageObject
+from pypdf import PdfReader, PdfWriter, Transformation
 
 # Page geometry (PDF points).
 LETTER_PORTRAIT = (612.0, 792.0)
@@ -75,9 +75,12 @@ def booklet_page_order(page_count):
 def _place(sheet_page, src_page, x, y, w, h):
     """Scale ``src_page`` to fit the ``(x, y, w, h)`` slot and merge it centered.
 
-    Aspect ratio is preserved. ``sheet_page`` is mutated in place. The source
-    page's mediabox origin is normalized to (0, 0) first, so pages whose box is
-    offset still land correctly.
+    Aspect ratio is preserved. ``sheet_page`` is mutated in place (it must
+    already belong to a ``PdfWriter``); ``src_page`` is left untouched -- the
+    placement matrix is handed to :meth:`PageObject.merge_transformed_page`
+    rather than baked into the source page. The source page's mediabox origin
+    is normalized to (0, 0) first, so pages whose box is offset still land
+    correctly.
     """
     box = src_page.mediabox
     llx, lly = float(box.left), float(box.bottom)
@@ -96,8 +99,7 @@ def _place(sheet_page, src_page, x, y, w, h):
         .scale(scale)
         .translate(tx, ty)
     )
-    src_page.add_transformation(transform)
-    sheet_page.merge_page(src_page)
+    sheet_page.merge_transformed_page(src_page, transform)
 
 
 def nup_pdf(input_path, output_path, n=2, page_size="letter-landscape"):
@@ -143,7 +145,9 @@ def nup_pdf(input_path, output_path, n=2, page_size="letter-landscape"):
 
     writer = PdfWriter()
     for start in range(0, page_count, n):
-        sheet = PageObject.create_blank_page(width=sheet_w, height=sheet_h)
+        # Add the blank sheet to the writer up front: pypdf only supports
+        # merging onto pages that already belong to a writer.
+        sheet = writer.add_blank_page(width=sheet_w, height=sheet_h)
         for slot_i in range(n):
             src_i = start + slot_i
             if src_i >= page_count:
@@ -151,7 +155,6 @@ def nup_pdf(input_path, output_path, n=2, page_size="letter-landscape"):
             src_page = reader.pages[src_i]
             x, y, w, h = slots[slot_i]
             _place(sheet, src_page, x, y, w, h)
-        writer.add_page(sheet)
 
     with open(output_path, "wb") as fh:
         writer.write(fh)
@@ -178,12 +181,11 @@ def booklet_pdf(input_path, output_path):
 
     writer = PdfWriter()
     for left_idx, right_idx in booklet_page_order(page_count):
-        sheet = PageObject.create_blank_page(width=sheet_w, height=sheet_h)
+        sheet = writer.add_blank_page(width=sheet_w, height=sheet_h)
         if left_idx is not None:
             _place(sheet, reader.pages[left_idx], *left_slot)
         if right_idx is not None:
             _place(sheet, reader.pages[right_idx], *right_slot)
-        writer.add_page(sheet)
 
     with open(output_path, "wb") as fh:
         writer.write(fh)

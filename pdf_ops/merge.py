@@ -6,11 +6,12 @@ Merges a list of source PDFs into one document, optionally:
   * adding one top-level outline (bookmark) entry per source file.
 
 The whole document is assembled in a *single* ``PdfWriter`` so that an outline
-survives page-number stamping.  The previous implementation merged with
-``PdfMerger`` and then rewrote every page through a fresh ``PdfWriter`` to add
-numbers -- any outline created before that rewrite was discarded.  Here numbers
-are stamped in place on the writer's own pages and the outline is added last,
-pointing at page indices tracked while the pages were appended.
+survives page-number stamping.  The previous implementation merged with a
+separate merger object and then rewrote every page through a fresh
+``PdfWriter`` to add numbers -- any outline created before that rewrite was
+discarded.  Here numbers are stamped in place on the writer's own pages and the
+outline is added last, pointing at page indices tracked while the pages were
+appended.
 
 Two merge modes are supported:
   * ``standard`` (default) -- concatenate sources in order (the behavior above).
@@ -18,14 +19,14 @@ Two merge modes are supported:
     ``B``, typically separately-scanned front/back page stacks) into
     ``A1, B1, A2, B2, ...``.  Back-side stacks off a flatbed/ADF usually come
     out in reverse order, so ``reverse_second`` (default true) flips ``B``
-    before pairing.  Both interleave sources are still routed through
-    ``PdfMerger`` first (the same font-normalization phase 1); the pages are
-    only reordered afterwards on the ``PdfWriter`` in phase 2, preserving the
-    corruption-avoiding two-phase structure.
+    before pairing.  Both interleave sources are still routed through a
+    concatenating ``PdfWriter`` first (the same font-normalization phase 1);
+    the pages are only reordered afterwards on the final ``PdfWriter`` in
+    phase 2, preserving the corruption-avoiding two-phase structure.
 """
 import io
 
-from PyPDF2 import PdfReader, PdfWriter, PdfMerger
+from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 
@@ -169,13 +170,13 @@ def merge_pipeline(sources, options=None):
     if opts['mode'] == 'interleave':
         return _interleave_pipeline(sources, opts)
 
-    # --- Phase 1: merge sources (+ blank padding) with PdfMerger. ------------
-    # Routing every source through PdfMerger normalizes page/font resources;
-    # stamping the number overlay directly onto raw converter output instead
-    # can occasionally corrupt merged font dicts (missing /Subtype), so we keep
-    # this normalization pass.  We track each source's first-page index here so
-    # bookmarks can target it after the final writer is built.
-    merger = PdfMerger()
+    # --- Phase 1: concatenate sources (+ blank padding) into a writer. -------
+    # Routing every source through PdfWriter.append normalizes page/font
+    # resources; stamping the number overlay directly onto raw converter output
+    # instead can occasionally corrupt merged font dicts (missing /Subtype), so
+    # we keep this normalization pass.  We track each source's first-page index
+    # here so bookmarks can target it after the final writer is built.
+    merger = PdfWriter()
     bookmark_targets = []  # (title, page_index_of_source_start)
     running = 0
 
@@ -206,12 +207,14 @@ def merge_pipeline(sources, options=None):
     start = opts['start_number']
 
     for offset, page in enumerate(reader.pages):
+        # Attach the page to the writer *first*; pypdf only supports merging
+        # onto pages that already belong to a writer.
+        new_page = writer.add_page(page)
         if opts['page_numbers']:
-            page_width = float(page.mediabox.width)
+            page_width = float(new_page.mediabox.width)
             overlay = _number_overlay(start + offset, page_width,
                                       opts['number_position'])
-            page.merge_page(overlay)
-        writer.add_page(page)
+            new_page.merge_page(overlay)
 
     # Outline is added to the FINAL writer, so it survives page-number stamping.
     if opts['bookmarks']:
@@ -245,9 +248,10 @@ def _interleave_pipeline(sources, opts):
         first output page always immediately follows ``A``'s first page,
         regardless of whether ``B`` was reversed).
 
-    The two sources are still concatenated through ``PdfMerger`` first (phase 1
-    font/resource normalization) and only reordered on the ``PdfWriter`` in
-    phase 2, keeping the two-phase structure that avoids the font-corruption bug.
+    The two sources are still concatenated through a first ``PdfWriter`` (phase
+    1 font/resource normalization) and only reordered on the final
+    ``PdfWriter`` in phase 2, keeping the two-phase structure that avoids the
+    font-corruption bug.
     """
     sources = list(sources)
     if len(sources) != 2:
@@ -269,8 +273,8 @@ def _interleave_pipeline(sources, opts):
             f"pages (or differ by at most one). Got {len_a} and {len_b}."
         )
 
-    # --- Phase 1: normalize BOTH sources through PdfMerger (A then B). --------
-    merger = PdfMerger()
+    # --- Phase 1: normalize BOTH sources through a writer (A then B). --------
+    merger = PdfWriter()
     merger.append(a_path)
     merger.append(b_path)
     merged_buffer = io.BytesIO()
@@ -296,12 +300,12 @@ def _interleave_pipeline(sources, opts):
     writer = PdfWriter()
     start = opts['start_number']
     for offset, page in enumerate(ordered):
+        new_page = writer.add_page(page)
         if opts['page_numbers']:
-            page_width = float(page.mediabox.width)
+            page_width = float(new_page.mediabox.width)
             overlay = _number_overlay(start + offset, page_width,
                                       opts['number_position'])
-            page.merge_page(overlay)
-        writer.add_page(page)
+            new_page.merge_page(overlay)
 
     if opts['bookmarks']:
         writer.add_outline_item(a_title, 0)
@@ -327,11 +331,10 @@ def add_page_numbers(pdf_path, output_path):
     writer = PdfWriter()
 
     for page_num in range(len(reader.pages)):
-        page = reader.pages[page_num]
-        page_width = float(page.mediabox.width)
+        new_page = writer.add_page(reader.pages[page_num])
+        page_width = float(new_page.mediabox.width)
         overlay = _number_overlay(page_num + 1, page_width, 'bottom-right')
-        page.merge_page(overlay)
-        writer.add_page(page)
+        new_page.merge_page(overlay)
 
     with open(output_path, 'wb') as output_file:
         writer.write(output_file)
@@ -339,7 +342,7 @@ def add_page_numbers(pdf_path, output_path):
 
 def merge_pdfs_with_blanks(pdf_files):
     """Merge PDFs, adding a blank page after any odd-page source (legacy)."""
-    merger = PdfMerger()
+    merger = PdfWriter()
 
     for pdf_file in pdf_files:
         reader = PdfReader(pdf_file)

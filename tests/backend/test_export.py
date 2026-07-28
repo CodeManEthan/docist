@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 from PIL import Image
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pdf_ops.export import pdf_to_images, pdf_to_text
 

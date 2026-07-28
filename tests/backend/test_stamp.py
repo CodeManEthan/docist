@@ -9,7 +9,7 @@ Reuses conftest.py's ``client`` fixture and ``build_pdf`` helper.
 import io
 
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pdf_ops.stamp import (
     apply_header_footer,

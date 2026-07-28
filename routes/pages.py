@@ -22,7 +22,7 @@ from pdf_ops.pages import (
 from pdf_ops.optimize import compress_pdf
 from pdf_ops import ocr as ocr_ops
 from utils.naming import collision_safe
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 bp = Blueprint('pages', __name__)
 

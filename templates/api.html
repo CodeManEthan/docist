@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docist &mdash; API</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* Page-local tweaks only; the shared look comes from style.css. */
+        .container { max-width: 880px; }
+        .api-endpoint { margin-top: 20px; padding: 16px; background: #f8f9ff;
+                        border-radius: 10px; }
+        .api-endpoint h2 { font-size: 1.05em; color: #333; margin-bottom: 4px;
+                           font-family: 'SFMono-Regular', Consolas, monospace; }
+        .api-endpoint h2 .verb { display: inline-block; min-width: 52px;
+                                 margin-right: 8px; padding: 2px 8px;
+                                 border-radius: 6px; font-size: 0.8em;
+                                 color: #fff; text-align: center;
+                                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .api-endpoint p { color: #666; font-size: 0.9em; margin: 6px 0; }
+        .api-endpoint table { width: 100%; border-collapse: collapse;
+                              margin: 10px 0; font-size: 0.86em; }
+        .api-endpoint th, .api-endpoint td { text-align: left; padding: 6px 8px;
+                                             border-bottom: 1px solid #e4e7f7;
+                                             vertical-align: top; color: #444; }
+        .api-endpoint th { color: #667eea; font-size: 0.92em; }
+        .api-endpoint td code, p code, li code { background: #eceffc;
+                                                 border-radius: 4px;
+                                                 padding: 1px 5px;
+                                                 font-size: 0.95em; }
+        pre.api-curl { background: #2c2f45; color: #e7e9f5; border-radius: 8px;
+                       padding: 12px 14px; overflow-x: auto; font-size: 0.82em;
+                       line-height: 1.5; margin-top: 8px; }
+        .api-note { margin-top: 30px; padding-top: 20px;
+                    border-top: 1px solid #e0e0e0; }
+        .api-note h2 { color: #333; font-size: 1.15em; margin-bottom: 8px; }
+        .api-note ul { margin: 8px 0 0 18px; color: #666; font-size: 0.9em; }
+        .api-note li { margin: 6px 0; }
+    </style>
+</head>
+<body>
+    <nav class="tool-nav">
+        <span class="nav-brand">Docist</span>
+        <a href="/">Merge</a>
+        <a href="/convert">Convert Files</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print">Print Prep</a>
+        <a href="/export">Export</a>
+        <a href="/security">Watermark &amp; Security</a>
+        <a href="/api" class="active">API</a>
+        {% if auth_enabled and authed %}<a href="/logout" class="nav-signout">Sign out</a>{% endif %}
+    </nav>
+    <div class="container">
+        <h1>🔌 REST API</h1>
+        <p class="subtitle">
+            Every tool, scriptable. Send a multipart form to
+            <code>/api/v1/…</code> and the finished <strong>file comes straight
+            back in the response body</strong> — no polling, no download step,
+            nothing left on the server. Errors are always JSON
+            <code>{"error": "…"}</code> with status <code>400</code> (something
+            to fix in your request) or <code>500</code> (something went wrong
+            here).
+        </p>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/merge</h2>
+            <p>Merge several files into one PDF. Non-PDF uploads (images,
+               Markdown, DOCX, …) are converted first — see
+               <code>merge_extensions</code> from <code>/api/v1/formats</code>.
+               Returns <code>application/pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>files[]</code></td><td>yes</td>
+                    <td>The uploads, repeated once per file; merged in the order sent.</td></tr>
+                <tr><td><code>page_numbers</code></td><td>no</td>
+                    <td><code>true</code>/<code>false</code> — stamp sequential page numbers (default <code>true</code>).</td></tr>
+                <tr><td><code>number_position</code></td><td>no</td>
+                    <td><code>bottom-right</code> (default), <code>bottom-center</code> or <code>bottom-left</code>.</td></tr>
+                <tr><td><code>start_number</code></td><td>no</td>
+                    <td>Whole number ≥ 1 the numbering starts at (default <code>1</code>).</td></tr>
+                <tr><td><code>blank_pages</code></td><td>no</td>
+                    <td><code>true</code>/<code>false</code> — pad odd-page sources with a blank page for duplex printing (default <code>true</code>).</td></tr>
+                <tr><td><code>bookmarks</code></td><td>no</td>
+                    <td><code>true</code>/<code>false</code> — one outline entry per source file (default <code>true</code>).</td></tr>
+                <tr><td><code>mode</code></td><td>no</td>
+                    <td><code>standard</code> (default) concatenates; <code>interleave</code> zips exactly two files (fronts + backs) into A1, B1, A2, B2…</td></tr>
+                <tr><td><code>reverse_second</code></td><td>no</td>
+                    <td>Interleave only: flip the second file first, for reversed back-side scans (default <code>true</code>).</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/merge \
+  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -F "files[]=@chapter1.pdf" \
+  -F "files[]=@chapter2.pdf" \
+  -F "page_numbers=true" \
+  -F "number_position=bottom-center" \
+  -F "bookmarks=true" \
+  -o merged.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/convert</h2>
+            <p>Convert one file to another format. Ask
+               <code>/api/v1/formats</code> which targets a source supports.</p>
+            <p><strong>Note:</strong> a conversion may legitimately return a
+               different extension than requested — a multi-page
+               <code>.pdf → .png</code> comes back as a <code>.zip</code> of
+               images, because one PDF can't become one PNG. Trust the filename
+               in the <code>Content-Disposition</code> header rather than the
+               target you asked for.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>The file to convert.</td></tr>
+                <tr><td><code>target</code></td><td>yes</td>
+                    <td>Target extension, e.g. <code>.png</code> (a bare <code>png</code> works too).</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/convert \
+  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -F "file=@diagram.png" \
+  -F "target=.jpg" \
+  -OJ    # -OJ keeps the server's filename (it may be a .zip)</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/pages/extract</h2>
+            <p>Keep only the pages you name, in a new PDF. Page numbers are
+               1-based and inclusive.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>ranges</code></td><td>yes</td>
+                    <td>Comma-separated pages and ranges, e.g. <code>1-3,5,8-10</code>. Out-of-range or malformed specs return a 400.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/pages/extract \
+  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -F "file=@report.pdf" \
+  -F "ranges=1-3,5" \
+  -o extract.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/pages/split</h2>
+            <p>Split a PDF into several files, returned as one
+               <code>application/zip</code> bundle.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>mode</code></td><td>yes</td>
+                    <td><code>every_n</code> or <code>ranges</code>.</td></tr>
+                <tr><td><code>value</code></td><td>yes</td>
+                    <td>With <code>every_n</code>: pages per part, e.g. <code>2</code>.
+                        With <code>ranges</code>: <code>;</code>-separated specs, e.g. <code>1-2;3-5</code> — one file per spec.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/pages/split \
+  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -F "file=@report.pdf" \
+  -F "mode=every_n" \
+  -F "value=2" \
+  -o split.zip</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/watermark</h2>
+            <p>Stamp text across every page. Returns
+               <code>application/pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>text</code></td><td>yes</td><td>The watermark text.</td></tr>
+                <tr><td><code>position</code></td><td>no</td>
+                    <td><code>center</code> (default, diagonal), <code>header</code> or <code>footer</code>.</td></tr>
+                <tr><td><code>opacity</code></td><td>no</td>
+                    <td>Fill alpha between <code>0</code> and <code>1</code> (default <code>0.15</code>).</td></tr>
+                <tr><td><code>font_size</code></td><td>no</td><td>Points (default <code>48</code>).</td></tr>
+                <tr><td><code>rotation</code></td><td>no</td>
+                    <td>Degrees, <code>center</code> position only (default <code>45</code>).</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/watermark \
+  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -F "file=@contract.pdf" \
+  -F "text=CONFIDENTIAL" \
+  -F "position=center" \
+  -F "opacity=0.2" \
+  -o watermarked.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">GET</span>/api/v1/formats</h2>
+            <p>Discovery, as JSON — no upload needed:</p>
+            <table>
+                <tr><th>Key</th><th>Contents</th></tr>
+                <tr><td><code>merge_extensions</code></td>
+                    <td>Everything <code>/api/v1/merge</code> accepts (<code>.pdf</code> plus every convertible format).</td></tr>
+                <tr><td><code>convert_sources</code></td>
+                    <td>Source extensions <code>/api/v1/convert</code> understands.</td></tr>
+                <tr><td><code>convert_matrix</code></td>
+                    <td><code>{source: [target, …]}</code> — the full conversion map.</td></tr>
+            </table>
+<pre class="api-curl">curl http://localhost:5010/api/v1/formats \
+  -H "Authorization: Bearer $DOCIST_PASSWORD"</pre>
+        </div>
+
+        <div class="api-note">
+            <h2>Authentication</h2>
+            <p>If this instance runs with <code>DOCIST_PASSWORD</code> set, send
+               that same password as a bearer token on every API call:</p>
+<pre class="api-curl">-H "Authorization: Bearer $DOCIST_PASSWORD"</pre>
+            <p>The token is compared in constant time and creates no session —
+               each request stands alone. A browser session cookie works too, so
+               fetch() calls from these pages need no header. <strong>When the
+               instance has no password configured the API is open and the
+               header can be omitted entirely.</strong> Missing or wrong
+               credentials give <code>401</code> with a JSON error body.</p>
+        </div>
+
+        <div class="api-note">
+            <h2>Limits &amp; behaviour</h2>
+            <ul>
+                <li><strong>Rate limit:</strong> POSTs are capped per client IP —
+                    <code>DOCIST_RATE_LIMIT</code> requests (default <strong>30</strong>)
+                    per <code>DOCIST_RATE_WINDOW</code> seconds (default
+                    <strong>60</strong>). Over the cap you get
+                    <code>429</code> with a JSON error and a
+                    <code>Retry-After</code> header telling you how many seconds
+                    to wait. GETs are never limited.</li>
+                <li><strong>Upload size:</strong> a request larger than
+                    <code>DOCIST_MAX_UPLOAD_MB</code> (default <strong>50 MB</strong>,
+                    total request body) is rejected with <code>413</code>.</li>
+                <li><strong>Nothing is stored:</strong> API uploads and results
+                    live in a temporary directory for the length of the request
+                    only — unlike the web UI, no file is left in the server's
+                    output folder.</li>
+                <li><strong>Content checks:</strong> uploads are sniffed against
+                    their extension, so a renamed file (a ZIP called
+                    <code>.pdf</code>) is refused with a <code>400</code>.</li>
+                <li><strong>Health:</strong> <code>GET /healthz</code> needs no
+                    auth and returns <code>{"status": "ok"}</code>.</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

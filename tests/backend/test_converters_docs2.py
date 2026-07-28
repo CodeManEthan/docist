@@ -1,7 +1,7 @@
 """Tests for the spreadsheet (.csv/.xlsx) and RTF (.rtf) converter plugins.
 
 All fixtures are built programmatically in ``tmp_path`` -- no binaries are
-committed. Valid outputs are checked with PyPDF2 (page count + extracted text
+committed. Valid outputs are checked with pypdf (page count + extracted text
 markers); error cases assert ``ConversionError``; the registry is checked for
 the new extensions; and one route-level check uploads a CSV through /upload.
 """
@@ -9,7 +9,7 @@ import io
 
 import openpyxl
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 import converters
 from converters import (

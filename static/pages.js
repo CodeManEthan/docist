@@ -176,6 +176,76 @@ function escapeHtml(str) {
     }[c]));
 }
 
+// ---- Page thumbnails (POST /preview/thumbs) ----
+
+// The preview endpoint, and the server-side cap on rendered pages.
+const THUMB_ENDPOINT = '/preview/thumbs';
+
+// Append a clicked page number to a comma-separated ranges spec.
+//
+//   ''      + 3 -> '3'
+//   '1-2'   + 3 -> '1-2,3'
+//   '1,'    + 3 -> '1,3'      (a dangling comma is absorbed)
+//
+// A page already present as an exact token is not added twice; pages merely
+// *covered* by an existing range ('1-5' + 3) are still appended, because the
+// backend dedupes overlapping ranges anyway and second-guessing the user's
+// intent here would be worse than a harmless duplicate.
+// A non-positive / non-integer page leaves the spec untouched.
+function appendPageToRanges(current, page) {
+    const n = parseInt(page, 10);
+    const spec = (current === null || current === undefined) ? '' : String(current);
+    if (!Number.isInteger(n) || n < 1) return spec;
+
+    // Trim whitespace and any trailing commas, then split into clean tokens.
+    const tokens = spec.split(',').map(t => t.trim()).filter(Boolean);
+    if (tokens.includes(String(n))) return tokens.join(',');
+    tokens.push(String(n));
+    return tokens.join(',');
+}
+
+// Which ranges input does a clicked thumbnail feed, for the current
+// operation? Operations without a page-ranges box return null (the click is
+// then a no-op rather than writing into a hidden field).
+const RANGES_FIELDS = {
+    extract: 'extractRanges',
+    remove: 'removeRanges',
+    rotate: 'rotateRanges',
+};
+
+function rangesFieldFor(operation) {
+    return RANGES_FIELDS[operation] || null;
+}
+
+// The "+N more pages" note shown when the preview was capped. Returns '' when
+// every page was rendered (or the numbers make no sense).
+function morePagesNote(pages, rendered) {
+    const total = parseInt(pages, 10);
+    const shown = parseInt(rendered, 10);
+    if (!Number.isInteger(total) || !Number.isInteger(shown)) return '';
+    const remaining = total - shown;
+    if (remaining < 1) return '';
+    return '+' + remaining + ' more page' + (remaining === 1 ? '' : 's');
+}
+
+// Normalise a /preview/thumbs payload into { pages, rendered, thumbs }.
+// Anything unusable comes back as an empty preview so callers have one shape
+// to render and no reason to inspect the raw response.
+function normalizeThumbs(payload) {
+    if (!payload || !Array.isArray(payload.thumbs)) {
+        return { pages: 0, rendered: 0, thumbs: [] };
+    }
+    const thumbs = payload.thumbs.filter(
+        t => typeof t === 'string' && t.startsWith('data:image/')
+    );
+    const pages = parseInt(payload.pages, 10);
+    return {
+        pages: Number.isInteger(pages) && pages > 0 ? pages : thumbs.length,
+        rendered: thumbs.length,
+        thumbs: thumbs,
+    };
+}
+
 // ============================== DOM wiring =================================
 
 function initPagesApp() {
@@ -246,6 +316,85 @@ function initPagesApp() {
         fileName.style.display = 'block';
         message.style.display = 'none';
         updateRunBtn();
+        loadThumbs(file);
+    }
+
+    // ---- Page thumbnail grid ----
+    const thumbGrid = document.getElementById('thumbGrid');
+    const thumbNote = document.getElementById('thumbNote');
+    const thumbHint = document.getElementById('thumbHint');
+
+    function hideThumbs() {
+        if (thumbGrid) {
+            thumbGrid.innerHTML = '';
+            thumbGrid.style.display = 'none';
+        }
+        if (thumbNote) thumbNote.style.display = 'none';
+        if (thumbHint) thumbHint.style.display = 'none';
+    }
+
+    function showThumbSpinner() {
+        if (!thumbGrid) return;
+        thumbGrid.innerHTML =
+            '<span class="page-thumb thumb-loading" aria-hidden="true"></span>'.repeat(4);
+        thumbGrid.style.display = '';
+        if (thumbNote) thumbNote.style.display = 'none';
+        if (thumbHint) thumbHint.style.display = 'none';
+    }
+
+    async function loadThumbs(file) {
+        if (!thumbGrid) return;
+        showThumbSpinner();
+        let preview = { pages: 0, rendered: 0, thumbs: [] };
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch(THUMB_ENDPOINT, {
+                method: 'POST',
+                body: formData,
+            });
+            if (response.ok) preview = normalizeThumbs(await response.json());
+        } catch (err) {
+            // Previews are a nicety: a failure just hides the grid. No noise.
+        }
+        // A different file may have been picked while this was in flight.
+        if (selectedFile !== file) return;
+        renderThumbs(preview);
+    }
+
+    function renderThumbs(preview) {
+        if (!preview.thumbs.length) {
+            hideThumbs();
+            return;
+        }
+        thumbGrid.innerHTML = '';
+        preview.thumbs.forEach((src, i) => {
+            const tile = document.createElement('button');
+            tile.type = 'button';
+            tile.className = 'page-thumb';
+            tile.title = 'Add page ' + (i + 1) + ' to the page ranges';
+            tile.innerHTML =
+                '<img src="' + escapeHtml(src) + '" alt="Page ' + (i + 1) + '">'
+                + '<span class="page-thumb-caption">' + (i + 1) + '</span>';
+            tile.addEventListener('click', () => addPageToRanges(i + 1));
+            thumbGrid.appendChild(tile);
+        });
+        thumbGrid.style.display = '';
+        if (thumbHint) thumbHint.style.display = '';
+
+        const note = morePagesNote(preview.pages, preview.rendered);
+        if (thumbNote) {
+            thumbNote.textContent = note;
+            thumbNote.style.display = note ? '' : 'none';
+        }
+    }
+
+    function addPageToRanges(page) {
+        const fieldId = rangesFieldFor(currentOperation());
+        if (!fieldId) return;
+        const input = document.getElementById(fieldId);
+        if (!input) return;
+        input.value = appendPageToRanges(input.value, page);
     }
 
     function showMessage(kind, text) {
@@ -368,5 +517,11 @@ if (typeof module !== 'undefined' && module.exports) {
         validateLanguage,
         buildRunPayload,
         escapeHtml,
+        appendPageToRanges,
+        rangesFieldFor,
+        RANGES_FIELDS,
+        morePagesNote,
+        normalizeThumbs,
+        THUMB_ENDPOINT,
     };
 }

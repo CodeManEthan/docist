@@ -7,7 +7,7 @@ real uploads/ or output/ directories.
 import io
 
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from converters import get_converter, supported_extensions
 

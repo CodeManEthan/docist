@@ -131,6 +131,45 @@ function buildModeOptions(formState) {
     };
 }
 
+// ---- First-page thumbnails (POST /preview/thumbs) ----
+
+// The preview endpoint. Only PDFs are rendered server-side.
+const THUMB_ENDPOINT = '/preview/thumbs';
+
+// Should this file get a thumbnail fetched for it? Non-PDFs keep the plain
+// row appearance — they aren't PDFs yet, so there is nothing to render.
+function wantsThumb(filename) {
+    return getExt(filename) === '.pdf';
+}
+
+// Pull the first-page thumbnail out of a /preview/thumbs payload.
+// Returns a data URL, or '' when the payload is missing/unusable (which the
+// caller treats exactly like a failed request: fall back to the plain row).
+function firstThumb(payload) {
+    if (!payload || !Array.isArray(payload.thumbs) || payload.thumbs.length === 0) {
+        return '';
+    }
+    const first = payload.thumbs[0];
+    if (typeof first !== 'string' || !first.startsWith('data:image/')) return '';
+    return first;
+}
+
+// Markup for the thumbnail cell at the left of a merge file row.
+//   'loading' -> a shimmering placeholder of the right size
+//   'ready'   -> the <img> (needs a data URL)
+//   anything else ('error', 'none', undefined) -> '' so the row renders
+//                exactly as it did before thumbnails existed.
+function thumbCellHtml(state, dataUrl) {
+    if (state === 'loading') {
+        return '<span class="file-thumb thumb-loading" aria-hidden="true"></span>';
+    }
+    if (state === 'ready' && dataUrl) {
+        return '<span class="file-thumb"><img class="thumb-img" src="'
+            + escapeHtml(dataUrl) + '" alt=""></span>';
+    }
+    return '';
+}
+
 // Can the merge button be enabled for this UI state? Standard mode needs at
 // least one file; interleave mode needs EXACTLY two (fronts + backs).
 function canMerge(state) {
@@ -217,6 +256,9 @@ function initApp() {
     let selectedFiles = [];
     let acceptedExtensions = ['.pdf'];
     let dragSrcIndex = null;
+    // File object -> { state: 'loading'|'ready'|'error', url: dataUrl }.
+    // Keyed by the File itself so reordering/removal can't desync it.
+    const thumbCache = new Map();
 
     // ---- Accepted formats (driven by the /formats endpoint) ----
     async function loadFormats() {
@@ -276,11 +318,49 @@ function initApp() {
         if (files.length === 0) return;
         // Append new files to existing list instead of replacing
         selectedFiles = [...selectedFiles, ...files];
+        files.forEach(queueThumb);
         displayFiles();
         updateMergeBtn();
         message.style.display = 'none';
         // Clear the file input so the same files can be selected again if needed
         fileInput.value = '';
+    }
+
+    // ---- Thumbnails ----
+    // Mark a PDF as pending and fetch its first-page preview in the
+    // background. Non-PDFs are skipped entirely (no request is made).
+    function queueThumb(file) {
+        if (!wantsThumb(file.name) || thumbCache.has(file)) return;
+        thumbCache.set(file, { state: 'loading', url: '' });
+        fetchThumb(file);
+    }
+
+    async function fetchThumb(file) {
+        let entry = { state: 'error', url: '' };
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch(THUMB_ENDPOINT, {
+                method: 'POST',
+                body: formData,
+            });
+            if (response.ok) {
+                const url = firstThumb(await response.json());
+                if (url) entry = { state: 'ready', url: url };
+            }
+        } catch (err) {
+            // Previews are a nicety: any failure silently degrades the row to
+            // its plain appearance. Deliberately no console noise.
+        }
+        // The file may have been removed while the request was in flight.
+        if (!thumbCache.has(file)) return;
+        thumbCache.set(file, entry);
+        displayFiles();
+    }
+
+    function thumbFor(file) {
+        const entry = thumbCache.get(file);
+        return entry ? thumbCellHtml(entry.state, entry.url) : '';
     }
 
     function updateMergeBtn() {
@@ -299,7 +379,11 @@ function initApp() {
     }
 
     function removeFile(index) {
+        const dropped = selectedFiles[index];
         selectedFiles = removeItem(selectedFiles, index);
+        // Drop the cached preview unless the same File is still in the list
+        // (the user can add the very same file twice).
+        if (dropped && !selectedFiles.includes(dropped)) thumbCache.delete(dropped);
         displayFiles();
         updateMergeBtn();
     }
@@ -313,6 +397,7 @@ function initApp() {
             div.dataset.index = index;
             div.innerHTML = `
                 <span class="drag-handle" title="Drag to reorder">⠿</span>
+                ${thumbFor(file)}
                 <span class="file-info"><span class="file-number">${index + 1}.</span>${escapeHtml(file.name)}</span>
                 <span class="file-size">${formatFileSize(file.size)}</span>
                 <span class="file-actions">
@@ -441,6 +526,7 @@ function initApp() {
                     mergeBtn.style.display = 'block';
                     message.style.display = 'none';
                     selectedFiles = [];
+                    thumbCache.clear();
                     displayFiles();
                     updateMergeBtn();
                     fileInput.value = '';
@@ -495,5 +581,9 @@ if (typeof module !== 'undefined' && module.exports) {
         buildModeOptions,
         canMerge,
         MERGE_MODES,
+        wantsThumb,
+        firstThumb,
+        thumbCellHtml,
+        THUMB_ENDPOINT,
     };
 }

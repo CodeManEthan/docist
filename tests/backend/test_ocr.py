@@ -13,7 +13,7 @@ import os
 
 import pytest
 from PIL import Image, ImageDraw, ImageFont
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pdf_ops import ocr as ocr_ops
 

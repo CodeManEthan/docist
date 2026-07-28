@@ -1,13 +1,13 @@
 """Single-PDF page operations: parse ranges, extract, remove, rotate, split.
 
-Pure PDF-processing functions with no Flask dependency, built on PyPDF2.
+Pure PDF-processing functions with no Flask dependency, built on pypdf.
 Page indices returned/consumed by these helpers are 0-based; the *spec*
 strings accepted by :func:`parse_page_ranges` are 1-based inclusive
 (the way a human would describe pages).
 """
 import os
 
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 
 def parse_page_ranges(spec, page_count):

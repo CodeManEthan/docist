@@ -360,6 +360,124 @@ input[type="file"] {
     margin: 8px 0;
 }
 
+/* ---- Page thumbnails (merge rows + Page Tools grid) ---- */
+
+/* First-page thumbnail at the left of a merge file row. */
+.file-thumb {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 39px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #d5d9f2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-thumb .thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+    display: block;
+}
+
+/* Placeholder shown while a preview is still being fetched. */
+.thumb-loading {
+    background: linear-gradient(100deg, #eef0fb 30%, #dfe3f8 50%, #eef0fb 70%);
+    background-size: 300% 100%;
+    animation: thumb-shimmer 1.2s ease-in-out infinite;
+    border: 1px solid #e3e6f7;
+}
+
+@keyframes thumb-shimmer {
+    0% { background-position: 150% 0; }
+    100% { background-position: -50% 0; }
+}
+
+/* Page Tools: clickable grid of page previews. */
+.thumb-hint {
+    margin-top: 18px;
+    color: #666;
+    font-size: 0.88em;
+}
+
+.thumb-grid {
+    margin-top: 10px;
+    padding: 12px;
+    background: #f8f9ff;
+    border-radius: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 10px;
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.page-thumb {
+    background: #fff;
+    border: 1px solid #d5d9f2;
+    border-radius: 8px;
+    padding: 5px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease,
+                transform 0.15s ease;
+}
+
+.page-thumb:hover {
+    border-color: #667eea;
+    box-shadow: 0 3px 10px rgba(102, 126, 234, 0.25);
+    transform: translateY(-1px);
+}
+
+.page-thumb:focus-visible {
+    outline: 2px solid #667eea;
+    outline-offset: 2px;
+}
+
+.page-thumb img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 4px;
+}
+
+.page-thumb-caption {
+    color: #667eea;
+    font-size: 0.78em;
+    font-weight: 700;
+    line-height: 1;
+}
+
+/* Loading tiles inside the grid have no image to size them, and must win the
+   plain white .page-thumb background they also carry. */
+.thumb-grid .thumb-loading {
+    min-height: 86px;
+    border-radius: 8px;
+    cursor: default;
+    background: linear-gradient(100deg, #eef0fb 30%, #dfe3f8 50%, #eef0fb 70%);
+    background-size: 300% 100%;
+}
+
+.thumb-grid .thumb-loading:hover {
+    border-color: #d5d9f2;
+    box-shadow: none;
+    transform: none;
+}
+
+.thumb-note {
+    margin-top: 8px;
+    color: #999;
+    font-size: 0.85em;
+    text-align: right;
+}
+
 .options-panel select,
 .options-panel input[type="text"],
 .options-panel input[type="number"],

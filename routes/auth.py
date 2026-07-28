@@ -8,6 +8,10 @@ exempt.
 
 Browser page loads are redirected to /login; JSON/API requests get a 401 so
 the frontend fetch() error paths surface a clear message instead of HTML.
+
+Non-browser clients (curl, scripts hitting /api/v1/...) can skip the cookie
+entirely and send ``Authorization: Bearer <password>`` -- the same shared
+password, compared in constant time exactly like the login form.
 """
 import hmac
 
@@ -32,6 +36,31 @@ def is_authed():
     return session.get(SESSION_KEY) is True
 
 
+def _bearer_token(header):
+    """Pull ``<token>`` out of an ``Authorization: Bearer <token>`` header."""
+    if not header:
+        return ''
+    scheme, _, token = str(header).partition(' ')
+    if scheme.strip().lower() != 'bearer':
+        return ''
+    return token.strip()
+
+
+def has_valid_bearer():
+    """True when the request carries a Bearer token matching the password.
+
+    Lets API clients authenticate per-request without a session cookie. The
+    comparison is constant-time, mirroring the login form check.
+    """
+    expected = current_app.config.get('ACCESS_PASSWORD') or ''
+    if not expected:
+        return False
+    token = _bearer_token(request.headers.get('Authorization'))
+    if not token:
+        return False
+    return hmac.compare_digest(token.encode(), expected.encode())
+
+
 @bp.app_context_processor
 def inject_auth_state():
     """Let templates render the Sign out link only when it means something."""
@@ -41,6 +70,10 @@ def inject_auth_state():
 @bp.before_app_request
 def require_login():
     if not gate_enabled() or is_authed():
+        return None
+    # API clients present the shared password as a Bearer token instead of a
+    # cookie; a valid one authenticates this request (no session is created).
+    if has_valid_bearer():
         return None
     if (request.endpoint or '') in _EXEMPT_ENDPOINTS:
         return None

@@ -7,7 +7,7 @@ generated with Pillow + pillow_heif.
 import io
 
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 import converters
 from converters import ConversionError

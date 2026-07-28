@@ -1,7 +1,7 @@
 """Header/footer text and Bates numbering: stamp per-page labels onto a PDF.
 
 Both operations follow watermark.py's overlay pattern: a reportlab canvas
-builds a transparent stamp page sized to match each source page, then PyPDF2
+builds a transparent stamp page sized to match each source page, then pypdf
 merges the stamp onto the page.
 
 Header/footer supports six positional slots (left/center/right on top and
@@ -12,7 +12,7 @@ prefix) into one page corner.
 import io
 import re
 
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from reportlab.pdfgen import canvas
 
@@ -106,14 +106,16 @@ def apply_header_footer(input_path, output_path, header_left='',
     page_count = len(reader.pages)
 
     for index, page in enumerate(reader.pages):
-        width = float(page.mediabox.width)
-        height = float(page.mediabox.height)
+        # Attach the page to the writer *first*; pypdf only supports merging
+        # onto pages that already belong to a writer.
+        new_page = writer.add_page(page)
+        width = float(new_page.mediabox.width)
+        height = float(new_page.mediabox.height)
         stamp = _make_headerfooter_stamp(
             width, height, slots, index + 1, page_count,
             font_size, color, margin,
         )
-        page.merge_page(stamp.pages[0])
-        writer.add_page(page)
+        new_page.merge_page(stamp.pages[0])
 
     with open(output_path, 'wb') as fh:
         writer.write(fh)
@@ -198,13 +200,13 @@ def apply_bates_numbers(input_path, output_path, prefix='', start=1, digits=6,
     number = start
     for page in reader.pages:
         label = format_bates(prefix, number, digits)
-        width = float(page.mediabox.width)
-        height = float(page.mediabox.height)
+        new_page = writer.add_page(page)
+        width = float(new_page.mediabox.width)
+        height = float(new_page.mediabox.height)
         stamp = _make_bates_stamp(
             width, height, label, position, font_size, color, margin,
         )
-        page.merge_page(stamp.pages[0])
-        writer.add_page(page)
+        new_page.merge_page(stamp.pages[0])
         last_label = label
         number += 1
 

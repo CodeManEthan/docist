@@ -1,13 +1,13 @@
 """PDF compression: lossless content-stream packing + best-effort image recompression.
 
-Pure PDF-processing (no Flask dependency), built on PyPDF2 3.0.1 and Pillow.
+Pure PDF-processing (no Flask dependency), built on pypdf and Pillow.
 
 Two passes are applied by :func:`compress_pdf`:
 
 1. **Lossless pass** — every page is cloned into a fresh ``PdfWriter`` and
-   :meth:`PageObject.compress_content_streams` is called on it (supported in
-   PyPDF2 3.0.1). This Flate-compresses page content streams that were stored
-   uncompressed and drops redundancy without changing a single rendered pixel.
+   :meth:`PageObject.compress_content_streams` is called on it. This
+   Flate-compresses page content streams that were stored uncompressed and
+   drops redundancy without changing a single rendered pixel.
    Document metadata is carried over onto the writer.
 
 2. **Image pass (best-effort)** — each page's ``/Resources /XObject`` image
@@ -25,14 +25,18 @@ Two passes are applied by :func:`compress_pdf`:
    **untouched** — one stubborn image never fails the whole run. Only images
    that come out *smaller* after re-encoding are actually replaced.
 
-**Known limitation on PyPDF2 3.0.1.** The public ``page.images`` API returns
-read-only ``File`` records (``name`` + ``data``) with no in-place ``replace()``
-method (that arrived in later ``pypdf`` releases). Image replacement is
-therefore done by mutating the underlying XObject ``StreamObject`` directly
-(``obj._data`` plus the ``/Filter`` / ``/Width`` / ``/Height`` / ``/ColorSpace``
-/ ``/BitsPerComponent`` dictionary entries). This is verified to produce valid,
-readable PDFs for the RGB/gray raster and JPEG cases handled here; exotic image
-encodings are intentionally out of scope and skipped.
+**Why the XObject streams are mutated directly.** Replacement is done on the
+underlying XObject ``StreamObject`` (``obj._data`` plus the ``/Filter`` /
+``/Width`` / ``/Height`` / ``/ColorSpace`` / ``/BitsPerComponent`` dictionary
+entries) rather than through pypdf's ``page.images[...].replace()`` helper.
+``replace()`` re-encodes by round-tripping the image through a whole throwaway
+one-page PDF (``PIL.Image.save(..., "PDF")``) and swapping the resulting
+object in, which gives no way to *first* check that the new encoding is
+actually smaller — the core rule of this pass — and it eagerly decodes every
+image on the page, including the exotic ones we deliberately skip. The direct
+mutation is verified to produce valid, readable PDFs for the RGB/gray raster
+and JPEG cases handled here; exotic image encodings are intentionally out of
+scope and skipped.
 
 If the whole optimisation ends up producing a file *larger* than the input
 (possible on already-optimised PDFs), the original bytes are kept verbatim and
@@ -43,8 +47,8 @@ import math
 import re
 import shutil
 
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import NameObject, NumberObject
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, NumberObject
 
 try:  # Pillow is required for the image pass but never for the lossless pass.
     from PIL import Image

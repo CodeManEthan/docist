@@ -4,7 +4,7 @@ Pure PDF-processing functions with no Flask dependency.
 
 * :func:`pdf_to_images` renders each page to a raster image (PNG or JPEG) at a
   chosen DPI using ``pypdfium2``.
-* :func:`pdf_to_text` extracts the embedded text layer with PyPDF2. By default
+* :func:`pdf_to_text` extracts the embedded text layer with pypdf. By default
   there is **no OCR**: a scanned / image-only PDF has no text layer, so those
   pages come out empty (that limitation is surfaced honestly in the UI copy).
   Passing ``ocr_fallback=True`` opts in to OCR: any page whose extracted text
@@ -19,7 +19,7 @@ Pure PDF-processing functions with no Flask dependency.
 import os
 
 import pypdfium2 as pdfium
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pdf_ops.ocr import is_available as _ocr_is_available
 

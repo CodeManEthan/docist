@@ -6,7 +6,7 @@ import io
 import re
 
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
 

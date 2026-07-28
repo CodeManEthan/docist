@@ -113,8 +113,12 @@ sudo apt install tesseract-ocr ghostscript
 
 ## Honest limitations to keep in mind
 
-- PDF password protection uses RC4-128 (PyPDF2's default) — fine for
-  casual protection, not for secrets.
+- PDF password protection uses AES-256 (`/V 5 /R 6`), which pypdf provides
+  via the `cryptography` package in `requirements.txt` — keep that dependency
+  installed or protecting a PDF will fail. Unlocking still accepts legacy
+  RC4-40/RC4-128/AES-128 files created elsewhere. The encryption is only ever
+  as good as the password the user picks, so it is still not a place to put
+  real secrets.
 - One shared password, no user accounts — matches "limited-use portfolio
   hosting", not multi-tenant use.
 - The rate limiter and session store are in-memory (per process); a restart

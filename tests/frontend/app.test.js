@@ -14,6 +14,10 @@ const {
     removeItem,
     computeDropIndex,
     escapeHtml,
+    wantsThumb,
+    firstThumb,
+    thumbCellHtml,
+    THUMB_ENDPOINT,
 } = require(path.join(__dirname, '..', '..', 'static', 'app.js'));
 
 // --------------------------------------------------------------------------
@@ -265,4 +269,89 @@ test('escapeHtml: neutralizes a script-injection filename', () => {
 
 test('escapeHtml: leaves ordinary text unchanged', () => {
     assert.equal(escapeHtml('my-report_v2.pdf'), 'my-report_v2.pdf');
+});
+
+// --------------------------------------------------------------------------
+// wantsThumb — only PDFs get a preview fetched
+// --------------------------------------------------------------------------
+test('wantsThumb: true for .pdf, case-insensitive', () => {
+    assert.equal(wantsThumb('report.pdf'), true);
+    assert.equal(wantsThumb('REPORT.PDF'), true);
+    assert.equal(wantsThumb('a.b.Pdf'), true);
+});
+
+test('wantsThumb: false for every non-PDF (they keep the plain row)', () => {
+    for (const name of ['notes.md', 'photo.png', 'sheet.docx', 'noext', 'pdf']) {
+        assert.equal(wantsThumb(name), false, `expected ${name} to be skipped`);
+    }
+});
+
+test('wantsThumb: only the final extension counts', () => {
+    assert.equal(wantsThumb('report.pdf.txt'), false);
+});
+
+// --------------------------------------------------------------------------
+// firstThumb — reading the /preview/thumbs payload
+// --------------------------------------------------------------------------
+const PNG_URL = 'data:image/png;base64,iVBORw0KGgo=';
+
+test('firstThumb: returns the first data URL', () => {
+    assert.equal(
+        firstThumb({ pages: 3, rendered: 3, thumbs: [PNG_URL, 'data:image/png;base64,AAA'] }),
+        PNG_URL
+    );
+});
+
+test('firstThumb: empty string for missing / malformed payloads', () => {
+    assert.equal(firstThumb(null), '');
+    assert.equal(firstThumb(undefined), '');
+    assert.equal(firstThumb({}), '');
+    assert.equal(firstThumb({ error: 'nope' }), '');
+    assert.equal(firstThumb({ thumbs: [] }), '');
+    assert.equal(firstThumb({ thumbs: 'not-an-array' }), '');
+});
+
+test('firstThumb: rejects a non-image / non-data first entry', () => {
+    assert.equal(firstThumb({ thumbs: [42] }), '');
+    assert.equal(firstThumb({ thumbs: ['https://evil.example/x.png'] }), '');
+    assert.equal(firstThumb({ thumbs: ['javascript:alert(1)'] }), '');
+});
+
+// --------------------------------------------------------------------------
+// thumbCellHtml — row cell markup per state
+// --------------------------------------------------------------------------
+test('thumbCellHtml: loading state renders a placeholder', () => {
+    const html = thumbCellHtml('loading');
+    assert.ok(html.includes('thumb-loading'));
+    assert.ok(html.includes('file-thumb'));
+    assert.ok(!html.includes('<img'));
+});
+
+test('thumbCellHtml: ready state renders the image', () => {
+    const html = thumbCellHtml('ready', PNG_URL);
+    assert.ok(html.includes('<img class="thumb-img"'));
+    assert.ok(html.includes(PNG_URL));
+    assert.ok(!html.includes('thumb-loading'));
+});
+
+test('thumbCellHtml: error / unknown / missing states render nothing', () => {
+    assert.equal(thumbCellHtml('error'), '');
+    assert.equal(thumbCellHtml('none'), '');
+    assert.equal(thumbCellHtml(undefined), '');
+    assert.equal(thumbCellHtml(''), '');
+});
+
+test('thumbCellHtml: ready without a URL degrades to nothing', () => {
+    assert.equal(thumbCellHtml('ready', ''), '');
+    assert.equal(thumbCellHtml('ready'), '');
+});
+
+test('thumbCellHtml: escapes the src so a crafted URL cannot break out', () => {
+    const html = thumbCellHtml('ready', 'data:image/png;base64,A"><script>x</script>');
+    assert.ok(!html.includes('<script>'));
+    assert.ok(html.includes('&quot;'));
+});
+
+test('THUMB_ENDPOINT points at the preview route', () => {
+    assert.equal(THUMB_ENDPOINT, '/preview/thumbs');
 });

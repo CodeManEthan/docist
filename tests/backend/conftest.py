@@ -243,7 +243,7 @@ def client(tmp_path):
 
 def extract_all_text(pdf_path):
     """Concatenate extract_text() from every page of a PDF."""
-    from PyPDF2 import PdfReader
+    from pypdf import PdfReader
 
     reader = PdfReader(str(pdf_path))
     return "\n".join(page.extract_text() or "" for page in reader.pages)

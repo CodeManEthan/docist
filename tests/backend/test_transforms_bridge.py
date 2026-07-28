@@ -14,7 +14,7 @@ import zipfile
 
 import pytest
 from PIL import Image
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 import transforms
 from transforms import TransformError

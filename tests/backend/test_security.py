@@ -6,9 +6,9 @@ its ``build_pdf`` helper via the ``builders`` fixture.
 import io
 
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader, PdfWriter
 
-from pdf_ops.security import protect_pdf, unlock_pdf
+from pdf_ops.security import ENCRYPTION_ALGORITHM, protect_pdf, unlock_pdf
 from pdf_ops.watermark import apply_text_watermark
 
 from conftest import build_pdf
@@ -33,6 +33,22 @@ def _run(client, filename, content, form):
     data.update(form)
     return client.post("/security/run", data=data,
                        content_type="multipart/form-data")
+
+
+def _encrypt_with(src_path, out_path, password, algorithm):
+    """Encrypt ``src_path`` with an explicit pypdf algorithm (test fixture)."""
+    writer = PdfWriter()
+    for page in PdfReader(str(src_path)).pages:
+        writer.add_page(page)
+    writer.encrypt(password, algorithm=algorithm)
+    with open(str(out_path), "wb") as fh:
+        writer.write(fh)
+    return out_path
+
+
+def _encryption_dict(pdf_path):
+    """The document's /Encrypt dictionary (algorithm fingerprint)."""
+    return PdfReader(str(pdf_path)).trailer["/Encrypt"].get_object()
 
 
 def _download_bytes(client, filename):
@@ -139,6 +155,57 @@ def test_unlock_roundtrip(tmp_path):
     assert len(reader.pages) == 2
     # Content is readable without a password.
     assert reader.pages[0].extract_text() is not None
+
+
+def test_protect_uses_aes_256(tmp_path):
+    """protect_pdf writes AES-256 (/V 5 /R 6, 256-bit), not legacy RC4."""
+    assert ENCRYPTION_ALGORITHM == "AES-256"
+    src = build_pdf(tmp_path / "src.pdf", pages=1)
+    out = tmp_path / "protected.pdf"
+    protect_pdf(str(src), str(out), "s3cret")
+
+    enc = _encryption_dict(out)
+    assert int(enc["/V"]) == 5
+    assert int(enc["/R"]) == 6
+    assert int(enc["/Length"]) == 256
+
+
+def test_unlock_opens_aes256_file(tmp_path):
+    """unlock_pdf opens an AES-256 file (the format protect_pdf now emits)."""
+    src = build_pdf(tmp_path / "src.pdf", pages=2, marker="AesRoundTripMarker")
+    protected = _encrypt_with(src, tmp_path / "aes.pdf", "aespw", "AES-256")
+    assert int(_encryption_dict(protected)["/V"]) == 5
+
+    unlocked = tmp_path / "unlocked_aes.pdf"
+    unlock_pdf(str(protected), str(unlocked), "aespw")
+
+    reader = PdfReader(str(unlocked))
+    assert reader.is_encrypted is False
+    assert len(reader.pages) == 2
+    assert "AesRoundTripMarker" in (reader.pages[0].extract_text() or "")
+
+
+def test_unlock_opens_legacy_rc4_file(tmp_path):
+    """unlock_pdf still opens legacy RC4-128 documents created elsewhere."""
+    src = build_pdf(tmp_path / "src.pdf", pages=2, marker="Rc4LegacyMarker")
+    protected = _encrypt_with(src, tmp_path / "rc4.pdf", "rc4pw", "RC4-128")
+    enc = _encryption_dict(protected)
+    assert int(enc["/V"]) == 2 and int(enc["/Length"]) == 128
+
+    unlocked = tmp_path / "unlocked_rc4.pdf"
+    unlock_pdf(str(protected), str(unlocked), "rc4pw")
+
+    reader = PdfReader(str(unlocked))
+    assert reader.is_encrypted is False
+    assert len(reader.pages) == 2
+    assert "Rc4LegacyMarker" in (reader.pages[0].extract_text() or "")
+
+
+def test_unlock_legacy_rc4_wrong_password_raises(tmp_path):
+    src = build_pdf(tmp_path / "src.pdf", pages=1)
+    protected = _encrypt_with(src, tmp_path / "rc4.pdf", "right", "RC4-128")
+    with pytest.raises(ValueError, match="Incorrect password"):
+        unlock_pdf(str(protected), str(tmp_path / "o.pdf"), "wrong")
 
 
 def test_unlock_wrong_password_raises(tmp_path):

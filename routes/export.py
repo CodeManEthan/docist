@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 from pdf_ops.export import pdf_to_images, pdf_to_text, pdf_to_text_report
 from pdf_ops.ocr import is_available as ocr_is_available
 from utils.naming import collision_safe
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 bp = Blueprint('export', __name__)
 

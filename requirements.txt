@@ -1,5 +1,6 @@
 Flask==3.0.0
-PyPDF2==3.0.1
+pypdf
+cryptography
 reportlab==4.0.7
 Werkzeug==3.0.1
 Markdown

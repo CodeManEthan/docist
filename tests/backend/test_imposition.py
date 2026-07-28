@@ -9,7 +9,7 @@ import io
 import pytest
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from pdf_ops.imposition import (
     booklet_page_order,

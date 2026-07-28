@@ -1,13 +1,13 @@
 """Text watermarking: stamp a repeated label onto every page of a PDF.
 
 A reportlab canvas builds a transparent stamp page sized to match each source
-page, then PyPDF2 merges the stamp onto the page. The stamp is drawn with a
+page, then pypdf merges the stamp onto the page. The stamp is drawn with a
 reduced fill alpha so the underlying content stays legible.
 """
 import io
 import re
 
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from reportlab.pdfgen import canvas
 
@@ -82,12 +82,14 @@ def apply_text_watermark(input_path, output_path, text, position='center',
     writer = PdfWriter()
 
     for page in reader.pages:
-        width = float(page.mediabox.width)
-        height = float(page.mediabox.height)
+        # Attach the page to the writer *first*; pypdf only supports merging
+        # onto pages that already belong to a writer.
+        new_page = writer.add_page(page)
+        width = float(new_page.mediabox.width)
+        height = float(new_page.mediabox.height)
         stamp = _make_stamp(width, height, text, position, opacity,
                             font_size, rotation, color)
-        page.merge_page(stamp.pages[0])
-        writer.add_page(page)
+        new_page.merge_page(stamp.pages[0])
 
     with open(output_path, 'wb') as fh:
         writer.write(fh)

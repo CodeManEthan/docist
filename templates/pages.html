@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Docist &mdash; Page Tools</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -15,6 +16,7 @@
         <a href="/print">Print Prep</a>
         <a href="/export">Export</a>
         <a href="/security">Watermark &amp; Security</a>
+        <a href="/api">API</a>
         {% if auth_enabled and authed %}<a href="/logout" class="nav-signout">Sign out</a>{% endif %}
     </nav>
     <div class="container">
@@ -31,6 +33,10 @@
         <div class="file-list">
             <div class="file-item" id="fileName" style="display:none"></div>
         </div>
+
+        <div class="thumb-hint" id="thumbHint" style="display:none">Click a page to add it to the page ranges box.</div>
+        <div class="thumb-grid" id="thumbGrid" style="display:none"></div>
+        <div class="thumb-note" id="thumbNote" style="display:none"></div>
 
         <div class="options-panel">
             <label><input type="radio" name="operation" value="extract" checked> Extract pages</label>

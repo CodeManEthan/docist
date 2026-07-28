@@ -1,6 +1,6 @@
 """Unit tests for each converter plugin and the converter registry."""
 import pytest
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter
 
 LETTER_W, LETTER_H = letter  # (612.0, 792.0)

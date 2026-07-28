@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 
 from pdf_ops.imposition import nup_pdf, booklet_pdf
 from utils.naming import collision_safe
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 bp = Blueprint('print', __name__)
 
