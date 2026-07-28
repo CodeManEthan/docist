@@ -26,6 +26,8 @@ from transforms import (
     supported_sources,
     targets_for,
 )
+from utils.naming import collision_safe
+from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('convert', __name__)
 
@@ -44,20 +46,6 @@ def _norm_ext(raw):
     if not body or not body.isalnum():
         return ''
     return ext
-
-
-def _collision_safe(output_folder, name):
-    """Return a path in output_folder that does not clobber an existing file.
-
-    'report.zip' -> 'report.zip', then 'report_1.zip', 'report_2.zip', ...
-    """
-    base, ext = os.path.splitext(name)
-    candidate = name
-    counter = 1
-    while os.path.exists(os.path.join(output_folder, candidate)):
-        candidate = f"{base}_{counter}{ext}"
-        counter += 1
-    return candidate
 
 
 @bp.route('/convert')
@@ -127,6 +115,10 @@ def run_convert():
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = os.path.join(tmpdir, filename or ('input' + src_ext))
             upload.save(input_path)
+            try:
+                validate_upload(input_path, src_ext)
+            except UploadValidationError as exc:
+                return jsonify({'error': str(exc)}), 400
 
             requested_output = os.path.join(tmpdir, requested_name)
             actual_path = transform(input_path, requested_output)
@@ -134,7 +126,7 @@ def run_convert():
             actual_name = os.path.basename(actual_path)
             actual_ext = os.path.splitext(actual_name)[1].lower()
 
-            final_name = _collision_safe(output_folder, actual_name)
+            final_name = collision_safe(output_folder, actual_name)
             shutil.move(actual_path, os.path.join(output_folder, final_name))
     except TransformError as exc:
         return jsonify({'error': str(exc)}), 400

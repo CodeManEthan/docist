@@ -195,8 +195,57 @@ def test_path_traversal_filename_is_sanitized(client, tmp_path, builders):
     resp = _upload(client, [("../evil.pdf", pdf.read_bytes())])
     assert resp.status_code == 200, resp.data
 
-    # secure_filename strips the traversal -> "evil.pdf" inside the upload dir.
+    # secure_filename strips the traversal; nothing escapes the request's
+    # temp dir, and nothing lingers in the shared upload folder either.
     upload_dir = client.upload_dir
-    assert (upload_dir / "evil.pdf").exists()
-    # Nothing was written outside the upload dir.
+    assert list(upload_dir.iterdir()) == []
     assert not (upload_dir.parent / "evil.pdf").exists()
+
+
+def test_upload_folder_is_not_touched_by_merges(client, tmp_path, builders):
+    # A bystander file in the (legacy) shared upload folder must survive a
+    # merge — uploads are handled in per-request temp dirs now.
+    bystander = client.upload_dir / "keep-me.txt"
+    bystander.write_text("still here")
+    pdf = builders.pdf(tmp_path / "a.pdf", pages=1, marker=builders.PDF_MARKER_A)
+    resp = _upload(client, [("a.pdf", pdf.read_bytes())])
+    assert resp.status_code == 200, resp.data
+    assert bystander.read_text() == "still here"
+
+
+def test_merge_output_names_do_not_clobber(client, tmp_path, builders):
+    pdf = builders.pdf(tmp_path / "a.pdf", pages=1, marker=builders.PDF_MARKER_A)
+    sources = [("a.pdf", pdf.read_bytes())]
+    assert _upload(client, sources).get_json()["filename"] == "a-merged.pdf"
+    assert _upload(client, sources).get_json()["filename"] == "a-merged_1.pdf"
+    assert (client.output_dir / "a-merged.pdf").exists()
+    assert (client.output_dir / "a-merged_1.pdf").exists()
+
+
+def test_upload_content_must_match_extension(client):
+    resp = _upload(client, [("evil.pdf", b"MZ\x90\x00 definitely not a pdf")])
+    assert resp.status_code == 400
+    assert "evil.pdf" in resp.get_json()["error"]
+
+
+@pytest.mark.parametrize("bad", [
+    "../conftest.py",
+    "..%2Fconftest.py",
+    "/etc/passwd",
+    "a/../b.pdf",
+    "..",
+])
+def test_download_rejects_traversal_filenames(client, bad):
+    resp = client.get(f"/download?filename={bad}")
+    assert resp.status_code in (400, 404)
+    assert "error" in resp.get_json()
+
+
+def test_download_traversal_cannot_read_real_files(client, tmp_path, builders):
+    # A file OUTSIDE the output folder must not be reachable however the
+    # filename is spelled.
+    secret = client.output_dir.parent / "secret.txt"
+    secret.write_text("top secret")
+    resp = client.get("/download?filename=../secret.txt")
+    assert resp.status_code == 400
+    assert b"top secret" not in resp.data

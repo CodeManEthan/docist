@@ -12,6 +12,7 @@ from flask import Blueprint, current_app, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 
 from pdf_ops.imposition import nup_pdf, booklet_pdf
+from utils.naming import collision_safe
 from PyPDF2 import PdfReader
 
 bp = Blueprint('print', __name__)
@@ -65,7 +66,7 @@ def run_print():
                     n = int(request.form.get('n', ''))
                 except (TypeError, ValueError):
                     raise ValueError("Pages per sheet must be 2 or 4.")
-                out_name = f"{base}_{n}up.pdf"
+                out_name = collision_safe(output_folder, f"{base}_{n}up.pdf")
                 out_path = os.path.join(output_folder, out_name)
                 nup_pdf(input_path, out_path, n=n)
                 sheets = (page_count + n - 1) // n
@@ -75,7 +76,7 @@ def run_print():
                 )
 
             else:  # booklet
-                out_name = f"{base}_booklet.pdf"
+                out_name = collision_safe(output_folder, f"{base}_booklet.pdf")
                 out_path = os.path.join(output_folder, out_name)
                 booklet_pdf(input_path, out_path)
                 padded = page_count + (-page_count % 4)

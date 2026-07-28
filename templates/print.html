@@ -3,20 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Print Prep</title>
+    <title>Docist &mdash; Print Prep</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <nav class="tool-nav">
+        <span class="nav-brand">Docist</span>
         <a href="/">Merge</a>
         <a href="/convert">Convert Files</a>
         <a href="/pages">Page Tools</a>
         <a href="/print" class="active">Print Prep</a>
         <a href="/export">Export</a>
         <a href="/security">Watermark &amp; Security</a>
+        {% if auth_enabled and authed %}<a href="/logout" class="nav-signout">Sign out</a>{% endif %}
     </nav>
     <div class="container">
-        <h1>🖨️ PDF Print Prep</h1>
+        <h1>🖨️ Print Prep</h1>
         <p class="subtitle">Impose a PDF for printing: fit several pages on a sheet (N-up) or lay it out as a fold-and-staple booklet.</p>
 
         <div class="upload-area" id="uploadArea">

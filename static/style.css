@@ -25,6 +25,48 @@ body {
     justify-content: center;
 }
 
+.tool-nav .nav-brand {
+    color: #fff;
+    font-weight: 800;
+    font-size: 1.05em;
+    letter-spacing: 0.02em;
+    padding: 8px 10px 8px 0;
+    align-self: center;
+}
+
+.tool-nav a.nav-signout {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.login-form input[type="password"] {
+    padding: 12px 14px;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    font-size: 1em;
+}
+
+.login-form input[type="password"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.login-error {
+    color: #c0392b;
+    background: #fdecea;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-weight: 600;
+}
+
 .tool-nav a {
     color: rgba(255, 255, 255, 0.85);
     text-decoration: none;

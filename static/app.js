@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// PDF Merger & Converter — frontend logic
+// Docist — merge & convert page frontend logic
 //
 // This file is split into two halves:
 //   1. Pure functions (no DOM access) — unit-tested via node:test.

@@ -3,20 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Merger &amp; Converter</title>
+    <title>Docist &mdash; Merge &amp; Convert</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <nav class="tool-nav">
+        <span class="nav-brand">Docist</span>
         <a href="/" class="active">Merge</a>
         <a href="/convert">Convert Files</a>
         <a href="/pages">Page Tools</a>
         <a href="/print">Print Prep</a>
         <a href="/export">Export</a>
         <a href="/security">Watermark &amp; Security</a>
+        {% if auth_enabled and authed %}<a href="/logout" class="nav-signout">Sign out</a>{% endif %}
     </nav>
     <div class="container">
-        <h1>📄 PDF Merger &amp; Converter</h1>
+        <h1>📄 Merge &amp; Convert</h1>
         <p class="subtitle">Upload documents and images — we convert them to PDF, then merge and number them in your chosen order.</p>
 
         <div class="upload-area" id="uploadArea">

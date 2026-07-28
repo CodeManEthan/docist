@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from pdf_ops.security import protect_pdf, unlock_pdf
 from pdf_ops.watermark import apply_text_watermark
 from pdf_ops.stamp import apply_header_footer, apply_bates_numbers, format_bates
+from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('security', __name__)
 
@@ -66,6 +67,10 @@ def run():
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = os.path.join(tmpdir, filename)
             file.save(input_path)
+            try:
+                validate_upload(input_path, '.pdf')
+            except UploadValidationError as exc:
+                return jsonify({'error': str(exc)}), 400
 
             if operation == 'watermark':
                 text = request.form.get('text', '')

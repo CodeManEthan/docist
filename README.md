@@ -1,6 +1,6 @@
-# PDF Merger & Converter
+# Docist
 
-A web application that merges PDFs — and converts common document and image formats to PDF on the fly — with configurable page numbering, blank page insertion, bookmarks, page tools, watermarking, and password protection.
+A self-hosted document toolkit. Docist merges PDFs (auto-converting ~19 input formats on the way in), converts files between ~150 format pairs, edits and splits pages, imposes booklets, exports to images or text with OCR, and stamps, watermarks, and password-protects documents — all behind an optional login gate, ready to deploy.
 
 ## Features
 
@@ -52,6 +52,17 @@ Universal file-to-file conversion — upload a file, pick a target format. The p
 - **Protect** — password-encrypt a PDF (RC4-128 via PyPDF2)
 - **Unlock** — remove password protection (requires the current password)
 
+## Security & Deployment
+
+Docist ships hardened for small self-hosted deployments (see `DEPLOYMENT.md` for the full recipe — gunicorn, nginx, systemd):
+
+- **Login gate** — set `DOCIST_PASSWORD` and every page and endpoint requires sign-in (session cookies are `HttpOnly`/`SameSite=Lax`; password checks are constant-time). Unset, the app runs open for local use.
+- **Safe downloads** — the shared `/download` endpoint refuses path traversal; only plain filenames inside `output/` are served.
+- **Upload validation** — file content is sniffed (magic bytes) against the claimed extension before any converter runs.
+- **Isolated, self-cleaning storage** — every request works in its own temp directory; results get collision-safe names and are pruned from `output/` after 24h (configurable).
+- **Rate limiting** — sliding-window per-IP limit on all POSTs, `/login` included.
+- **Sane defaults** — dev server binds `127.0.0.1`, debug is off unless `FLASK_DEBUG=1`, request size capped at 50 MB.
+
 ## Adding a New Converter
 
 Converters are plugins auto-discovered from the `converters/` package. Drop in a module that defines:
@@ -69,7 +80,7 @@ Restart the app and the new format is accepted automatically (the UI reads `/for
 
 1. Make sure you're in the project directory:
    ```bash
-   cd ~/projects/PDF-Merger
+   cd ~/projects/Docist
    ```
 
 2. Activate the virtual environment:
@@ -84,45 +95,23 @@ Restart the app and the new format is accepted automatically (the UI reads `/for
 
 ## Running the Application
 
-1. Activate the virtual environment (if not already activated):
-   ```bash
-   source .venv/bin/activate
-   ```
+```bash
+./run.sh                                  # dev server on http://localhost:5010
+DOCIST_PASSWORD=secret ./run.sh prod      # gunicorn with the login gate on
+```
 
-2. Run the Flask application:
-   ```bash
-   python app.py
-   ```
-
-3. Open your browser and navigate to:
-   ```
-   http://localhost:5010
-   ```
-
-## Usage
-
-1. Click the upload area or drag and drop PDF files
-2. Select multiple PDFs (they will be merged in selection order)
-3. Review the file list to confirm order
-4. Click "Merge PDFs" button
-5. Wait for processing to complete
-6. Download your merged, numbered PDF
-
-## How It Works
-
-1. **Upload**: You upload multiple PDF files through the web interface
-2. **Merge**: The application merges the PDFs in order
-3. **Blank Pages**: After each PDF with an odd number of pages, a blank page is inserted
-4. **Numbering**: Page numbers are added to the bottom right corner of every page
-5. **Download**: The final merged PDF is available for download
+Or manually: `source .venv/bin/activate && python app.py`
 
 ## File Structure
 
 ```
-PDF-Merger/
-├── app.py                      # Flask bootstrap (auto-registers blueprints)
+Docist/
+├── app.py                      # Flask bootstrap: env config, auto-registered
+│                               #   blueprints, rate limit + cleanup hooks
 ├── routes/                    # Flask blueprints (auto-discovered)
-│   ├── merge.py               # Merge & convert endpoints
+│   ├── auth.py                # Login gate (active when DOCIST_PASSWORD is set)
+│   ├── merge.py               # Merge & convert endpoints + shared /download
+│   ├── convert.py             # Universal file-to-file conversion
 │   ├── pages.py               # Page tools endpoints
 │   ├── print.py               # Print prep endpoints
 │   ├── export.py              # Export endpoints
@@ -133,18 +122,20 @@ PDF-Merger/
 │   ├── optimize.py            # Compression
 │   ├── imposition.py          # N-up / booklet
 │   ├── export.py              # PDF → images / text
+│   ├── ocr.py                 # OCR (make searchable)
 │   ├── watermark.py           # Text watermarking
 │   ├── stamp.py               # Header/footer, Bates numbering
 │   └── security.py            # Protect / unlock
 ├── converters/                # Format-to-PDF converter plugins (auto-discovered)
 ├── transforms/                # File-to-file transform plugins (auto-discovered,
 │                              #   with automatic pivot-through-PDF routing)
-├── templates/                 # Web interface (one page per tool area)
+├── utils/                     # Web-layer helpers: collision-safe naming,
+│                              #   upload sniffing, output pruning, rate limiter
+├── templates/                 # Web interface (one page per tool area + login)
 ├── static/                    # Shared theme CSS + per-page JS
 ├── tests/                     # Backend (pytest) and frontend (node:test) suites
-├── uploads/                   # Temporary upload storage
-├── output/                    # Processed PDF output
-├── Blank PDF Document.pdf     # Blank page template
+├── output/                    # Processed results (auto-pruned)
+├── DEPLOYMENT.md              # Production setup: gunicorn, nginx, systemd
 ├── requirements.txt           # Runtime dependencies
 └── requirements-dev.txt       # + pytest
 ```
@@ -176,7 +167,7 @@ Additional OCR languages are Tesseract data packages (e.g. `tesseract-langpack-d
 ### Python
 
 - Python 3.8+
-- Flask, PyPDF2, reportlab, werkzeug
+- Flask, PyPDF2, reportlab, werkzeug, gunicorn
 - Markdown, xhtml2pdf (Markdown/HTML/DOCX rendering)
 - Pillow, pillow-heif, svglib (image/vector conversion)
 - mammoth (DOCX → HTML), openpyxl (XLSX), striprtf (RTF)
@@ -185,8 +176,7 @@ Additional OCR languages are Tesseract data packages (e.g. `tesseract-langpack-d
 
 ## Notes
 
-- Maximum file size: 50MB per upload
+- Maximum upload size: 50 MB per request (configurable via `DOCIST_MAX_UPLOAD_MB`)
 - Accepted formats are listed by the `/formats` endpoint and shown in the UI
-- Uploaded files are temporarily stored and cleaned on each new upload
-- The blank page ensures proper alignment for duplex printing
+- Uploads are processed in per-request temporary directories and never persisted; results live in `output/` until pruned
 - Conversion fidelity notes: DOCX styling is simplified (semantic structure is kept, Word theme fonts/colors are not); HTML rendering ignores external resources and JavaScript; plain text supports Latin-1 glyphs (others render as `?`)

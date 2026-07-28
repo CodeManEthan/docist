@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docist &mdash; Sign in</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container login-container">
+        <h1>📄 Docist</h1>
+        <p class="subtitle">This instance is private. Enter the access password to continue.</p>
+
+        {% if error %}
+        <p class="login-error">{{ error }}</p>
+        {% endif %}
+
+        <form method="post" action="/login" class="login-form">
+            <input type="hidden" name="next" value="{{ next }}">
+            <input type="password" name="password" placeholder="Password"
+                   autofocus autocomplete="current-password" required>
+            <button type="submit" class="btn">Sign in</button>
+        </form>
+    </div>
+</body>
+</html>

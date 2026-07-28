@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 
 from pdf_ops.export import pdf_to_images, pdf_to_text, pdf_to_text_report
 from pdf_ops.ocr import is_available as ocr_is_available
+from utils.naming import collision_safe
 from PyPDF2 import PdfReader
 
 bp = Blueprint('export', __name__)
@@ -79,7 +80,7 @@ def run_export():
                 os.makedirs(images_dir, exist_ok=True)
                 images = pdf_to_images(input_path, images_dir, fmt=fmt, dpi=dpi)
 
-                out_name = f"{base}_images.zip"
+                out_name = collision_safe(output_folder, f"{base}_images.zip")
                 out_path = os.path.join(output_folder, out_name)
                 with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                     for img in images:
@@ -92,7 +93,7 @@ def run_export():
                 if ocr_fallback and not ocr_is_available():
                     return jsonify({'error': _OCR_INSTALL_HINT}), 400
 
-                out_name = f"{base}.txt"
+                out_name = collision_safe(output_folder, f"{base}.txt")
                 out_path = os.path.join(output_folder, out_name)
                 report = pdf_to_text_report(
                     input_path, out_path,
