@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+**/__pycache__
+uploads
+output
+tests
+docs
+*.md
+!README.md
+.vscode
+.idea
