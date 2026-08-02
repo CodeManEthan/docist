@@ -90,7 +90,7 @@ function buildMergeOptions(formState) {
     const asBool = (v, dflt) => (v === undefined || v === null ? dflt : !!v);
 
     const pageNumbers = asBool(state.pageNumbers, true);
-    const blankPages = asBool(state.blankPages, true);
+    const blankPages = asBool(state.blankPages, false);
     const bookmarks = asBool(state.bookmarks, true);
 
     let position = state.numberPosition;

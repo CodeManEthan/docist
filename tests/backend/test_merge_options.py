@@ -148,7 +148,7 @@ def test_parse_options_defaults_reproduce_original_behavior():
     opts = parse_options({})
     assert opts == {
         "page_numbers": True,
-        "blank_pages": True,
+        "blank_pages": False,
         "bookmarks": True,
         "number_position": "bottom-right",
         "start_number": 1,

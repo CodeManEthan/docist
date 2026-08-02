@@ -32,7 +32,7 @@ A self-hosted document toolkit: merge PDFs (auto-converting ~19 input formats on
 - **Reorder & Remove**: Drag rows (or use ▲/▼ buttons) to reorder files before merging; remove files with ✕
 - **Merge Options**: Toggle page numbers (position: bottom left/center/right, custom start number), toggle blank-page insertion, toggle bookmarks
 - **Bookmarks**: The merged PDF gets one outline entry per source file
-- **Front Page Alignment**: Blank pages after odd-page documents keep every file starting on a front page (perfect for duplex printing)
+- **Front Page Alignment**: Optionally insert blank pages after odd-page documents so every file starts on a front page (perfect for duplex printing; off by default)
 - **Interleave Mode**: Combine two separately-scanned stacks (fronts + backs) by alternating pages, with reverse-order handling for flatbed/ADF back-side scans
 
 ### Convert Files (`/convert`)

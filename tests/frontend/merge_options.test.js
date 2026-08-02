@@ -15,7 +15,7 @@ const {
 test('buildMergeOptions: defaults reproduce the backend defaults', () => {
     assert.deepEqual(buildMergeOptions({}), {
         page_numbers: 'true',
-        blank_pages: 'true',
+        blank_pages: 'false',
         bookmarks: 'true',
         number_position: 'bottom-right',
         start_number: '1',

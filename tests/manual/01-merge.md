@@ -4,10 +4,11 @@ Server: default mode. Fixtures: `tests/manual/fixtures/`.
 
 ## M1 ⚡ Basic merge, default options
 Upload `odd-3p.pdf` + `even-4p.pdf` (in that order) → Merge → Download.
-**Expect:** `odd-3p-merged.pdf`, 8 pages: DOC A pages 1–3, one blank page
-(front-page alignment after the odd doc), then DOC B pages 1–4. Page
-numbers stamped bottom-right starting at 1. PDF outline has two
-bookmarks, one per source file.
+**Expect:** `odd-3p-merged.pdf`, 7 pages: DOC A pages 1–3 directly
+followed by DOC B pages 1–4 (no blank page — blank-page insertion is
+off by default; the checkbox starts unchecked). Page numbers stamped
+bottom-right starting at 1. PDF outline has two bookmarks, one per
+source file.
 - [ ] Pass
 
 ## M2 ⚡ Row thumbnails
@@ -39,9 +40,10 @@ Upload `multi.tiff` alone → Merge.
 
 ## M6 Merge options
 Upload `odd-3p.pdf` + `even-4p.pdf`. Set: number position
-bottom-center, start number 5, blank pages OFF, bookmarks OFF → Merge.
-**Expect:** 7 pages (no blank inserted), numbers 5–11 centered at the
-bottom, no outline entries.
+bottom-center, start number 5, blank pages ON, bookmarks OFF → Merge.
+**Expect:** 8 pages — a blank page inserted after the odd 3-page doc
+(front-page alignment) — numbers 5–12 centered at the bottom, no
+outline entries.
 - [ ] Pass
 
 ## M7 ⚡ Interleave two scanned stacks

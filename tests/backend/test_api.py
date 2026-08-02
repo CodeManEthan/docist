@@ -35,11 +35,11 @@ def _merged_pages(client, filename):
 
 
 def _expected_pages_for(sources, tmp_path):
-    """Replicate the app's blank-page logic to compute the expected page count.
+    """Compute the expected merged page count for default options.
 
     ``sources`` is a list of (name, bytes). PDFs are counted as-is; convertible
-    files are converted the same way the app does. Each doc contributes its own
-    page count plus one trailing blank page when that count is odd.
+    files are converted the same way the app does. Blank-page padding is off
+    by default, so the expectation is the plain sum of source page counts.
     """
     total = 0
     for i, (name, content) in enumerate(sources):
@@ -51,8 +51,7 @@ def _expected_pages_for(sources, tmp_path):
         else:
             pdf_path = tmp_path / f"exp_{i}.pdf"
             get_converter(ext)(str(src), str(pdf_path))
-        pages = len(PdfReader(str(pdf_path)).pages)
-        total += pages + (1 if pages % 2 == 1 else 0)
+        total += len(PdfReader(str(pdf_path)).pages)
     return total
 
 
@@ -71,7 +70,7 @@ def test_formats_lists_pdf_and_all_converters(client):
 # --------------------------------------------------------------------------
 # POST /upload -- two PDFs
 # --------------------------------------------------------------------------
-def test_upload_two_pdfs_merges_with_blanks_and_numbers(client, tmp_path, builders):
+def test_upload_two_pdfs_merges_with_numbers(client, tmp_path, builders):
     p1 = builders.pdf(tmp_path / "a.pdf", pages=1, marker=builders.PDF_MARKER_A)
     p2 = builders.pdf(tmp_path / "b.pdf", pages=1, marker=builders.PDF_MARKER_B)
     sources = [("a.pdf", p1.read_bytes()), ("b.pdf", p2.read_bytes())]
@@ -84,8 +83,8 @@ def test_upload_two_pdfs_merges_with_blanks_and_numbers(client, tmp_path, builde
     assert filename == "a-merged.pdf"  # named after the first file's basename
 
     pages, text = _merged_pages(client, filename)
-    # Two 1-page (odd) PDFs -> each gets a trailing blank -> 1+1 + 1+1 = 4.
-    assert pages == _expected_pages_for(sources, tmp_path) == 4
+    # Two 1-page PDFs; blank padding is off by default -> 1 + 1 = 2.
+    assert pages == _expected_pages_for(sources, tmp_path) == 2
     assert builders.PDF_MARKER_A in text
     assert builders.PDF_MARKER_B in text
     # Page numbers are stamped bottom-right; page "1" should appear.

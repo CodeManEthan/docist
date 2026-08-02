@@ -39,7 +39,7 @@ DEFAULT_OPTIONS = {
     'page_numbers': True,
     'number_position': 'bottom-right',
     'start_number': 1,
-    'blank_pages': True,
+    'blank_pages': False,
     'bookmarks': True,
     # Merge mode: 'standard' concatenates; 'interleave' zips two front/back
     # scans into A1,B1,A2,B2,...  reverse_second flips the back stack first

@@ -344,7 +344,7 @@ def test_route_invalid_mode_returns_400(client, tmp_path, builders):
 
 
 def test_route_standard_mode_still_default(client, tmp_path, builders):
-    # No mode field -> standard concatenation with the historical blank padding.
+    # No mode field -> standard concatenation (blank padding off by default).
     a = builders.pdf(tmp_path / "a.pdf", pages=1, marker="A")
     b = builders.pdf(tmp_path / "b.pdf", pages=1, marker="B")
     resp = _upload(
@@ -354,5 +354,5 @@ def test_route_standard_mode_still_default(client, tmp_path, builders):
     assert resp.status_code == 200, resp.data
     filename = resp.get_json()["filename"]
     reader = PdfReader(str(client.output_dir / filename))
-    # Two odd (1-page) sources each get a blank -> 4 pages in standard mode.
-    assert len(reader.pages) == 4
+    # Two 1-page sources, no blank padding -> 2 pages in standard mode.
+    assert len(reader.pages) == 2

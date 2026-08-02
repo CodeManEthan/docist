@@ -25,7 +25,8 @@ curl -sf -X POST $BASE/api/v1/merge \
 from pypdf import PdfReader; r = PdfReader('api-merged.pdf')
 print(len(r.pages), 'pages;', len(r.outline), 'bookmarks')"
 ```
-**Expect:** HTTP 200, a PDF of DOC A + a blank + the rendered markdown,
+**Expect:** HTTP 200, a PDF of DOC A followed directly by the rendered
+markdown (no blank padding — `blank_pages` defaults to false),
 2 bookmarks. The file arrives in the response body directly — nothing
 appears in `output/`.
 - [ ] Pass
