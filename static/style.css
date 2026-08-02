@@ -1,4 +1,26 @@
-/* Shared theme for all tool pages. */
+/* Shared theme for all tool pages.
+ *
+ * Ink & Stamp: black ink on warm paper, with a rubber-stamp vermilion
+ * reserved for interactive elements. All identity colors live in the
+ * :root token block; success/error message colors stay semantic and are
+ * defined at their point of use.
+ */
+:root {
+    --paper: #f2f0ea;        /* page background */
+    --card: #ffffff;         /* main container surface */
+    --ink: #1c1c1e;          /* headings, primary actions */
+    --ink-soft: #4d4b45;     /* body / label text */
+    --muted: #77746b;        /* secondary text */
+    --faint: #a8a49a;        /* hints, tertiary text */
+    --accent: #d63c2f;       /* stamp red: links, focus, active */
+    --accent-wash: #f9e7e4;  /* pale accent hover background */
+    --tint: #f1efe8;         /* panel / row background */
+    --tint-strong: #e4e1d8;  /* pill and hover background */
+    --line: #dcd9cf;         /* hairline borders */
+    --shimmer-a: #eceae3;    /* thumbnail loading shimmer */
+    --shimmer-b: #e0ddd4;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -7,7 +29,7 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--paper);
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -26,7 +48,7 @@ body {
 }
 
 .tool-nav .nav-brand {
-    color: #fff;
+    color: var(--ink);
     font-weight: 800;
     font-size: 1.05em;
     letter-spacing: 0.02em;
@@ -37,7 +59,7 @@ body {
 .tool-nav a.nav-signout {
     margin-left: auto;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1px solid var(--line);
 }
 
 .login-form {
@@ -48,14 +70,14 @@ body {
 
 .login-form input[type="password"] {
     padding: 12px 14px;
-    border: 2px solid #e0e0e0;
+    border: 2px solid var(--line);
     border-radius: 10px;
     font-size: 1em;
 }
 
 .login-form input[type="password"]:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: var(--accent);
 }
 
 .login-error {
@@ -68,81 +90,82 @@ body {
 }
 
 .tool-nav a {
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--ink-soft);
     text-decoration: none;
     font-weight: 600;
     font-size: 0.92em;
     padding: 8px 16px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--tint-strong);
     transition: background 0.15s ease, color 0.15s ease;
 }
 
 .tool-nav a:hover {
-    background: rgba(255, 255, 255, 0.25);
-    color: #fff;
+    background: var(--line);
+    color: var(--ink);
 }
 
 .tool-nav a.active {
-    background: #fff;
-    color: #667eea;
+    background: var(--ink);
+    color: var(--paper);
 }
 
 .container {
-    background: white;
+    background: var(--card);
+    border: 1px solid var(--line);
     border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 12px 32px rgba(28, 28, 30, 0.08);
     padding: 40px;
     max-width: 600px;
     width: 100%;
 }
 
 h1 {
-    color: #333;
+    color: var(--ink);
     margin-bottom: 10px;
     font-size: 2em;
 }
 
 .subtitle {
-    color: #666;
+    color: var(--muted);
     margin-bottom: 30px;
     font-size: 0.95em;
 }
 
 .upload-area {
-    border: 3px dashed #667eea;
+    border: 3px dashed var(--line);
     border-radius: 15px;
     padding: 40px;
     text-align: center;
     cursor: pointer;
     transition: all 0.3s ease;
-    background: #f8f9ff;
+    background: var(--tint);
 }
 
 .upload-area:hover {
-    border-color: #764ba2;
-    background: #f0f2ff;
+    border-color: var(--accent);
+    background: var(--tint);
 }
 
 .upload-area.dragover {
-    background: #e8ebff;
-    border-color: #764ba2;
+    background: var(--accent-wash);
+    border-color: var(--accent);
 }
 
 .upload-icon {
     font-size: 48px;
     margin-bottom: 15px;
-    color: #667eea;
+    color: var(--accent);
 }
 
 .upload-text {
-    color: #333;
+    color: var(--ink);
     font-size: 1.1em;
     margin-bottom: 5px;
 }
 
 .upload-hint {
-    color: #999;
+    color: var(--faint);
     font-size: 0.9em;
 }
 
@@ -162,7 +185,7 @@ input[type="file"] {
 }
 
 .file-item {
-    background: #f8f9ff;
+    background: var(--tint);
     padding: 10px 12px;
     margin: 8px 0;
     border-radius: 8px;
@@ -179,16 +202,16 @@ input[type="file"] {
 }
 
 .file-item.drag-over-top {
-    border-top: 3px solid #764ba2;
+    border-top: 3px solid var(--accent);
 }
 
 .file-item.drag-over-bottom {
-    border-bottom: 3px solid #764ba2;
+    border-bottom: 3px solid var(--accent);
 }
 
 .drag-handle {
     cursor: grab;
-    color: #b7b7d8;
+    color: var(--faint);
     font-size: 1.1em;
     user-select: none;
     line-height: 1;
@@ -199,7 +222,7 @@ input[type="file"] {
 }
 
 .file-info {
-    color: #333;
+    color: var(--ink);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -207,13 +230,13 @@ input[type="file"] {
 }
 
 .file-item .file-number {
-    color: #667eea;
+    color: var(--accent);
     font-weight: bold;
     margin-right: 8px;
 }
 
 .file-size {
-    color: #999;
+    color: var(--faint);
     white-space: nowrap;
 }
 
@@ -227,7 +250,7 @@ input[type="file"] {
     background: transparent;
     border: none;
     cursor: pointer;
-    color: #667eea;
+    color: var(--muted);
     font-size: 0.95em;
     width: 26px;
     height: 26px;
@@ -240,7 +263,8 @@ input[type="file"] {
 }
 
 .icon-btn:hover:not(:disabled) {
-    background: #e8ebff;
+    background: var(--tint-strong);
+    color: var(--ink);
 }
 
 .icon-btn:disabled {
@@ -249,16 +273,16 @@ input[type="file"] {
 }
 
 .icon-btn.remove-btn {
-    color: #c0392b;
+    color: var(--accent);
 }
 
 .icon-btn.remove-btn:hover:not(:disabled) {
-    background: #fde8e6;
+    background: var(--accent-wash);
 }
 
 .btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: var(--ink);
+    color: var(--paper);
     border: none;
     padding: 15px 30px;
     border-radius: 10px;
@@ -272,7 +296,7 @@ input[type="file"] {
 
 .btn:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 5px 15px rgba(28, 28, 30, 0.3);
 }
 
 .btn:disabled {
@@ -301,7 +325,7 @@ input[type="file"] {
 }
 
 .download-btn {
-    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    background: #1e7a4f;
     margin-top: 10px;
 }
 
@@ -312,8 +336,8 @@ input[type="file"] {
 }
 
 .spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #667eea;
+    border: 4px solid var(--tint-strong);
+    border-top: 4px solid var(--accent);
     border-radius: 50%;
     width: 40px;
     height: 40px;
@@ -329,20 +353,20 @@ input[type="file"] {
 .features {
     margin-top: 30px;
     padding-top: 20px;
-    border-top: 1px solid #e0e0e0;
+    border-top: 1px solid var(--line);
 }
 
 .feature-item {
     display: flex;
     align-items: center;
     margin: 10px 0;
-    color: #666;
+    color: var(--muted);
     font-size: 0.9em;
 }
 
 .feature-item::before {
     content: "✓";
-    color: #667eea;
+    color: var(--accent);
     font-weight: bold;
     margin-right: 10px;
     font-size: 1.2em;
@@ -352,7 +376,7 @@ input[type="file"] {
 .options-panel {
     margin-top: 20px;
     padding: 16px;
-    background: #f8f9ff;
+    background: var(--tint);
     border-radius: 10px;
 }
 
@@ -360,7 +384,7 @@ input[type="file"] {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: #444;
+    color: var(--ink-soft);
     font-size: 0.92em;
     margin: 8px 0;
 }
@@ -374,8 +398,8 @@ input[type="file"] {
     height: 39px;
     border-radius: 4px;
     overflow: hidden;
-    background: #fff;
-    border: 1px solid #d5d9f2;
+    background: var(--card);
+    border: 1px solid var(--line);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -391,10 +415,10 @@ input[type="file"] {
 
 /* Placeholder shown while a preview is still being fetched. */
 .thumb-loading {
-    background: linear-gradient(100deg, #eef0fb 30%, #dfe3f8 50%, #eef0fb 70%);
+    background: linear-gradient(100deg, var(--shimmer-a) 30%, var(--shimmer-b) 50%, var(--shimmer-a) 70%);
     background-size: 300% 100%;
     animation: thumb-shimmer 1.2s ease-in-out infinite;
-    border: 1px solid #e3e6f7;
+    border: 1px solid var(--line);
 }
 
 @keyframes thumb-shimmer {
@@ -405,14 +429,14 @@ input[type="file"] {
 /* Page Tools: clickable grid of page previews. */
 .thumb-hint {
     margin-top: 18px;
-    color: #666;
+    color: var(--muted);
     font-size: 0.88em;
 }
 
 .thumb-grid {
     margin-top: 10px;
     padding: 12px;
-    background: #f8f9ff;
+    background: var(--tint);
     border-radius: 10px;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
@@ -422,8 +446,8 @@ input[type="file"] {
 }
 
 .page-thumb {
-    background: #fff;
-    border: 1px solid #d5d9f2;
+    background: var(--card);
+    border: 1px solid var(--line);
     border-radius: 8px;
     padding: 5px;
     cursor: pointer;
@@ -436,13 +460,13 @@ input[type="file"] {
 }
 
 .page-thumb:hover {
-    border-color: #667eea;
-    box-shadow: 0 3px 10px rgba(102, 126, 234, 0.25);
+    border-color: var(--accent);
+    box-shadow: 0 3px 10px rgba(214, 60, 47, 0.18);
     transform: translateY(-1px);
 }
 
 .page-thumb:focus-visible {
-    outline: 2px solid #667eea;
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
@@ -454,7 +478,7 @@ input[type="file"] {
 }
 
 .page-thumb-caption {
-    color: #667eea;
+    color: var(--muted);
     font-size: 0.78em;
     font-weight: 700;
     line-height: 1;
@@ -466,19 +490,19 @@ input[type="file"] {
     min-height: 86px;
     border-radius: 8px;
     cursor: default;
-    background: linear-gradient(100deg, #eef0fb 30%, #dfe3f8 50%, #eef0fb 70%);
+    background: linear-gradient(100deg, var(--shimmer-a) 30%, var(--shimmer-b) 50%, var(--shimmer-a) 70%);
     background-size: 300% 100%;
 }
 
 .thumb-grid .thumb-loading:hover {
-    border-color: #d5d9f2;
+    border-color: var(--line);
     box-shadow: none;
     transform: none;
 }
 
 .thumb-note {
     margin-top: 8px;
-    color: #999;
+    color: var(--faint);
     font-size: 0.85em;
     text-align: right;
 }
@@ -487,10 +511,10 @@ input[type="file"] {
 .options-panel input[type="text"],
 .options-panel input[type="number"],
 .options-panel input[type="password"] {
-    border: 1px solid #d5d9f2;
+    border: 1px solid var(--line);
     border-radius: 6px;
     padding: 6px 8px;
     font-size: 0.92em;
-    color: #333;
-    background: #fff;
+    color: var(--ink);
+    background: var(--card);
 }
