@@ -1,0 +1,64 @@
+# Docist: the PDF toolkit, served by gunicorn on 127.0.0.1:5010.
+#
+# ADAPTED FROM DEPLOYMENT.md's systemd template, not invented. Four changes, each because
+# this is a USER unit on this box rather than the system unit the doc describes:
+#   * no `User=docist` -- a `systemctl --user` unit already runs as the operator, and a
+#     User= line in a user unit is an error, not a no-op.
+#   * WorkingDirectory and the gunicorn path move from /opt/docist to the real tree.
+#   * no `Environment=DOCIST_PASSWORD=change-me` / `DOCIST_SECRET_KEY=change-me`. Baking a
+#     placeholder credential into a checked-in unit is how placeholders reach production.
+#     EnvironmentFile below picks them up from a gitignored .env if one is ever written;
+#     with neither set, Docist runs with NO LOGIN GATE, which is correct for a
+#     loopback-only tool and is stated here rather than left to be discovered.
+#   * WantedBy=multi-user.target dropped entirely -- see the note at the bottom.
+#
+# ON-DEMAND. Installed and registered but NOT enabled; the registry row is PAUSED, which
+# says the identity is known and is not expected up. Stopped is its normal state.
+#
+#   overseer service start docist docist
+#   overseer service stop  docist docist
+#
+# NO HEARTBEAT PATCH, deliberately: a paused row is never read for freshness. systemd's
+# ActiveState, shown beside the heartbeat by `overseer service status`, carries the truth.
+#
+# Logs: journalctl --user -u docist
+
+[Unit]
+Description=Docist PDF toolkit (gunicorn on 127.0.0.1:5010)
+Documentation=file:%h/projects/Docist/DEPLOYMENT.md
+After=network.target
+
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/Docist
+# The project venv's gunicorn binary, which exists and imports the app cleanly (verified
+# 2026-08-26). Not run.sh: that wrapper pip-installs on a missing import, and a unit that
+# might install packages on start is a unit that can hang on a start.
+#
+# --forwarded-allow-ips is DROPPED from the doc's line. It exists so a reverse proxy's
+# X-Forwarded-For becomes remote_addr for the rate limiter; there is no proxy here, and
+# trusting a forwarded header with nothing in front of you lets any client spoof its own
+# rate-limit key. Add it back the day nginx lands in front, not before.
+#
+# --workers 2 follows the doc. Note the consequence it names: with no DOCIST_SECRET_KEY
+# set, each worker mints its own session-signing key, which would break logins -- moot
+# only while DOCIST_PASSWORD is unset and there is no login to break. Set both together.
+ExecStart=%h/projects/Docist/.venv/bin/gunicorn --workers 2 --timeout 120 --bind 127.0.0.1:5010 app:app
+
+# `-` prefix: the file need not exist, and a missing credentials file must not be the
+# reason a loopback PDF tool refuses to start.
+EnvironmentFile=-%h/projects/Docist/.env
+
+Restart=on-failure
+RestartSec=5
+
+KillMode=mixed
+TimeoutStopSec=20
+NoNewPrivileges=yes
+
+# NO [Install] SECTION, deliberately. The doc's WantedBy=multi-user.target belongs to a
+# system service that should be up whenever the box is; this is an on-demand tool an
+# operator starts through the registry. `systemctl --user enable` refusing is correct.
