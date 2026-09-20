@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Manual hand-test checklist 01 — twelve checks on the Merge & Convert page: default merge, row thumbnails, reorder/remove, mixed-format merge, merge options, interleave and its validation, and the corrupt/spoofed/duplicate-name error paths."
+tags: [checklist, testing, ui]
+updated: 2026-08-02
+---
+
 # 01 — Merge & Convert (`/`)
 
 Server: default mode. Fixtures: `tests/manual/fixtures/`.

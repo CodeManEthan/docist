@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Manual hand-test checklist 07 — ten checks against a server started in hardened mode: login gate and lifecycle, Bearer-token API auth, the known 413 UX wart, rate limiting including on /login, download traversal guard, and content sniffing under auth."
+tags: [checklist, testing, auth, secrets]
+updated: 2026-08-02
+---
+
 # 07 — Auth gate & hardening
 
 **Restart the server in hardened mode first:**

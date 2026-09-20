@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Manual hand-test checklist 02 — eleven checks on the Convert Files page, one per transform family: target matrix, document/data/image conversions, multi-page PDF-to-zip, pivot routing, OCR, and extension sniffing."
+tags: [checklist, testing, ui]
+updated: 2026-08-02
+---
+
 # 02 — Convert Files (`/convert`)
 
 Server: default mode. One representative check per transform family —

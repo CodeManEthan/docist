@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Shortest path to a running Docist: venv activation, dependency install, run.sh dev/prod modes, optional password gate, and a six-step merge smoke test in the browser."
+tags: [setup, ui]
+updated: 2026-08-01
+---
+
 # Docist — Quick Start Guide
 
 ## Installation

@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Manual hand-test checklist 06 — eight curl-driven checks of the unauthenticated /api/v1 surface: formats discovery, merge with options, convert (including multi-page zip), extract, split, watermark, and the JSON error shape plus an AES-256 verification snippet."
+tags: [checklist, testing, api, cli]
+updated: 2026-08-02
+---
+
 # 06 — REST API (`/api/v1`)
 
 Server: default mode (no auth). Run from the repo root; outputs land in

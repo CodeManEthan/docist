@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Manual hand-test checklist 03 — eleven checks on Page Tools: the clickable thumbnail grid and its 24-page cap, extract/remove/rotate/split, compression, OCR of scanned and already-text PDFs, range validation, and corrupt input."
+tags: [checklist, testing, ui]
+updated: 2026-08-02
+---
+
 # 03 — Page Tools (`/pages`)
 
 Server: default mode. All operations are PDF-only.

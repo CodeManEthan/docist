@@ -1,3 +1,11 @@
+---
+type: repo-readme
+project: docist
+description: "Top-level README for Docist, the self-hosted document toolkit — the six browser tools and /api/v1 REST API, the auto-discovered converter/transform plugin architecture with pivot-through-PDF routing, security and deployment posture, file layout, and requirements."
+tags: [reference, architecture, api, ui, deployment]
+updated: 2026-08-02
+---
+
 # Docist
 
 A self-hosted document toolkit: merge PDFs (auto-converting ~19 input formats on the way in), convert files between ~150 format pairs, edit and split pages, impose booklets, export to images or text with OCR, and stamp, watermark and password-protect documents — six browser tools and a REST API, behind an optional login gate.

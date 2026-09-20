@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Production deployment recipe for Docist: the one-command gunicorn start, every DOCIST_* environment variable, what the hardening actually provides, nginx reverse-proxy and systemd unit templates, and honest limitations."
+tags: [howto, deployment, ops, auth]
+updated: 2026-08-01
+---
+
 # Deploying Docist
 
 Docist's dev server (`python app.py`) is for localhost only. For anything

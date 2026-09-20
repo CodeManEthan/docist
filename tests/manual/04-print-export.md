@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Manual hand-test checklist 04 — nine checks across Print Prep (2-up, 4-up, booklet imposition, non-PDF rejection) and Export (PDF to zipped images, DPI bounds, PDF to text with and without OCR fallback)."
+tags: [checklist, testing, ui]
+updated: 2026-08-02
+---
+
 # 04 — Print Prep (`/print`) + Export (`/export`)
 
 Server: default mode.

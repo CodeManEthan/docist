@@ -1,3 +1,11 @@
+---
+type: repo-doc
+project: docist
+description: "Manual hand-test checklist 05 — ten checks on Watermark & Security: watermark placement options, header/footer placeholders, Bates numbering, AES-256 protect, unlocking own and legacy-RC4 files, and the wrong-password/empty-password/spoofed-file error paths."
+tags: [checklist, testing, secrets]
+updated: 2026-08-02
+---
+
 # 05 — Watermark & Security (`/security`)
 
 Server: default mode. Encrypted fixture password: `docist-test`.
