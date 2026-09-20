@@ -1,0 +1,50 @@
+Docist — Proprietary License
+Copyright (c) 2026 Ethan Plunk. All rights reserved.
+
+This source code is published publicly so that it may be READ and EVALUATED.
+It is not open source, and no open-source license is granted.
+
+
+PERMITTED
+
+You may view this repository, clone it, and read the source code for the sole
+purpose of evaluating the author's work — for example, as part of a hiring,
+review, or educational assessment.
+
+
+NOT PERMITTED
+
+Except as expressly stated above, no rights are granted. Without the prior
+written permission of the copyright holder, you may not:
+
+  * use or run this software for any purpose, personal or commercial;
+  * copy, reproduce, or republish it, in whole or in part;
+  * modify it or create derivative works from it;
+  * distribute, sublicense, sell, rent, or host it as a service;
+  * remove or alter this notice.
+
+All rights not expressly granted here are reserved by the copyright holder.
+
+
+THIRD-PARTY COMPONENTS
+
+This notice covers only the original source code authored by the copyright
+holder. Docist depends on third-party libraries and system tools that are
+distributed under their own licenses — including permissive (BSD, MIT,
+Apache-2.0), weak-copyleft (LGPL-3.0, MPL-2.0), and copyleft (GPL-3.0-or-later)
+terms. Those components remain governed by their own licenses, which are
+neither superseded nor restricted by this notice. See requirements.txt and
+Dockerfile for the current dependency set.
+
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+For permission beyond the scope of this license, contact the copyright holder.
