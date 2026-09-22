@@ -28,6 +28,7 @@ and rate limiting active. Put nginx (or Caddy) in front for TLS.
 | Variable | Default | Purpose |
 |---|---|---|
 | `DOCIST_PASSWORD` | *(unset — gate off)* | Shared access password. Setting it turns the login gate on for every page and endpoint (only `/login`, `/healthz` and static assets stay open). |
+| `DOCIST_PUBLIC_DEMO` | *(unset)* | Set to `1` to print the password on the login page and prefill the box. For a portfolio demo that anyone may try: the gate then only keeps crawlers and scripts out. |
 | `DOCIST_SECRET_KEY` | random per process | Signs session cookies. **Set it in production** — otherwise every restart logs everyone out (and multiple gunicorn workers would each mint their own key, breaking logins entirely). |
 | `DOCIST_HOST` | `127.0.0.1` | Dev-server bind address (`app.py` only; gunicorn takes `--bind`). |
 | `DOCIST_PORT` | `5010` | Port for both `run.sh` modes. |

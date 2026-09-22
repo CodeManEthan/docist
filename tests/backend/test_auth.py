@@ -41,10 +41,27 @@ class TestGateOff:
         assert b"Sign out" not in client.get("/").data
 
 
+@pytest.fixture
+def public_demo(gated):
+    """Gate on, and the login page told to print the password."""
+    app = flask_app_module.app
+    prev = app.config.get("PUBLIC_DEMO", False)
+    app.config["PUBLIC_DEMO"] = True
+    try:
+        yield gated
+    finally:
+        app.config["PUBLIC_DEMO"] = prev
+
+
 # --------------------------------------------------------------------------
 # Gate on
 # --------------------------------------------------------------------------
 class TestGateOn:
+    def test_login_page_keeps_the_password_secret(self, gated):
+        response = gated.get("/login")
+        assert PASSWORD.encode() not in response.data
+        assert b"public demo" not in response.data.lower()
+
     def test_page_get_redirects_to_login(self, gated):
         response = gated.get("/")
         assert response.status_code == 302
@@ -99,6 +116,28 @@ class TestGateOn:
             response = gated.get(path)
             assert response.status_code == 302, path
             assert response.headers["Location"].startswith("/login"), path
+
+
+# --------------------------------------------------------------------------
+# Public demo: password printed on the login page
+# --------------------------------------------------------------------------
+class TestPublicDemo:
+    def test_login_page_prints_and_prefills_the_password(self, public_demo):
+        response = public_demo.get("/login")
+        assert response.status_code == 200
+        assert b"public demo" in response.data.lower()
+        assert f"<code>{PASSWORD}</code>".encode() in response.data
+        assert f'value="{PASSWORD}"'.encode() in response.data
+
+    def test_wrong_password_page_still_prints_it(self, public_demo):
+        response = login(public_demo, password="nope")
+        assert response.status_code == 401
+        assert f"<code>{PASSWORD}</code>".encode() in response.data
+
+    def test_gate_still_enforced(self, public_demo):
+        assert public_demo.get("/").status_code == 302
+        assert login(public_demo).status_code == 302
+        assert public_demo.get("/").status_code == 200
 
 
 # --------------------------------------------------------------------------

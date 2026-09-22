@@ -10,7 +10,12 @@
 <body>
     <div class="container login-container">
         <h1>📄 Docist</h1>
+        {% if shown_password %}
+        <p class="subtitle">This is a public demo. The password is printed below; it keeps bots out, not you.</p>
+        <p class="login-demo">Password: <code>{{ shown_password }}</code></p>
+        {% else %}
         <p class="subtitle">This instance is private. Enter the access password to continue.</p>
+        {% endif %}
 
         {% if error %}
         <p class="login-error">{{ error }}</p>
@@ -19,6 +24,7 @@
         <form method="post" action="/login" class="login-form">
             <input type="hidden" name="next" value="{{ next }}">
             <input type="password" name="password" placeholder="Password"
+                   value="{{ shown_password }}"
                    autofocus autocomplete="current-password" required>
             <button type="submit" class="btn">Sign in</button>
         </form>

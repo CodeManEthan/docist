@@ -12,6 +12,10 @@ the frontend fetch() error paths surface a clear message instead of HTML.
 Non-browser clients (curl, scripts hitting /api/v1/...) can skip the cookie
 entirely and send ``Authorization: Bearer <password>`` -- the same shared
 password, compared in constant time exactly like the login form.
+
+Public demo: with ``DOCIST_PUBLIC_DEMO=1`` the login page prints the password
+and prefills the box, so a visitor from the portfolio gets in with one click
+while crawlers and scripts still hit a gate.
 """
 import hmac
 
@@ -34,6 +38,13 @@ def gate_enabled():
 
 def is_authed():
     return session.get(SESSION_KEY) is True
+
+
+def shown_password():
+    """The password to print on the login page, or '' when it stays secret."""
+    if current_app.config.get('PUBLIC_DEMO'):
+        return current_app.config.get('ACCESS_PASSWORD') or ''
+    return ''
 
 
 def _bearer_token(header):
@@ -106,10 +117,12 @@ def login():
         return render_template(
             'login.html', error='Wrong password.',
             next=_safe_next(request.form.get('next')),
+            shown_password=shown_password(),
         ), 401
 
     return render_template(
         'login.html', error=None, next=_safe_next(request.args.get('next')),
+        shown_password=shown_password(),
     )
 
 

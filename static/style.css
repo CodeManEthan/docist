@@ -92,6 +92,22 @@ body {
     border-color: var(--accent);
 }
 
+.login-demo {
+    margin: -18px 0 22px;
+    font-size: 0.95em;
+    color: var(--ink-soft);
+}
+
+.login-demo code {
+    padding: 3px 8px;
+    border: 1px dashed var(--accent);
+    border-radius: 6px;
+    background: var(--accent-wash);
+    color: var(--ink);
+    font-size: 1.05em;
+    user-select: all;
+}
+
 .login-error {
     color: #c0392b;
     background: #fdecea;

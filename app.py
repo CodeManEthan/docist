@@ -4,6 +4,9 @@ Configuration comes from environment variables (all optional; defaults suit
 local development):
 
     DOCIST_PASSWORD                enable the login gate (off when unset)
+    DOCIST_PUBLIC_DEMO             set to 1 to print the password on the login
+                                   page (public demo: the gate then only stops
+                                   bots, not people)
     DOCIST_SECRET_KEY              session-signing key; auto-generated per
                                    process when unset (logins then reset on
                                    restart — set it in production)
@@ -45,6 +48,7 @@ app.config['OUTPUT_FOLDER'] = 'output'
 app.config['MAX_CONTENT_LENGTH'] = _env_int('DOCIST_MAX_UPLOAD_MB', 50) * 1024 * 1024
 app.config['SECRET_KEY'] = os.environ.get('DOCIST_SECRET_KEY') or secrets.token_hex(32)
 app.config['ACCESS_PASSWORD'] = os.environ.get('DOCIST_PASSWORD', '')
+app.config['PUBLIC_DEMO'] = _env_flag('DOCIST_PUBLIC_DEMO')
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = _env_flag('DOCIST_COOKIE_SECURE')
 app.config['RATE_LIMIT_REQUESTS'] = _env_int('DOCIST_RATE_LIMIT', 30)
