@@ -19,6 +19,7 @@ import zipfile
 import pytest
 
 import transforms
+from utils.naming import display_name
 
 
 # --------------------------------------------------------------------------
@@ -129,9 +130,9 @@ def test_run_happy_path(client, fake_registry):
     assert resp.status_code == 200
     payload = resp.get_json()
     assert payload['success'] is True
-    assert payload['filename'] == 'data.xlsx'
-    assert payload['download_url'] == '/download?filename=data.xlsx'
-    out = client.output_dir / 'data.xlsx'
+    assert display_name(payload['filename']) == 'data.xlsx'
+    assert payload['download_url'] == '/download?filename=' + payload['filename']
+    out = client.output_dir / payload['filename']
     assert out.exists()
     assert out.read_bytes() == b'converted-bytes'
 
@@ -145,20 +146,20 @@ def test_run_actual_path_differs_returns_zip(client, fake_registry):
     assert resp.status_code == 200
     payload = resp.get_json()
     assert payload['success'] is True
-    assert payload['filename'] == 'doc.zip'  # NOT doc.png
-    assert payload['download_url'] == '/download?filename=doc.zip'
+    assert display_name(payload['filename']) == 'doc.zip'  # NOT doc.png
+    assert payload['download_url'] == '/download?filename=' + payload['filename']
     # Message should flag that the requested target wasn't produced directly.
     assert '.zip' in payload['message']
     assert '.png' in payload['message']
-    out = client.output_dir / 'doc.zip'
+    out = client.output_dir / payload['filename']
     assert out.exists()
     with zipfile.ZipFile(str(out)) as zf:
         assert sorted(zf.namelist()) == ['page_001.png', 'page_002.png']
     # The requested .png must NOT have leaked into OUTPUT_FOLDER.
-    assert not (client.output_dir / 'doc.png').exists()
+    assert not any(p.name.endswith('doc.png') for p in client.output_dir.iterdir())
 
 
-def test_run_collision_safe_naming(client, fake_registry):
+def test_run_names_never_collide(client, fake_registry):
     def post():
         return client.post('/convert/run', data={
             'target': '.xlsx',
@@ -168,10 +169,10 @@ def test_run_collision_safe_naming(client, fake_registry):
     first = post()
     second = post()
     third = post()
-    assert first.get_json()['filename'] == 'data.xlsx'
-    assert second.get_json()['filename'] == 'data_1.xlsx'
-    assert third.get_json()['filename'] == 'data_2.xlsx'
-    for name in ('data.xlsx', 'data_1.xlsx', 'data_2.xlsx'):
+    names = [r.get_json()['filename'] for r in (first, second, third)]
+    assert len(set(names)) == 3
+    for name in names:
+        assert display_name(name) == 'data.xlsx'
         assert (client.output_dir / name).exists()
 
 

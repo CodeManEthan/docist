@@ -10,6 +10,7 @@ import mammoth
 from xhtml2pdf import pisa
 
 from . import ConversionError
+from .safe_links import link_callback
 
 
 EXTENSIONS = ['.docx']
@@ -139,7 +140,8 @@ def convert(input_path, output_path):
     try:
         with open(output_path, 'wb') as out_file:
             pdf_result = pisa.CreatePDF(
-                src=document, dest=out_file, encoding='utf-8'
+                src=document, dest=out_file, encoding='utf-8',
+                link_callback=link_callback,
             )
     except OSError as exc:
         raise ConversionError(

@@ -8,6 +8,7 @@ import markdown as _markdown
 from xhtml2pdf import pisa
 
 from . import ConversionError
+from .safe_links import link_callback
 
 
 EXTENSIONS = ['.md', '.markdown']
@@ -159,7 +160,10 @@ def convert(input_path, output_path):
 
     try:
         with open(output_path, 'wb') as out_file:
-            result = pisa.CreatePDF(src=document, dest=out_file, encoding='utf-8')
+            result = pisa.CreatePDF(
+                src=document, dest=out_file, encoding='utf-8',
+                link_callback=link_callback,
+            )
     except OSError as exc:
         raise ConversionError(
             f"Could not write PDF to '{output_path}': {exc}"

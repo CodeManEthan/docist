@@ -6,7 +6,6 @@ Results land in OUTPUT_FOLDER and are served by the shared /download endpoint.
 """
 import os
 import tempfile
-import uuid
 
 from flask import Blueprint, current_app, render_template, request, jsonify
 from werkzeug.utils import secure_filename
@@ -14,6 +13,7 @@ from werkzeug.utils import secure_filename
 from pdf_ops.security import protect_pdf, unlock_pdf
 from pdf_ops.watermark import apply_text_watermark
 from pdf_ops.stamp import apply_header_footer, apply_bates_numbers, format_bates
+from utils.naming import result_name
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('security', __name__)
@@ -27,7 +27,7 @@ def security():
 
 
 def _output_name(operation, original):
-    """A distinct OUTPUT_FOLDER filename for a processed document."""
+    """An unguessable OUTPUT_FOLDER filename for a processed document."""
     base = os.path.splitext(secure_filename(original) or 'document.pdf')[0] or 'document'
     suffix = {
         'watermark': 'watermarked',
@@ -36,7 +36,7 @@ def _output_name(operation, original):
         'headerfooter': 'stamped',
         'bates': 'bates',
     }[operation]
-    return f'{base}-{suffix}-{uuid.uuid4().hex[:8]}.pdf'
+    return result_name(f'{base}-{suffix}.pdf')
 
 
 def _bates_first_label(prefix, start, digits):

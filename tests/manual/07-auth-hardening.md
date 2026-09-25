@@ -96,9 +96,13 @@ curl -s -H "Authorization: Bearer testgate" \
   "$BASE/download?filename=../app.py" -w '\n%{http_code}\n'
 curl -s -H "Authorization: Bearer testgate" \
   "$BASE/download?filename=nonexistent.pdf" -w '\n%{http_code}\n'
+curl -s -H "Authorization: Bearer testgate" \
+  "$BASE/download?filename=00000000000000000000000000000000_nonexistent.pdf" -w '\n%{http_code}\n'
 ```
-**Expect:** `Invalid filename` + 400 for the traversal; `No file
-available` + 404 for the missing name. No file contents leak.
+**Expect:** `Invalid filename` + 400 for the traversal and for the bare
+name (no random key, so it is refused even if such a file exists);
+`No file available` + 404 for the keyed missing name. No file contents
+leak.
 - [ ] Pass
 
 ## H9 Content sniffing under auth (API)

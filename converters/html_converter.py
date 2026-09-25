@@ -1,12 +1,14 @@
 """Converter plugin: HTML (.html, .htm) to PDF.
 
 Uses xhtml2pdf (pisa) to render simple, self-contained HTML documents.
-External resources (remote images/CSS) and JavaScript are ignored by
-xhtml2pdf; this plugin targets straightforward documents.
+JavaScript is ignored, and external resources (remote or local images, CSS,
+fonts) are blocked by :mod:`converters.safe_links`; only inline ``data:``
+URIs render. This plugin targets straightforward, self-contained documents.
 """
 import os
 
 from . import ConversionError
+from .safe_links import link_callback
 
 EXTENSIONS = ['.html', '.htm']
 
@@ -37,7 +39,9 @@ def convert(input_path, output_path):
 
     try:
         with open(output_path, 'wb') as out:
-            result = pisa.CreatePDF(src=source, dest=out, encoding='utf-8')
+            result = pisa.CreatePDF(
+                src=source, dest=out, encoding='utf-8', link_callback=link_callback
+            )
     except Exception as exc:  # noqa: BLE001 - surface any pisa failure
         raise ConversionError(f'Failed to render HTML to PDF: {exc}') from exc
 

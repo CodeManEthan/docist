@@ -2,7 +2,7 @@
 
 Uploads land in a per-request ``tempfile.TemporaryDirectory`` (nothing is
 kept after the response), matching every other tool page. Only the merged
-result is written to OUTPUT_FOLDER, under a collision-safe name, and served
+result is written to OUTPUT_FOLDER, under an unguessable name, and served
 by the shared /download endpoint below.
 """
 import os
@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 
 from converters import get_converter, supported_extensions
 from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
-from utils.naming import collision_safe
+from utils.naming import display_name, result_name
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('merge', __name__)
@@ -99,7 +99,7 @@ def upload_files():
             # outline survives page-number stamping.
             writer = merge_pipeline(uploaded_files, options)
 
-            output_filename = collision_safe(output_folder, f"{base_name}-merged.pdf")
+            output_filename = result_name(f"{base_name}-merged.pdf")
             final_output = os.path.join(output_folder, output_filename)
             with open(final_output, 'wb') as output_file:
                 writer.write(output_file)
@@ -120,13 +120,16 @@ def upload_files():
 
 @bp.route('/download')
 def download_file():
-    filename = request.args.get('filename', 'merged_output.pdf')
+    filename = request.args.get('filename', '')
     # Serve only plain names that exist inside OUTPUT_FOLDER — anything
     # secure_filename would alter (path separators, '..', etc.) is rejected,
-    # so the query parameter can't reach files outside the folder.
-    if not filename or filename != secure_filename(filename):
+    # so the query parameter can't reach files outside the folder. The name
+    # must also carry the random key result_name() gave it, so a result can
+    # only be fetched by the request that produced it.
+    friendly = display_name(filename)
+    if not filename or filename != secure_filename(filename) or friendly is None:
         return jsonify({'error': 'Invalid filename'}), 400
     output_path = os.path.join(current_app.config['OUTPUT_FOLDER'], filename)
     if os.path.exists(output_path):
-        return send_file(output_path, as_attachment=True, download_name=filename)
+        return send_file(output_path, as_attachment=True, download_name=friendly)
     return jsonify({'error': 'No file available'}), 404

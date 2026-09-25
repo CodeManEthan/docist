@@ -1,5 +1,6 @@
-"""Route-level hardening regressions: collision-safe outputs + content sniffing."""
+"""Route-level hardening regressions: unguessable outputs + content sniffing."""
 import io
+import re
 
 
 def _post_pdf(client, url, pdf_bytes, name="doc.pdf", **form):
@@ -15,28 +16,59 @@ def _run_twice(client, url, pdf_bytes, **form):
     return first.get_json()["filename"], second.get_json()["filename"]
 
 
-class TestCollisionSafeOutputs:
+KEY = re.compile(r"^[0-9a-f]{32}_")
+
+
+def _friendly(name):
+    assert KEY.match(name), name
+    return name[33:]
+
+
+class TestUnguessableOutputs:
+    """H1: result names carry a random key, so repeat runs never collide and
+    nobody can fetch another visitor's result by guessing its name."""
+
     def test_pages_extract_twice(self, client, tmp_path, builders):
         pdf = builders.pdf(tmp_path / "doc.pdf", pages=3).read_bytes()
         a, b = _run_twice(
             client, "/pages/run", pdf, operation="extract", ranges="1-2"
         )
-        assert a == "doc_extracted.pdf"
-        assert b == "doc_extracted_1.pdf"
+        assert a != b
+        assert _friendly(a) == _friendly(b) == "doc_extracted.pdf"
         assert (client.output_dir / a).exists()
         assert (client.output_dir / b).exists()
 
     def test_print_nup_twice(self, client, tmp_path, builders):
         pdf = builders.pdf(tmp_path / "doc.pdf", pages=4).read_bytes()
         a, b = _run_twice(client, "/print/run", pdf, operation="nup", n="2")
-        assert a == "doc_2up.pdf"
-        assert b == "doc_2up_1.pdf"
+        assert a != b
+        assert _friendly(a) == _friendly(b) == "doc_2up.pdf"
 
     def test_export_text_twice(self, client, tmp_path, builders):
         pdf = builders.pdf(tmp_path / "doc.pdf", pages=2).read_bytes()
         a, b = _run_twice(client, "/export/run", pdf, operation="text")
-        assert a == "doc.txt"
-        assert b == "doc_1.txt"
+        assert a != b
+        assert _friendly(a) == _friendly(b) == "doc.txt"
+
+    def test_download_uses_friendly_name(self, client, tmp_path, builders):
+        pdf = builders.pdf(tmp_path / "doc.pdf", pages=2).read_bytes()
+        name = _post_pdf(client, "/export/run", pdf, operation="text").get_json()["filename"]
+        resp = client.get(f"/download?filename={name}")
+        assert resp.status_code == 200
+        assert "filename=doc.txt" in resp.headers["Content-Disposition"]
+
+    def test_download_refuses_guessable_name(self, client):
+        # A file under an old-style, guessable name is never served, even
+        # though it exists in OUTPUT_FOLDER.
+        (client.output_dir / "report-merged.pdf").write_bytes(b"%PDF-1.4 secret")
+        resp = client.get("/download?filename=report-merged.pdf")
+        assert resp.status_code == 400
+
+    def test_download_refuses_wrong_key(self, client, tmp_path, builders):
+        pdf = builders.pdf(tmp_path / "doc.pdf", pages=2).read_bytes()
+        name = _post_pdf(client, "/export/run", pdf, operation="text").get_json()["filename"]
+        guess = "0" * 32 + "_" + _friendly(name)
+        assert client.get(f"/download?filename={guess}").status_code == 404
 
 
 class TestContentSniffing:

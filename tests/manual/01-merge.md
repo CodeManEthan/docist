@@ -91,6 +91,7 @@ content doesn't match the extension).`
 
 ## M12 Duplicate output naming
 Run M1 twice without deleting anything.
-**Expect:** second run's download is `odd-3p-merged_1.pdf`; both
-downloads work.
+**Expect:** both downloads save as `odd-3p-merged.pdf` and both work;
+the `filename=` in each download URL starts with a different 32-character
+hex key.
 - [ ] Pass

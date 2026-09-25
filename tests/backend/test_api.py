@@ -10,6 +10,7 @@ import pytest
 from pypdf import PdfReader
 
 from converters import get_converter, supported_extensions
+from utils.naming import display_name
 
 
 # --------------------------------------------------------------------------
@@ -80,7 +81,8 @@ def test_upload_two_pdfs_merges_with_numbers(client, tmp_path, builders):
     body = resp.get_json()
     assert body["success"] is True
     filename = body["filename"]
-    assert filename == "a-merged.pdf"  # named after the first file's basename
+    # Named after the first file's basename, behind an unguessable key.
+    assert display_name(filename) == "a-merged.pdf"
 
     pages, text = _merged_pages(client, filename)
     # Two 1-page PDFs; blank padding is off by default -> 1 + 1 = 2.
@@ -181,7 +183,7 @@ def test_upload_failing_converter_reports_filename(client, tmp_path):
 # GET /download -- missing file
 # --------------------------------------------------------------------------
 def test_download_missing_file_returns_404(client):
-    resp = client.get("/download?filename=does-not-exist.pdf")
+    resp = client.get("/download?filename=" + "0" * 32 + "_does-not-exist.pdf")
     assert resp.status_code == 404
     assert "error" in resp.get_json()
 
@@ -215,10 +217,12 @@ def test_upload_folder_is_not_touched_by_merges(client, tmp_path, builders):
 def test_merge_output_names_do_not_clobber(client, tmp_path, builders):
     pdf = builders.pdf(tmp_path / "a.pdf", pages=1, marker=builders.PDF_MARKER_A)
     sources = [("a.pdf", pdf.read_bytes())]
-    assert _upload(client, sources).get_json()["filename"] == "a-merged.pdf"
-    assert _upload(client, sources).get_json()["filename"] == "a-merged_1.pdf"
-    assert (client.output_dir / "a-merged.pdf").exists()
-    assert (client.output_dir / "a-merged_1.pdf").exists()
+    first = _upload(client, sources).get_json()["filename"]
+    second = _upload(client, sources).get_json()["filename"]
+    assert first != second
+    assert display_name(first) == display_name(second) == "a-merged.pdf"
+    assert (client.output_dir / first).exists()
+    assert (client.output_dir / second).exists()
 
 
 def test_upload_content_must_match_extension(client):

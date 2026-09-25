@@ -3,31 +3,33 @@ import os
 
 import pytest
 
-from utils.naming import collision_safe
+from utils.naming import display_name, result_name
 from utils.validation import UploadValidationError, validate_upload
 from utils.cleanup import OutputJanitor, prune_old_files
 from utils.ratelimit import RateLimiter
 
 
 # --------------------------------------------------------------------------
-# collision_safe
+# result_name / display_name
 # --------------------------------------------------------------------------
-class TestCollisionSafe:
-    def test_free_name_is_untouched(self, tmp_path):
-        assert collision_safe(str(tmp_path), "doc.pdf") == "doc.pdf"
+class TestResultName:
+    def test_key_prefix_and_friendly_name(self):
+        name = result_name("doc.pdf")
+        assert len(name) == 32 + 1 + len("doc.pdf")
+        assert display_name(name) == "doc.pdf"
 
-    def test_taken_name_gets_counter(self, tmp_path):
-        (tmp_path / "doc.pdf").write_bytes(b"x")
-        assert collision_safe(str(tmp_path), "doc.pdf") == "doc_1.pdf"
+    def test_names_are_unique(self):
+        assert len({result_name("doc.pdf") for _ in range(100)}) == 100
 
-    def test_counter_skips_existing_suffixes(self, tmp_path):
-        for name in ("doc.pdf", "doc_1.pdf", "doc_2.pdf"):
-            (tmp_path / name).write_bytes(b"x")
-        assert collision_safe(str(tmp_path), "doc.pdf") == "doc_3.pdf"
+    def test_extension_is_preserved(self):
+        assert result_name("bundle.zip").endswith("_bundle.zip")
 
-    def test_extension_is_preserved(self, tmp_path):
-        (tmp_path / "bundle.zip").write_bytes(b"x")
-        assert collision_safe(str(tmp_path), "bundle.zip") == "bundle_1.zip"
+    @pytest.mark.parametrize("stored", [
+        "doc.pdf", "report-merged.pdf", "0" * 31 + "_doc.pdf",
+        "G" * 32 + "_doc.pdf", "0" * 32 + "_", "", None,
+    ])
+    def test_display_name_rejects_unkeyed(self, stored):
+        assert display_name(stored) is None
 
 
 # --------------------------------------------------------------------------

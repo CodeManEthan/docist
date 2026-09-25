@@ -1,22 +1,28 @@
-"""Collision-safe output filenames, shared by every route that writes results.
+"""Unguessable output filenames, shared by every route that writes results.
 
-Previously each route wrote ``<base>_<suffix>.<ext>`` straight into
-OUTPUT_FOLDER, silently clobbering any earlier result with the same name
-(only /convert protected itself). Every route now calls
-:func:`collision_safe` before writing.
+Every browser route writes its result into the one shared OUTPUT_FOLDER and
+hands the client a name to fetch it by from /download. Those names used to be
+derived from the uploader's filename ('report-merged.pdf', 'report_1-...'),
+so anyone past the login gate could fetch another visitor's result by
+guessing. Each stored name now starts with 128 random bits that only the
+requester is ever told, and /download serves nothing without that prefix.
 """
-import os
+import re
+import secrets
+
+_KEY_RE = re.compile(r'^[0-9a-f]{32}_(.+)$')
 
 
-def collision_safe(output_folder, name):
-    """Return a filename in output_folder that does not clobber an existing file.
+def result_name(name):
+    """Return the stored filename for a result whose friendly name is ``name``.
 
-    'report.zip' -> 'report.zip', then 'report_1.zip', 'report_2.zip', ...
+    'report.zip' -> '<32 random hex>_report.zip'. The random prefix also makes
+    collisions between concurrent results practically impossible.
     """
-    base, ext = os.path.splitext(name)
-    candidate = name
-    counter = 1
-    while os.path.exists(os.path.join(output_folder, candidate)):
-        candidate = f"{base}_{counter}{ext}"
-        counter += 1
-    return candidate
+    return f"{secrets.token_hex(16)}_{name}"
+
+
+def display_name(stored):
+    """The friendly name inside a stored result name, or None if it has no key."""
+    match = _KEY_RE.match(stored or '')
+    return match.group(1) if match else None

@@ -21,7 +21,7 @@ from pdf_ops.pages import (
 )
 from pdf_ops.optimize import compress_pdf
 from pdf_ops import ocr as ocr_ops
-from utils.naming import collision_safe
+from utils.naming import result_name
 from pypdf import PdfReader
 
 bp = Blueprint('pages', __name__)
@@ -50,9 +50,9 @@ def pages_index():
     return render_template('pages.html', ocr_available=ocr_ops.is_available())
 
 
-def _output_name(output_folder, base, suffix, ext):
-    """Build a collision-safe output filename like 'doc_extracted.pdf'."""
-    return collision_safe(output_folder, f"{base}_{suffix}{ext}")
+def _output_name(base, suffix, ext):
+    """Build an unguessable output filename like '<key>_doc_extracted.pdf'."""
+    return result_name(f"{base}_{suffix}{ext}")
 
 
 @bp.route('/pages/run', methods=['POST'])
@@ -92,7 +92,7 @@ def run_operation():
             if operation in ('extract', 'remove'):
                 indices = parse_page_ranges(request.form.get('ranges'), page_count)
                 suffix = 'extracted' if operation == 'extract' else 'trimmed'
-                out_name = _output_name(output_folder, base, suffix, '.pdf')
+                out_name = _output_name(base, suffix, '.pdf')
                 out_path = os.path.join(output_folder, out_name)
                 if operation == 'extract':
                     extract_pages(input_path, out_path, indices)
@@ -110,7 +110,7 @@ def run_operation():
                 indices = None
                 if ranges and ranges.strip():
                     indices = parse_page_ranges(ranges, page_count)
-                out_name = _output_name(output_folder, base, 'rotated', '.pdf')
+                out_name = _output_name(base, 'rotated', '.pdf')
                 out_path = os.path.join(output_folder, out_name)
                 rotate_pages(input_path, out_path, angle, indices)
                 scope = f"{len(indices)} page(s)" if indices is not None else "all pages"
@@ -137,7 +137,7 @@ def run_operation():
                 image_max_dpi = _int_param(
                     'image_max_dpi', 150, 72, 300, "Max image DPI"
                 )
-                out_name = _output_name(output_folder, base, 'compressed', '.pdf')
+                out_name = _output_name(base, 'compressed', '.pdf')
                 out_path = os.path.join(output_folder, out_name)
                 stats = compress_pdf(
                     input_path, out_path,
@@ -166,7 +166,7 @@ def run_operation():
                 language = (request.form.get('language') or 'eng').strip() or 'eng'
                 deskew = _is_truthy(request.form.get('deskew'))
                 force = _is_truthy(request.form.get('force'))
-                out_name = _output_name(output_folder, base, 'searchable', '.pdf')
+                out_name = _output_name(base, 'searchable', '.pdf')
                 out_path = os.path.join(output_folder, out_name)
                 stats = ocr_ops.make_searchable(
                     input_path, out_path,
@@ -195,7 +195,7 @@ def run_operation():
                         "Choose a split mode: 'every_n' or 'ranges'."
                     )
                 parts = split_pdf(input_path, tmpdir, mode, value)
-                out_name = _output_name(output_folder, base, 'split', '.zip')
+                out_name = _output_name(base, 'split', '.zip')
                 out_path = os.path.join(output_folder, out_name)
                 with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                     for part in parts:

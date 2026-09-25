@@ -121,7 +121,7 @@ Docist ships hardened for small self-hosted deployments (see `DEPLOYMENT.md` for
 - **Login gate** — set `DOCIST_PASSWORD` and every page and endpoint requires sign-in (session cookies are `HttpOnly`/`SameSite=Lax`; password checks are constant-time). Unset, the app runs open for local use.
 - **Safe downloads** — the shared `/download` endpoint refuses path traversal; only plain filenames inside `output/` are served.
 - **Upload validation** — file content is sniffed (magic bytes) against the claimed extension before any converter runs.
-- **Isolated, self-cleaning storage** — every request works in its own temp directory; results get collision-safe names and are pruned from `output/` after 24h (configurable).
+- **Isolated, self-cleaning storage** — every request works in its own temp directory; results get unguessable names (a random key only the requester receives) and are pruned from `output/` after 24h (configurable).
 - **Rate limiting** — sliding-window per-IP limit on all POSTs, `/login` included.
 - **Sane defaults** — dev server binds `127.0.0.1`, debug is off unless `FLASK_DEBUG=1`, request size capped at 50 MB.
 
@@ -210,7 +210,7 @@ Docist/
 ├── converters/                # Format-to-PDF converter plugins (auto-discovered)
 ├── transforms/                # File-to-file transform plugins (auto-discovered,
 │                              #   with automatic pivot-through-PDF routing)
-├── utils/                     # Web-layer helpers: collision-safe naming,
+├── utils/                     # Web-layer helpers: unguessable result names,
 │                              #   upload sniffing, output pruning, rate limiter
 ├── templates/                 # Web interface (one page per tool area + login)
 │   └── api.html               # Rendered REST API reference served at /api

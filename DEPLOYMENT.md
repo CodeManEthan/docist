@@ -51,7 +51,12 @@ and rate limiting active. Put nginx (or Caddy) in front for TLS.
   text formats) before any converter touches it.
 - **Isolated storage** — every request processes uploads in its own
   temporary directory; nothing persists except the result in `output/`,
-  which is pruned on a timer and never clobbered (collision-safe names).
+  which is pruned on a timer. Each result's name starts with a random
+  128-bit key that only the requester receives, and `/download` refuses any
+  name without one, so one visitor cannot fetch another's result.
+- **No external fetches while rendering** — HTML, Markdown and DOCX are
+  rendered with a link callback that only allows inline `data:` URIs, so an
+  uploaded document cannot make the server request URLs or read local files.
 - **Rate limiting** — sliding-window per-IP limit on POSTs (the endpoints
   that do real work, `/login` included). Note: the limiter is per-process,
   so with N gunicorn workers the effective ceiling is N × limit. Keep

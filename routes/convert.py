@@ -26,7 +26,7 @@ from transforms import (
     supported_sources,
     targets_for,
 )
-from utils.naming import collision_safe
+from utils.naming import display_name, result_name
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('convert', __name__)
@@ -126,7 +126,7 @@ def run_convert():
             actual_name = os.path.basename(actual_path)
             actual_ext = os.path.splitext(actual_name)[1].lower()
 
-            final_name = collision_safe(output_folder, actual_name)
+            final_name = result_name(actual_name)
             shutil.move(actual_path, os.path.join(output_folder, final_name))
     except TransformError as exc:
         return jsonify({'error': str(exc)}), 400
@@ -136,10 +136,10 @@ def run_convert():
     if actual_ext != target:
         message = (
             f"Converted {src_ext} to {actual_ext} "
-            f"(a single {target} wasn't possible, so you get {final_name})."
+            f"(a single {target} wasn't possible, so you get {display_name(final_name)})."
         )
     else:
-        message = f"Converted {src_ext} to {target}: {final_name}."
+        message = f"Converted {src_ext} to {target}: {display_name(final_name)}."
 
     return jsonify({
         'success': True,
