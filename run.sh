@@ -6,8 +6,9 @@
 #   ./run.sh prod     production server (gunicorn, binds 127.0.0.1:5010)
 #
 # Environment variables (see DEPLOYMENT.md):
-#   DOCIST_PASSWORD     enable the login gate (no gate when unset)
-#   DOCIST_SECRET_KEY   session-signing key (set in prod so logins survive restarts)
+#   DOCIST_SECRET_KEY   signs sessions, IP hashes and result owner tags; required
+#                       in prod (else generated once into instance/secret_key)
+#   DATABASE_URL        accounts database (default SQLite in instance/)
 #   DOCIST_PORT         port to bind (default 5010)
 
 # Check if virtual environment exists
@@ -31,7 +32,9 @@ PORT="${DOCIST_PORT:-5010}"
 
 if [ "$1" = "prod" ]; then
     echo "Starting Docist (gunicorn) on http://127.0.0.1:${PORT}"
-    exec gunicorn --workers 2 --timeout 120 --bind "127.0.0.1:${PORT}" app:app
+    # --preload imports the app once in the master, so the secret key is
+    # resolved and the database schema created before the workers fork.
+    exec gunicorn --preload --workers 2 --timeout 120 --bind "127.0.0.1:${PORT}" app:app
 fi
 
 # Run the application (dev)

@@ -5,11 +5,12 @@
 #   * no `User=docist` -- a `systemctl --user` unit already runs as the operator, and a
 #     User= line in a user unit is an error, not a no-op.
 #   * WorkingDirectory and the gunicorn path move from /opt/docist to the real tree.
-#   * no `Environment=DOCIST_PASSWORD=change-me` / `DOCIST_SECRET_KEY=change-me`. Baking a
-#     placeholder credential into a checked-in unit is how placeholders reach production.
-#     EnvironmentFile below picks them up from a gitignored .env if one is ever written;
-#     with neither set, Docist runs with NO LOGIN GATE, which is correct for a
-#     loopback-only tool and is stated here rather than left to be discovered.
+#   * no `Environment=DOCIST_SECRET_KEY=change-me`. Baking a placeholder credential into a
+#     checked-in unit is how placeholders reach production. EnvironmentFile below picks
+#     settings up from a gitignored .env if one is ever written. With none set, the tools
+#     are open to anyone who can reach the port, within the anonymous daily limit, and
+#     accounts live in SQLite under instance/ -- correct for a loopback-only tool, and
+#     stated here rather than left to be discovered.
 #   * WantedBy=multi-user.target dropped entirely -- see the note at the bottom.
 #
 # ON-DEMAND. Installed and registered but NOT enabled; the registry row is PAUSED, which
@@ -38,15 +39,20 @@ WorkingDirectory=%h/projects/Docist
 # 2026-08-26). Not run.sh: that wrapper pip-installs on a missing import, and a unit that
 # might install packages on start is a unit that can hang on a start.
 #
-# --forwarded-allow-ips is DROPPED from the doc's line. It exists so a reverse proxy's
-# X-Forwarded-For becomes remote_addr for the rate limiter; there is no proxy here, and
-# trusting a forwarded header with nothing in front of you lets any client spoof its own
-# rate-limit key. Add it back the day nginx lands in front, not before.
+# No proxy trust. Docist now reads X-Forwarded-For itself, and only when
+# DOCIST_TRUSTED_PROXIES > 0; the doc's unit sets it to 1 for nginx. It is left unset
+# (0) here: there is no proxy, and trusting a forwarded header with nothing in front of
+# you lets any client pick its own rate-limit key and anonymous daily allowance. Set
+# DOCIST_TRUSTED_PROXIES=1 in .env the day nginx lands in front, not before.
 #
-# --workers 2 follows the doc. Note the consequence it names: with no DOCIST_SECRET_KEY
-# set, each worker mints its own session-signing key, which would break logins -- moot
-# only while DOCIST_PASSWORD is unset and there is no login to break. Set both together.
-ExecStart=%h/projects/Docist/.venv/bin/gunicorn --workers 2 --timeout 120 --bind 127.0.0.1:5010 app:app
+# --workers 2 follows the doc. --preload imports the app once in the master before the
+# workers fork, so both workers share one secret key and one schema-creation step. With
+# no DOCIST_SECRET_KEY set, that key is generated once into instance/secret_key (mode
+# 0600) and read back on every later start, so sessions, anonymous IP hashes and result
+# owner tags survive a restart. Delete that file and everyone is signed out. Without
+# --preload each worker would race to create it; the O_EXCL create keeps them agreeing,
+# but the schema step still belongs in one process.
+ExecStart=%h/projects/Docist/.venv/bin/gunicorn --preload --workers 2 --timeout 120 --bind 127.0.0.1:5010 app:app
 
 # `-` prefix: the file need not exist, and a missing credentials file must not be the
 # reason a loopback PDF tool refuses to start.

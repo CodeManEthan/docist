@@ -1,9 +1,9 @@
 ---
 type: repo-doc
 project: docist
-description: "Shortest path to a running Docist: venv activation, dependency install, run.sh dev/prod modes, optional password gate, and a six-step merge smoke test in the browser."
+description: "Shortest path to a running Docist: venv activation, dependency install, run.sh dev/prod modes, accounts and the anonymous daily limit, and a six-step merge smoke test in the browser."
 tags: [setup, ui]
-updated: 2026-08-01
+updated: 2026-09-25
 ---
 
 # Docist — Quick Start Guide
@@ -41,13 +41,15 @@ python app.py
 
 Then open your browser to: **http://localhost:5010**
 
-To require a login (recommended for anything reachable by others):
+No login is needed to use the tools. Anonymous visitors get 10 operations a
+day; the nav shows how many are left. For more, sign up at
+http://localhost:5010/signup. Locally, the verification email is printed in the
+terminal running Docist: open its link to verify, and a verified account gets
+50 a day plus API keys on its **Account** page. Accounts are stored in SQLite
+under `instance/`.
 
-```bash
-DOCIST_PASSWORD=choose-a-password ./run.sh prod
-```
-
-See `DEPLOYMENT.md` for the full production setup (reverse proxy, systemd, environment variables).
+See `DEPLOYMENT.md` for the full production setup (secret key, database,
+email sender, reverse proxy, systemd, environment variables).
 
 ## Quick Test
 

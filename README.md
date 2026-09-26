@@ -1,14 +1,14 @@
 ---
 type: repo-readme
 project: docist
-description: "Top-level README for Docist, the self-hosted document toolkit — the six browser tools and /api/v1 REST API, the auto-discovered converter/transform plugin architecture with pivot-through-PDF routing, security and deployment posture, file layout, and requirements."
-tags: [reference, architecture, api, ui, deployment]
-updated: 2026-08-02
+description: "Top-level README for Docist, the self-hosted document toolkit — the six browser tools and /api/v1 REST API, the auto-discovered converter/transform plugin architecture with pivot-through-PDF routing, accounts and daily limits, security and deployment posture, file layout, and requirements."
+tags: [reference, architecture, api, ui, deployment, accounts]
+updated: 2026-09-25
 ---
 
 # Docist
 
-A self-hosted document toolkit: merge PDFs (auto-converting ~19 input formats on the way in), convert files between ~150 format pairs, edit and split pages, impose booklets, export to images or text with OCR, and stamp, watermark and password-protect documents — six browser tools and a REST API, behind an optional login gate.
+A self-hosted document toolkit: merge PDFs (auto-converting ~19 input formats on the way in), convert files between ~150 format pairs, edit and split pages, impose booklets, export to images or text with OCR, and stamp, watermark and password-protect documents — six browser tools and a REST API, open to anonymous visitors within a daily limit, with email accounts for more.
 
 ![Merging three mixed-format files into one numbered PDF](docs/demo.gif)
 
@@ -18,7 +18,8 @@ A self-hosted document toolkit: merge PDFs (auto-converting ~19 input formats on
 - **Plugin architecture** — converters (`anything → PDF`) and transforms (`anything → anything`) are auto-discovered modules; no registry file to edit. When no direct transform exists, the registry pivots through PDF automatically, so `DOCX → PNG` works without anyone writing it.
 - **Page thumbnails throughout** — every PDF added to the merge list shows its first page; Page Tools renders a clickable grid of the whole document that fills the page-range box for you.
 - **767 tests** — 559 backend (pytest) and 208 frontend (`node:test`), covering every converter, transform, PDF operation, route and hardening rule.
-- **Hardened for deployment** — optional shared-password gate, per-IP rate limiting, magic-byte content sniffing on every upload, traversal-proof downloads, per-request temp directories, and AES-256 PDF encryption.
+- **Accounts and daily limits** — anonymous use with a per-IP daily allowance, email + password accounts with a larger one, per-user API keys, and results only their owner can download.
+- **Hardened for deployment** — CSRF protection, per-IP rate limiting, magic-byte content sniffing on every upload, traversal-proof downloads, per-request temp directories, and AES-256 PDF encryption.
 
 ## Features
 
@@ -100,7 +101,7 @@ Every tool is scriptable. Send a multipart form to `/api/v1/…` and the finishe
 
 ```bash
 curl -X POST http://localhost:5010/api/v1/merge \
-  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "files[]=@chapter1.pdf" \
   -F "files[]=@notes.md" \
   -F "page_numbers=true" \
@@ -108,7 +109,7 @@ curl -X POST http://localhost:5010/api/v1/merge \
   -o merged.pdf
 ```
 
-The `Authorization: Bearer` header replaces the browser session cookie; when the instance runs without `DOCIST_PASSWORD` the API is open and the header can be omitted. **`/api` serves the full documentation** — every field, default and `curl` example for all six endpoints:
+Every `POST` needs a per-user API key as a bearer token. Sign up, verify your email, and create a key on `/account`; it is shown once and stored only as a hash. A missing key gives `401 {"error": "API key required. Create one at /account."}`, a wrong or revoked one `401 {"error": "Invalid or revoked API key."}`. The browser session cookie is ignored on `/api/v1`. Each successful call costs one operation from the key owner's daily allowance, reported in the `X-Docist-Usage-Limit` / `X-Docist-Usage-Remaining` headers; past it you get `429` with `code: "daily_limit"` and a `Retry-After`. `GET /api/v1/formats` needs no key, and the operator can open keyless calls with `DOCIST_API_ANONYMOUS=1` (off by default). **`/api` serves the full documentation** — every field, default and `curl` example for all six endpoints:
 
 ![The /api documentation page, showing the merge endpoint's field table and curl example](docs/screenshots/api.png)
 
@@ -116,12 +117,12 @@ The `Authorization: Bearer` header replaces the browser session cookie; when the
 
 Docist ships hardened for small self-hosted deployments (see `DEPLOYMENT.md` for the full recipe — gunicorn, nginx, systemd):
 
-![The login gate shown when DOCIST_PASSWORD is set](docs/screenshots/login.png)
-
-- **Login gate** — set `DOCIST_PASSWORD` and every page and endpoint requires sign-in (session cookies are `HttpOnly`/`SameSite=Lax`; password checks are constant-time). Unset, the app runs open for local use.
-- **Safe downloads** — the shared `/download` endpoint refuses path traversal; only plain filenames inside `output/` are served.
+- **Anonymous use, daily limits** — every tool works without an account, up to `DOCIST_LIMIT_ANON` operations a day per IP (default 10). A verified free account gets `DOCIST_LIMIT_FREE` (default 50); any paid plan is unlimited by default. One operation is one successful tool POST or API call; the count resets at midnight UTC and the nav shows what is left.
+- **Accounts** — email and password (scrypt hashes), email verification and password reset through a pluggable sender (`console`, SMTP or Resend), 30-day signed sessions (`HttpOnly`/`SameSite=Lax`, `Secure` behind HTTPS), "sign out everywhere", and throttled login/signup/reset forms. Unverified accounts stay on guest limits. Plans are set with `flask --app app set-plan EMAIL PLAN`; there is no billing yet.
+- **CSRF protection** — every browser POST carries a per-session token; `/api/v1` ignores the cookie and needs a key instead.
+- **Safe, owner-bound downloads** — the shared `/download` endpoint refuses path traversal, serves only plain filenames inside `output/`, and answers 404 unless the result was made by the same browser session or signed-in user.
 - **Upload validation** — file content is sniffed (magic bytes) against the claimed extension before any converter runs.
-- **Isolated, self-cleaning storage** — every request works in its own temp directory; results get unguessable names (a random key only the requester receives) and are pruned from `output/` after 24h (configurable).
+- **Isolated, self-cleaning storage** — every request works in its own temp directory; results get unguessable names (an owner tag plus a random key only the requester receives) and are pruned from `output/` after 24h (configurable).
 - **Rate limiting** — sliding-window per-IP limit on all POSTs, `/login` included.
 - **Sane defaults** — dev server binds `127.0.0.1`, debug is off unless `FLASK_DEBUG=1`, request size capped at 50 MB.
 
@@ -174,20 +175,24 @@ Each function takes `(input_path, output_path)` and may return the path it actua
 ## Running the Application
 
 ```bash
-./run.sh                                  # dev server on http://localhost:5010
-DOCIST_PASSWORD=secret ./run.sh prod      # gunicorn with the login gate on
+./run.sh           # dev server on http://localhost:5010
+./run.sh prod      # gunicorn (--preload, 2 workers) on 127.0.0.1:5010
 ```
 
 Or manually: `source .venv/bin/activate && python app.py`
+
+Accounts live in SQLite under `instance/` unless `DATABASE_URL` points at Postgres. Emails are logged to the terminal until a sender is configured. See `DEPLOYMENT.md` for the production settings (`DOCIST_SECRET_KEY`, `DOCIST_COOKIE_SECURE`, `DOCIST_TRUSTED_PROXIES`, the email backends).
 
 ## File Structure
 
 ```
 Docist/
-├── app.py                      # Flask bootstrap: env config, auto-registered
-│                               #   blueprints, rate limit + cleanup hooks
+├── app.py                      # Flask bootstrap: env config, database, auto-
+│                               #   registered blueprints, request hook chain
+├── models.py                   # Users, API keys, daily usage, email tokens
 ├── routes/                    # Flask blueprints (auto-discovered)
-│   ├── auth.py                # Login gate (active when DOCIST_PASSWORD is set)
+│   ├── auth.py                # Signup, login, logout, verify, forgot/reset
+│   ├── account.py             # Account page: password, API keys, sign-out-all
 │   ├── merge.py               # Merge & convert endpoints + shared /download
 │   ├── convert.py             # Universal file-to-file conversion
 │   ├── pages.py               # Page tools endpoints
@@ -210,16 +215,20 @@ Docist/
 ├── converters/                # Format-to-PDF converter plugins (auto-discovered)
 ├── transforms/                # File-to-file transform plugins (auto-discovered,
 │                              #   with automatic pivot-through-PDF routing)
-├── utils/                     # Web-layer helpers: unguessable result names,
-│                              #   upload sniffing, output pruning, rate limiter
-├── templates/                 # Web interface (one page per tool area + login)
+├── utils/                     # Web-layer helpers: identity, CSRF, metering,
+│                              #   mailer, owner-bound result names, upload
+│                              #   sniffing, output pruning, rate limiter
+├── templates/                 # Web interface (one page per tool area, the
+│                              #   auth and account pages, shared partials)
 │   └── api.html               # Rendered REST API reference served at /api
 ├── static/                    # Shared theme CSS + per-page JS
 │   └── favicon.svg            # App icon
 ├── tests/                     # Backend (pytest) and frontend (node:test) suites
 ├── docs/                      # README demo GIF and screenshots
+├── instance/                  # SQLite database + persisted secret key (gitignored)
 ├── output/                    # Processed results (auto-pruned)
-├── DEPLOYMENT.md              # Production setup: gunicorn, nginx, systemd
+├── DEPLOYMENT.md              # Production setup: env vars, accounts, email,
+│                              #   Railway, nginx, systemd
 ├── requirements.txt           # Runtime dependencies
 └── requirements-dev.txt       # + pytest
 ```

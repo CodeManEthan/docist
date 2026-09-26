@@ -6,6 +6,7 @@
     <title>Docist &mdash; API</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
+    {% include "_csrf_head.html" %}
     <style>
         /* Page-local tweaks only; the shared look comes from style.css. */
         .container { max-width: 880px; }
@@ -49,7 +50,7 @@
         <a href="/export">Export</a>
         <a href="/security">Watermark &amp; Security</a>
         <a href="/api" class="active">API</a>
-        {% if auth_enabled and authed %}<a href="/logout" class="nav-signout">Sign out</a>{% endif %}
+        {% include "_account_nav.html" %}
     </nav>
     <div class="container">
         <h1>🔌 REST API</h1>
@@ -89,7 +90,7 @@
                     <td>Interleave only: flip the second file first, for reversed back-side scans (default <code>true</code>).</td></tr>
             </table>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/merge \
-  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "files[]=@chapter1.pdf" \
   -F "files[]=@chapter2.pdf" \
   -F "page_numbers=true" \
@@ -115,7 +116,7 @@
                     <td>Target extension, e.g. <code>.png</code> (a bare <code>png</code> works too).</td></tr>
             </table>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/convert \
-  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@diagram.png" \
   -F "target=.jpg" \
   -OJ    # -OJ keeps the server's filename (it may be a .zip)</pre>
@@ -132,7 +133,7 @@
                     <td>Comma-separated pages and ranges, e.g. <code>1-3,5,8-10</code>. Out-of-range or malformed specs return a 400.</td></tr>
             </table>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/pages/extract \
-  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@report.pdf" \
   -F "ranges=1-3,5" \
   -o extract.pdf</pre>
@@ -152,7 +153,7 @@
                         With <code>ranges</code>: <code>;</code>-separated specs, e.g. <code>1-2;3-5</code> — one file per spec.</td></tr>
             </table>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/pages/split \
-  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@report.pdf" \
   -F "mode=every_n" \
   -F "value=2" \
@@ -176,7 +177,7 @@
                     <td>Degrees, <code>center</code> position only (default <code>45</code>).</td></tr>
             </table>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/watermark \
-  -H "Authorization: Bearer $DOCIST_PASSWORD" \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@contract.pdf" \
   -F "text=CONFIDENTIAL" \
   -F "position=center" \
@@ -196,21 +197,29 @@
                 <tr><td><code>convert_matrix</code></td>
                     <td><code>{source: [target, …]}</code> — the full conversion map.</td></tr>
             </table>
-<pre class="api-curl">curl http://localhost:5010/api/v1/formats \
-  -H "Authorization: Bearer $DOCIST_PASSWORD"</pre>
+<pre class="api-curl">curl http://localhost:5010/api/v1/formats</pre>
         </div>
 
         <div class="api-note">
             <h2>Authentication</h2>
-            <p>If this instance runs with <code>DOCIST_PASSWORD</code> set, send
-               that same password as a bearer token on every API call:</p>
-<pre class="api-curl">-H "Authorization: Bearer $DOCIST_PASSWORD"</pre>
-            <p>The token is compared in constant time and creates no session —
-               each request stands alone. A browser session cookie works too, so
-               fetch() calls from these pages need no header. <strong>When the
-               instance has no password configured the API is open and the
-               header can be omitted entirely.</strong> Missing or wrong
-               credentials give <code>401</code> with a JSON error body.</p>
+            <p>Every <code>POST /api/v1/…</code> call needs an API key. Sign in,
+               verify your email, and create a key on your
+               <a href="/account">account page</a>. The key is shown once, so
+               copy it then. Send it as a bearer token:</p>
+<pre class="api-curl">-H "Authorization: Bearer $DOCIST_API_KEY"</pre>
+            <p>Keys are stored hashed and create no session; each request stands
+               alone. The browser session cookie is ignored here, so a signed-in
+               browser tab cannot be used to call the API. <code>GET
+               /api/v1/formats</code> and this page need no key.</p>
+            <p>A missing key gives <code>401</code>
+               <code>{"error": "API key required. Create one at /account."}</code>.
+               A wrong or revoked key, or one whose account is disabled, gives
+               <code>401</code> <code>{"error": "Invalid or revoked API key."}</code>.
+               Revoke a key from the account page; resetting your password
+               revokes every key.</p>
+            <p>The operator can allow keyless calls with
+               <code>DOCIST_API_ANONYMOUS=1</code>. They are then counted
+               against the caller's IP at the guest limit.</p>
         </div>
 
         <div class="api-note">
@@ -222,7 +231,21 @@
                     <strong>60</strong>). Over the cap you get
                     <code>429</code> with a JSON error and a
                     <code>Retry-After</code> header telling you how many seconds
-                    to wait. GETs are never limited.</li>
+                    to wait. GETs are never limited. This short-window cap is
+                    separate from the daily limit below.</li>
+                <li><strong>Daily limit:</strong> each successful call costs one
+                    operation from the key owner's daily allowance, shared with
+                    their browser use: <code>DOCIST_LIMIT_FREE</code> (default
+                    <strong>50</strong>) for a free account, unlimited on a paid
+                    plan. Failed calls (<code>4xx</code>/<code>5xx</code>) cost
+                    nothing. The day is the UTC date. Every counted response
+                    carries <code>X-Docist-Usage-Limit</code> (a number, or
+                    <code>unlimited</code>) and
+                    <code>X-Docist-Usage-Remaining</code>. At the limit you get
+                    <code>429</code> with a <code>Retry-After</code> header
+                    (seconds until midnight UTC) and
+                    <code>{"error": "…", "code": "daily_limit", "limit": N,
+                    "used": N, "signup_url": "/signup"}</code>.</li>
                 <li><strong>Upload size:</strong> a request larger than
                     <code>DOCIST_MAX_UPLOAD_MB</code> (default <strong>50 MB</strong>,
                     total request body) is rejected with <code>413</code>.</li>
