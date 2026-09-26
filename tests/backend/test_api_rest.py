@@ -12,8 +12,7 @@ from PIL import Image
 from pypdf import PdfReader
 
 import app as flask_app_module
-
-PASSWORD = "hunter2-test-password"
+from models import ApiKey, User, db
 
 
 # --------------------------------------------------------------------------
@@ -41,6 +40,19 @@ def disposition(response):
 def assert_no_residue(client):
     """The temp-dir contract: API calls never write into OUTPUT_FOLDER."""
     assert list(client.output_dir.iterdir()) == []
+
+
+@pytest.fixture(autouse=True)
+def api_anonymous(client):
+    """Most tests here call the API without a key: open it for them. The auth
+    tests below close it again through the ``gated`` fixture."""
+    app = flask_app_module.app
+    prev = app.config["API_ANONYMOUS"]
+    app.config["API_ANONYMOUS"] = True
+    try:
+        yield
+    finally:
+        app.config["API_ANONYMOUS"] = prev
 
 
 @pytest.fixture
@@ -383,18 +395,30 @@ class TestErrors:
 
 
 # --------------------------------------------------------------------------
-# Auth: Bearer token, session cookie, and the gate being off
+# Auth: per-user API keys; the session cookie never authenticates the API
 # --------------------------------------------------------------------------
 @pytest.fixture
 def gated(client):
-    """The standard test client with the login gate switched on."""
-    app = flask_app_module.app
-    prev = app.config["ACCESS_PASSWORD"]
-    app.config["ACCESS_PASSWORD"] = PASSWORD
-    try:
-        yield client
-    finally:
-        app.config["ACCESS_PASSWORD"] = prev
+    """The standard test client with anonymous API access off (the default)."""
+    flask_app_module.app.config["API_ANONYMOUS"] = False
+    return client
+
+
+@pytest.fixture
+def api_key(client, make_user):
+    """A verified user and a live raw key for them: ``(user, raw)``."""
+    user = make_user()
+    with flask_app_module.app.app_context():
+        raw, _ = ApiKey.issue(db.session.get(User, user.id), "test")
+        db.session.commit()
+    return user, raw
+
+
+def _key_row(raw):
+    with flask_app_module.app.app_context():
+        return db.session.execute(
+            db.select(ApiKey).where(ApiKey.prefix == raw[:12])
+        ).scalar_one()
 
 
 class TestApiAuth:
@@ -406,67 +430,69 @@ class TestApiAuth:
             headers=headers or {},
         )
 
-    def test_open_when_no_password_configured(self, client, five_page_pdf):
-        assert self._extract(client, five_page_pdf).status_code == 200
-
-    def test_post_without_credentials_is_401(self, gated, five_page_pdf):
+    def test_post_without_key_is_401(self, gated, five_page_pdf):
         response = self._extract(gated, five_page_pdf)
         assert response.status_code == 401
-        assert "error" in response.get_json()
+        assert response.get_json()["error"] == "API key required. Create one at /account."
+
+    def test_valid_key_works_and_stamps_last_used(self, gated, api_key, five_page_pdf):
+        _, raw = api_key
+        assert _key_row(raw).last_used_at is None
+        response = self._extract(gated, five_page_pdf, {"Authorization": f"Bearer {raw}"})
+        assert response.status_code == 200
+        assert pdf_pages(response) == 2
+        assert_no_residue(gated)
+        assert _key_row(raw).last_used_at is not None
+
+    def test_bearer_scheme_is_case_insensitive(self, gated, api_key, five_page_pdf):
+        _, raw = api_key
+        response = self._extract(gated, five_page_pdf, {"Authorization": f"bearer {raw}"})
+        assert response.status_code == 200
+
+    def test_revoked_key_is_401(self, gated, api_key, five_page_pdf):
+        user, raw = api_key
+        with flask_app_module.app.app_context():
+            ApiKey.revoke_all(db.session.get(User, user.id))
+            db.session.commit()
+        response = self._extract(gated, five_page_pdf, {"Authorization": f"Bearer {raw}"})
+        assert response.status_code == 401
+        assert response.get_json()["error"] == "Invalid or revoked API key."
+
+    def test_disabled_users_key_is_401(self, gated, api_key, five_page_pdf):
+        user, raw = api_key
+        with flask_app_module.app.app_context():
+            db.session.get(User, user.id).disabled = True
+            db.session.commit()
+        response = self._extract(gated, five_page_pdf, {"Authorization": f"Bearer {raw}"})
+        assert response.status_code == 401
 
     @pytest.mark.parametrize(
         "header",
-        [
-            "Bearer wrong-password",
-            "Bearer ",
-            "Basic " + PASSWORD,
-            PASSWORD,
-            "Bearer " + PASSWORD + "x",
-        ],
+        ["Bearer wrong-key", "Bearer ", "Basic dk_abc", "dk_abc", "Bearer dk_"],
     )
     def test_bad_authorization_headers_are_401(self, gated, five_page_pdf, header):
         response = self._extract(gated, five_page_pdf, {"Authorization": header})
         assert response.status_code == 401
 
-    def test_correct_bearer_token_works(self, gated, five_page_pdf):
-        response = self._extract(
-            gated, five_page_pdf, {"Authorization": f"Bearer {PASSWORD}"}
-        )
-        assert response.status_code == 200
-        assert pdf_pages(response) == 2
-        assert_no_residue(gated)
+    def test_bad_key_never_falls_back_to_anonymous(self, client, five_page_pdf):
+        # Anonymous access is on (autouse fixture), yet a wrong key still fails.
+        response = self._extract(client, five_page_pdf, {"Authorization": "Bearer nope"})
+        assert response.status_code == 401
 
-    def test_bearer_scheme_is_case_insensitive(self, gated, five_page_pdf):
-        response = self._extract(
-            gated, five_page_pdf, {"Authorization": f"bearer {PASSWORD}"}
-        )
-        assert response.status_code == 200
+    def test_anonymous_flag_opens_the_api(self, client, five_page_pdf):
+        assert self._extract(client, five_page_pdf).status_code == 200
 
-    def test_bearer_creates_no_session(self, gated, five_page_pdf):
-        assert self._extract(
-            gated, five_page_pdf, {"Authorization": f"Bearer {PASSWORD}"}
-        ).status_code == 200
-        # The next request without the header is unauthenticated again.
-        assert self._extract(gated, five_page_pdf).status_code == 401
+    def test_cookie_session_alone_does_not_authenticate(
+            self, gated, make_user, login, five_page_pdf):
+        login(gated, make_user())
+        response = self._extract(gated, five_page_pdf)
+        assert response.status_code == 401
 
-    def test_bearer_works_on_api_get_endpoints(self, gated):
-        response = gated.get(
-            "/api/v1/formats", headers={"Authorization": f"Bearer {PASSWORD}"}
-        )
+    def test_formats_and_docs_stay_open(self, gated):
+        response = gated.get("/api/v1/formats")
         assert response.status_code == 200
         assert ".pdf" in response.get_json()["merge_extensions"]
-
-    def test_cookie_session_also_works_for_api_calls(self, gated, five_page_pdf):
-        login = gated.post("/login", data={"password": PASSWORD, "next": "/"})
-        assert login.status_code == 302
-        response = self._extract(gated, five_page_pdf)
-        assert response.status_code == 200
-        assert pdf_pages(response) == 2
-
-    def test_docs_page_redirects_to_login_when_unauthenticated(self, gated):
-        response = gated.get("/api")
-        assert response.status_code == 302
-        assert response.headers["Location"].startswith("/login")
+        assert gated.get("/api").status_code == 200
 
 
 # --------------------------------------------------------------------------
@@ -487,8 +513,7 @@ class TestDocsPage:
         for path in ("/api/v1/merge", "/api/v1/convert", "/api/v1/pages/extract",
                      "/api/v1/pages/split", "/api/v1/watermark", "/api/v1/formats"):
             assert path in body, path
-        assert 'Authorization: Bearer $DOCIST_PASSWORD' in body
-        assert "no password" in body  # the auth-optional note
+        assert 'Authorization: Bearer' in body
         assert "429" in body and "Retry-After" in body
         assert "DOCIST_MAX_UPLOAD_MB" in body and "50 MB" in body
         assert "DOCIST_RATE_LIMIT" in body

@@ -22,4 +22,7 @@ ENV PORT=5010
 EXPOSE 5010
 
 # $PORT is injected by the platform (Railway) and defaults to 5010 locally.
-CMD gunicorn --workers 2 --timeout 120 --forwarded-allow-ips='*' --bind "0.0.0.0:${PORT}" app:app
+# --preload imports the app once in the master, so the secret key and the
+# schema are set up before the workers fork. Proxy trust is ProxyFix's job
+# (DOCIST_TRUSTED_PROXIES), not gunicorn's.
+CMD gunicorn --preload --workers 2 --timeout 120 --bind "0.0.0.0:${PORT}" app:app

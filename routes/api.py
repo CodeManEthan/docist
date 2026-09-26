@@ -13,13 +13,16 @@ the browser routes on purpose:
   * every failure is JSON ``{"error": ...}`` with 400 (user-fixable) or 500
     (unexpected), so clients never have to parse HTML.
 
-Auth: when the instance has a password (``DOCIST_PASSWORD``) API clients can
-send ``Authorization: Bearer <password>`` instead of carrying a session cookie
--- see routes/auth.py.  With no password configured the API is open, exactly
-like the web UI.
+Auth: every POST needs ``Authorization: Bearer <key>`` with a per-user API
+key created at /account (401 without one, or with a wrong or revoked key),
+unless the operator sets ``DOCIST_API_ANONYMOUS=1``.  The session cookie is
+never read here -- see utils/identity.py.  ``GET /api/v1/formats`` and the
+docs page stay open.
 
-App-wide behaviour still applies: POSTs are rate-limited (429 + ``Retry-After``)
-and requests larger than ``DOCIST_MAX_UPLOAD_MB`` are rejected with a 413.
+App-wide behaviour still applies: POSTs are rate-limited (429 + ``Retry-After``),
+each successful POST counts against the caller's daily limit (429 with
+``code: daily_limit`` once spent; see utils/metering.py), and requests larger
+than ``DOCIST_MAX_UPLOAD_MB`` are rejected with a 413.
 """
 import io
 import mimetypes

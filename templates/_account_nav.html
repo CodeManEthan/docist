@@ -1,0 +1,13 @@
+{#- Literal hrefs, never url_for: this partial must render before the auth
+    routes it links to exist. usage_today is None on non-GET renders and its
+    limit is None for unlimited (paid) plans; either way no usage line. -#}
+        {% if usage_today and usage_today.limit is not none %}<span class="nav-usage">{{ usage_today.remaining }} of {{ usage_today.limit }} left today</span>{% endif %}
+{% if current_user %}
+        <a href="/account">Account</a>
+        <form method="post" action="/logout" class="nav-signout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="nav-signout">Sign out</button>
+        </form>
+{% else %}
+        <a href="/login">Sign in</a>
+{% endif %}
