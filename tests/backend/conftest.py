@@ -9,6 +9,12 @@ The Flask ``app`` module is imported once (module singleton). The ``client``
 fixture repoints ``UPLOAD_FOLDER``/``OUTPUT_FOLDER`` at per-test ``tmp_path``
 subdirectories so tests never touch the real ``uploads/`` or ``output/`` dirs
 (the /upload endpoint clears the upload folder on every request).
+
+The database is the in-memory SQLite that tests/conftest.py selects; the
+``client`` fixture refuses anything else, rebuilds the schema per test, and
+turns CSRF and metering off (``csrf_on`` / ``metered`` turn them back on).
+Objects returned by ``make_user`` are detached snapshots: re-query inside
+``with app.app_context():`` to see changes a request made.
 """
 import io
 import zipfile
@@ -19,6 +25,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 import app as flask_app_module
+from models import User, db, utcnow
 
 
 # --------------------------------------------------------------------------
@@ -217,18 +224,30 @@ def builders():
 
 @pytest.fixture
 def client(tmp_path):
-    """Flask test client with UPLOAD/OUTPUT folders redirected into tmp_path."""
+    """Flask test client with UPLOAD/OUTPUT folders redirected into tmp_path,
+    a fresh in-memory database, and CSRF + metering off."""
     upload_dir = tmp_path / "uploads"
     output_dir = tmp_path / "output"
     upload_dir.mkdir()
     output_dir.mkdir()
 
     app = flask_app_module.app
-    prev_upload = app.config["UPLOAD_FOLDER"]
-    prev_output = app.config["OUTPUT_FOLDER"]
+    with app.app_context():
+        url = db.engine.url
+        assert url.get_backend_name() == "sqlite" and url.database in (None, "", ":memory:"), (
+            f"tests must run on in-memory SQLite, not {url!r}"
+        )
+        db.drop_all()
+        db.create_all()
+
+    saved = {key: app.config.get(key) for key in (
+        "UPLOAD_FOLDER", "OUTPUT_FOLDER", "CSRF_ENABLED", "METERING_ENABLED",
+    )}
     app.config["UPLOAD_FOLDER"] = str(upload_dir)
     app.config["OUTPUT_FOLDER"] = str(output_dir)
     app.config["TESTING"] = True
+    app.config["CSRF_ENABLED"] = False
+    app.config["METERING_ENABLED"] = False
 
     test_client = app.test_client()
     # Attach the dirs so tests can inspect the filesystem.
@@ -237,8 +256,66 @@ def client(tmp_path):
     try:
         yield test_client
     finally:
-        app.config["UPLOAD_FOLDER"] = prev_upload
-        app.config["OUTPUT_FOLDER"] = prev_output
+        app.config.update(saved)
+
+
+@pytest.fixture
+def make_user(client):
+    """Factory: create and commit a user, return a detached snapshot of it."""
+    app = flask_app_module.app
+
+    def _make(email="a@x.io", password="pw-12345678", verified=True, plan="free"):
+        with app.app_context():
+            user = User(email=User.normalize_email(email), plan=plan,
+                        verified_at=utcnow() if verified else None)
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            db.session.refresh(user)
+            db.session.expunge(user)
+        return user
+
+    return _make
+
+
+def login(client, user):
+    """Sign ``client`` in as ``user`` by writing the session directly."""
+    with client.session_transaction() as sess:
+        sess["uid"] = user.id
+        sess["epoch"] = user.session_epoch
+
+
+@pytest.fixture(name="login")
+def login_fixture():
+    return login
+
+
+@pytest.fixture
+def csrf_on(client):
+    """The standard client with the CSRF check switched on."""
+    flask_app_module.app.config["CSRF_ENABLED"] = True
+    return client
+
+
+@pytest.fixture
+def metered(client):
+    """Metering on with tiny limits (anon 2, free 3, paid unlimited).
+
+    Returns a setter so a test can pick other limits:
+    ``metered(anon=1, free=5, paid=0)``.
+    """
+    app = flask_app_module.app
+    saved = {key: app.config[key] for key in ("LIMIT_ANON", "LIMIT_FREE", "LIMIT_PAID")}
+
+    def _set(anon=2, free=3, paid=0):
+        app.config["METERING_ENABLED"] = True
+        app.config.update(LIMIT_ANON=anon, LIMIT_FREE=free, LIMIT_PAID=paid)
+
+    _set()
+    try:
+        yield _set
+    finally:
+        app.config.update(saved)
 
 
 def extract_all_text(pdf_path):

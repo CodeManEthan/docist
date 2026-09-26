@@ -3,13 +3,25 @@
 Configuration comes from environment variables (all optional; defaults suit
 local development):
 
-    DOCIST_PASSWORD                enable the login gate (off when unset)
-    DOCIST_PUBLIC_DEMO             set to 1 to print the password on the login
-                                   page (public demo: the gate then only stops
-                                   bots, not people)
-    DOCIST_SECRET_KEY              session-signing key; auto-generated per
-                                   process when unset (logins then reset on
-                                   restart — set it in production)
+    DATABASE_URL                   SQLAlchemy URL (default: SQLite file
+                                   instance/docist.db). Railway's postgres://
+                                   URLs are accepted and normalized
+    DOCIST_SECRET_KEY              signs sessions, anonymous IP hashes and
+                                   result owner tags. REQUIRED in production;
+                                   when unset it is persisted in
+                                   instance/secret_key (random per process for
+                                   in-memory SQLite)
+    DOCIST_TRUSTED_PROXIES         reverse-proxy hops to trust for
+                                   X-Forwarded-For/-Proto (default 1 when
+                                   RAILWAY_ENVIRONMENT is set, else 0)
+    DOCIST_LIMIT_ANON              daily operations for anonymous visitors and
+                                   unverified accounts (default 10)
+    DOCIST_LIMIT_FREE              daily operations for verified free accounts
+                                   (default 50)
+    DOCIST_LIMIT_PAID              daily operations for any other plan
+                                   (default 0 = unlimited)
+    DOCIST_API_ANONYMOUS           set to 1 to let /api/v1 POSTs run without an
+                                   API key (metered as anonymous)
     DOCIST_HOST / DOCIST_PORT      dev-server bind (default 127.0.0.1:5010)
     DOCIST_MAX_UPLOAD_MB           request size cap (default 50)
     DOCIST_RATE_LIMIT              POSTs allowed per window per IP (default 30)
@@ -18,15 +30,37 @@ local development):
                                    1440 = 24h; pruning runs opportunistically)
     DOCIST_COOKIE_SECURE           set to 1 when serving over HTTPS
     FLASK_DEBUG                    set to 1 for the dev server's debugger
+
+Email settings (DOCIST_EMAIL_*, DOCIST_SMTP_*, DOCIST_RESEND_API_KEY,
+DOCIST_BASE_URL) are read by utils/mailer.py. DOCIST_PASSWORD and
+DOCIST_PUBLIC_DEMO are gone: accounts replaced the shared-password gate, and
+setting either only logs a warning.
+
+Every gunicorn launcher passes --preload, so the secret-key resolution and
+schema creation below run once in the master before the workers fork.
+
+Operator commands:
+
+    flask --app app set-plan EMAIL PLAN    set a user's plan ('free' or paid)
+    flask --app app verify-user EMAIL      mark a user's email verified
 """
 import importlib
 import os
 import pkgutil
 import secrets
+import time
+from datetime import timedelta
 
+import click
 from flask import Flask, jsonify, request
+from sqlalchemy import select
+from sqlalchemy.engine import make_url
+from sqlalchemy.pool import StaticPool
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import routes
+from models import User, database_url, db, utcnow
+from utils import csrf, identity, metering
 from utils.cleanup import OutputJanitor
 from utils.ratelimit import RateLimiter
 
@@ -42,23 +76,115 @@ def _env_flag(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def _is_memory_sqlite(url):
+    parsed = make_url(url)
+    return (parsed.get_backend_name() == 'sqlite'
+            and parsed.database in (None, '', ':memory:'))
+
+
+def _persisted_secret_key(path):
+    """Read the key at ``path``, creating it first if absent.
+
+    O_EXCL makes concurrent first starts safe: exactly one process creates the
+    file and the others read the winner's key (waiting briefly for its write).
+    """
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        for _ in range(50):
+            with open(path) as fh:
+                key = fh.read().strip()
+            if key:
+                return key
+            time.sleep(0.1)
+        raise RuntimeError(f'{path} exists but is empty; delete it and restart')
+    key = secrets.token_hex(32)
+    with os.fdopen(fd, 'w') as fh:
+        fh.write(key)
+    return key
+
+
 app = Flask(__name__)
+
+# Startup directories first: every path written below exists before its first
+# write, on every database backend (Flask-SQLAlchemy creates instance/ only
+# for a SQLite file, so it is not relied on).
+os.makedirs(app.instance_path, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['OUTPUT_FOLDER'] = 'output'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url(os.environ)
+if os.environ.get('DOCIST_SECRET_KEY'):
+    app.config['SECRET_KEY'] = os.environ['DOCIST_SECRET_KEY']
+elif _is_memory_sqlite(app.config['SQLALCHEMY_DATABASE_URI']):
+    app.config['SECRET_KEY'] = secrets.token_hex(32)  # tests: throwaway per process
+else:
+    app.config['SECRET_KEY'] = _persisted_secret_key(
+        os.path.join(app.instance_path, 'secret_key')
+    )
+
 app.config['MAX_CONTENT_LENGTH'] = _env_int('DOCIST_MAX_UPLOAD_MB', 50) * 1024 * 1024
-app.config['SECRET_KEY'] = os.environ.get('DOCIST_SECRET_KEY') or secrets.token_hex(32)
-app.config['ACCESS_PASSWORD'] = os.environ.get('DOCIST_PASSWORD', '')
-app.config['PUBLIC_DEMO'] = _env_flag('DOCIST_PUBLIC_DEMO')
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = _env_flag('DOCIST_COOKIE_SECURE')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config['RATE_LIMIT_REQUESTS'] = _env_int('DOCIST_RATE_LIMIT', 30)
 app.config['RATE_LIMIT_WINDOW'] = _env_int('DOCIST_RATE_WINDOW', 60)
 app.config['RATE_LIMIT_ENABLED'] = True
 app.config['OUTPUT_MAX_AGE'] = _env_int('DOCIST_OUTPUT_MAX_AGE_MINUTES', 24 * 60) * 60
+app.config['CSRF_ENABLED'] = True
+app.config['METERING_ENABLED'] = True
+app.config['LIMIT_ANON'] = _env_int('DOCIST_LIMIT_ANON', 10)
+app.config['LIMIT_FREE'] = _env_int('DOCIST_LIMIT_FREE', 50)
+app.config['LIMIT_PAID'] = _env_int('DOCIST_LIMIT_PAID', 0)
+app.config['API_ANONYMOUS'] = _env_flag('DOCIST_API_ANONYMOUS')
 
-# Ensure folders exist
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
+# Schema: create missing tables (existing ones are never altered). Then drop
+# the master's connections so forked workers never share one -- except for
+# in-memory SQLite, whose StaticPool holds the only connection: disposing it
+# would delete the database.
+db.init_app(app)
+with app.app_context():
+    db.create_all()
+    if not isinstance(db.engine.pool, StaticPool):
+        db.engine.dispose()
+
+# Proxy trust: the client address is the N-th X-Forwarded-For entry from the
+# right, so anything a client prepends is ignored. 0 = the socket peer.
+_trusted_proxies = _env_int(
+    'DOCIST_TRUSTED_PROXIES', 1 if os.environ.get('RAILWAY_ENVIRONMENT') else 0
+)
+if _trusted_proxies > 0:
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app, x_for=_trusted_proxies, x_proto=_trusted_proxies
+    )
+
+identity.init_app(app)
+csrf.init_app(app)
+metering.init_app(app)
+
+for _removed in ('DOCIST_PASSWORD', 'DOCIST_PUBLIC_DEMO'):
+    if os.environ.get(_removed):
+        app.logger.warning(
+            '%s is set but ignored: accounts replaced the shared-password '
+            'gate. Unset it.', _removed
+        )
+if (os.environ.get('DATABASE_URL')
+        and not _is_memory_sqlite(app.config['SQLALCHEMY_DATABASE_URI'])):
+    if not os.environ.get('DOCIST_SECRET_KEY'):
+        app.logger.warning(
+            '!!! DOCIST_SECRET_KEY is not set. The key is kept in %s, which a '
+            'redeploy on an ephemeral disk loses: everyone gets signed out '
+            'and anonymous usage starts over. Set DOCIST_SECRET_KEY in '
+            'production.', os.path.join(app.instance_path, 'secret_key'),
+        )
+    if _trusted_proxies == 0:
+        app.logger.warning(
+            'DOCIST_TRUSTED_PROXIES is 0. Behind a reverse proxy every '
+            "anonymous visitor then shares the proxy's IP and one daily "
+            'allowance. Set it to the number of proxy hops (Railway: 1).'
+        )
 
 # Heavy work happens on POST, so that's what gets rate-limited (per client IP).
 # Swappable via app.limiter so tests can install a fresh, tiny-window instance.
@@ -68,32 +194,88 @@ app.limiter = RateLimiter(
 _janitor = OutputJanitor(max_age=app.config['OUTPUT_MAX_AGE'], interval=300)
 
 
+def _rate_limit():
+    key = identity.client_ip()
+    if app.limiter.allow(key):
+        return None
+    retry = max(1, round(app.limiter.retry_after(key)))
+    response = jsonify({
+        'error': 'Too many requests — please wait a moment '
+                 'and try again.'
+    })
+    response.status_code = 429
+    response.headers['Retry-After'] = str(retry)
+    return response
+
+
 @app.before_request
-def _rate_limit_and_prune():
-    # Prune stale results opportunistically (throttled inside the janitor).
-    # Skipped under test so suites never touch the real output folder.
+def _before_request():
+    """The one before-request chain, in order. The cheapest refusal runs first,
+    and nothing that costs a DB lookup or a body parse runs before the per-IP
+    limiter."""
+    # 1. Prune stale results opportunistically (throttled inside the janitor).
+    #    Skipped under test so suites never touch the real output folder.
     if not app.testing:
         _janitor.maybe_prune(app.config['OUTPUT_FOLDER'])
 
+    # 2. Per-IP POST rate limit, so 401s and CSRF 400s are limited too.
     if request.method == 'POST' and app.config['RATE_LIMIT_ENABLED']:
         if not app.testing or app.config.get('RATE_LIMIT_FORCE'):
-            key = request.remote_addr or 'unknown'
-            if not app.limiter.allow(key):
-                retry = max(1, round(app.limiter.retry_after(key)))
-                response = jsonify({
-                    'error': 'Too many requests — please wait a moment '
-                             'and try again.'
-                })
-                response.status_code = 429
-                response.headers['Retry-After'] = str(retry)
+            response = _rate_limit()
+            if response is not None:
                 return response
+
+    # 3. g.user from the session, or from the API key on /api/v1 (may 401).
+    # 4. CSRF on state-changing browser requests (may 400).
+    # 5. The daily limit on metered operations (may 429).
+    for step in (identity.load_identity, csrf.check_csrf, metering.check):
+        response = step()
+        if response is not None:
+            return response
     return None
+
+
+@app.after_request
+def _after_request(response):
+    # Counts a successful metered operation and commits it.
+    return metering.record(response)
 
 
 @app.route('/healthz')
 def healthz():
     """Unauthenticated liveness probe for reverse proxies / uptime checks."""
     return jsonify({'status': 'ok'})
+
+
+def _user_by_email(email):
+    user = db.session.execute(
+        select(User).where(User.email == User.normalize_email(email))
+    ).scalar_one_or_none()
+    if user is None:
+        raise click.ClickException(f'No user with email {email!r}.')
+    return user
+
+
+@app.cli.command('set-plan')
+@click.argument('email')
+@click.argument('plan')
+def set_plan(email, plan):
+    """Set EMAIL's plan to PLAN ('free', or e.g. 'monthly' / 'lifetime')."""
+    user = _user_by_email(email)
+    user.plan = plan.strip()[:20]
+    db.session.commit()
+    click.echo(f'{user.email}: plan = {user.plan}')
+
+
+@app.cli.command('verify-user')
+@click.argument('email')
+def verify_user(email):
+    """Mark EMAIL as verified (for instances without an email sender)."""
+    user = _user_by_email(email)
+    if user.verified_at is None:
+        user.verified_at = utcnow()
+        db.session.commit()
+    click.echo(f'{user.email}: verified')
 
 
 # Auto-register every blueprint in the routes package: any module there
