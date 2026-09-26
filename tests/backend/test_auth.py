@@ -384,6 +384,22 @@ class TestForgotAndReset:
         assert len(outbox) == 3
 
 
+    def test_reset_page_refuses_a_verify_token(self, client, make_user, outbox):
+        """The reset GET peeks with purpose 'reset', so a verify link is dead there."""
+        user = make_user(verified=False)
+        raw = _db(lambda: _issue(user.id, "verify"))
+        assert client.get(f"/reset/{raw}").status_code == 400
+        assert client.post(f"/reset/{raw}", data={
+            "password": NEW_PASSWORD, "confirm": "typo-typo-typo",
+        }).status_code == 400
+
+
+def _issue(user_id, purpose):
+    raw = EmailToken.issue(db.session.get(User, user_id), purpose)
+    db.session.commit()
+    return raw
+
+
 # --------------------------------------------------------------------------
 # Login and signup throttles
 # --------------------------------------------------------------------------

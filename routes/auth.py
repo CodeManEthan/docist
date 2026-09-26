@@ -16,7 +16,6 @@ per worker, keyed by ``identity.client_ip()`` and, where it matters, by the
 normalized email. They are skipped under ``app.testing`` unless the
 ``AUTH_THROTTLE_FORCE`` config key is set.
 """
-import hashlib
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -138,19 +137,6 @@ def login_required(view):
 def _find_user(email):
     return db.session.execute(
         db.select(User).where(User.email == email)
-    ).scalar_one_or_none()
-
-
-def _peek_token(raw, purpose):
-    """The live token row for ``raw`` without consuming it (reset GET only)."""
-    token_hash = hashlib.sha256((raw or '').encode()).hexdigest()
-    return db.session.execute(
-        db.select(EmailToken).where(
-            EmailToken.token_hash == token_hash,
-            EmailToken.purpose == purpose,
-            EmailToken.used_at.is_(None),
-            EmailToken.expires_at > _now(),
-        )
     ).scalar_one_or_none()
 
 
@@ -368,7 +354,7 @@ def forgot():
 @bp.route('/reset/<token>', methods=['GET', 'POST'])
 def reset(token):
     if request.method == 'GET':
-        if _peek_token(token, 'reset') is None:
+        if EmailToken.peek(token, 'reset') is None:
             return _dead_link()
         return render_template('reset.html', token=token, error=None)
 
@@ -376,7 +362,7 @@ def reset(token):
     problem = password_problem(password, request.form.get('confirm', ''))
     if problem:
         # Checked before consuming, so a typo doesn't burn the link.
-        if _peek_token(token, 'reset') is None:
+        if EmailToken.peek(token, 'reset') is None:
             return _dead_link()
         return render_template('reset.html', token=token, error=problem), 400
 
