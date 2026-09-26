@@ -16,6 +16,7 @@ per worker, keyed by ``identity.client_ip()`` and, where it matters, by the
 normalized email. They are skipped under ``app.testing`` unless the
 ``AUTH_THROTTLE_FORCE`` config key is set.
 """
+import threading
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -188,11 +189,27 @@ def send_verify_email(user):
     )
 
 
+def _send_detached(to, subject, text):
+    """Hand one email to ``mailer.send`` on a daemon thread and return the thread.
+
+    /forgot must answer in the same time whether or not the account exists; a
+    blocking SMTP or Resend round trip on the known-account path alone would
+    give it away. ``send`` needs no app context and never raises.
+    """
+    thread = threading.Thread(
+        target=mailer.send, args=(to, subject, text),
+        name='docist-mail', daemon=True,
+    )
+    thread.start()
+    return thread
+
+
 def _send_reset_email(user):
+    """Issue a reset token, commit it, and send the link without waiting."""
     raw = EmailToken.issue(user, 'reset')
     db.session.commit()
     link = mailer.absolute_url(f'/reset/{raw}')
-    return mailer.send(
+    return _send_detached(
         user.email, 'Reset your Docist password',
         RESET_EMAIL.format(email=user.email, link=link),
     )
@@ -347,7 +364,8 @@ def forgot():
     user = _find_user(email) if _email_ok(email) else None
     if user is not None and not user.disabled:
         _send_reset_email(user)
-    # The same answer whether or not the account exists.
+    # The same answer, and no wait on the mail server, whether or not the
+    # account exists.
     return render_template('forgot.html', error=None, sent=True, email='')
 
 

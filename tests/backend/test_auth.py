@@ -5,6 +5,8 @@ Uses the shared ``client`` (in-memory SQLite, CSRF and metering off),
 Outgoing mail is captured by patching ``utils.mailer.send``.
 """
 import re
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -34,6 +36,9 @@ def outbox(monkeypatch):
         return True
 
     monkeypatch.setattr(auth_routes.mailer, "send", fake_send)
+    # /forgot mails from a thread; run it inline so tests can read the outbox
+    # right after the request. TestForgotTiming covers the real thread.
+    monkeypatch.setattr(auth_routes, "_send_detached", fake_send)
     return sent
 
 
@@ -398,6 +403,36 @@ def _issue(user_id, purpose):
     raw = EmailToken.issue(db.session.get(User, user_id), purpose)
     db.session.commit()
     return raw
+
+
+class TestForgotTiming:
+    """/forgot must not wait on the mail server only when the account exists."""
+
+    def test_forgot_does_not_block_on_a_slow_sender(self, client, make_user, monkeypatch):
+        make_user()
+        sent = []
+        release = threading.Event()
+
+        def slow_send(to, subject, text):
+            release.wait(5)  # a mail server that hangs until the test lets go
+            sent.append(to)
+            return True
+
+        monkeypatch.setattr(auth_routes.mailer, "send", slow_send)
+        timings = {}
+        for email in ("a@x.io", "ghost@x.io"):
+            start = time.monotonic()
+            response = client.post("/forgot", data={"email": email})
+            timings[email] = time.monotonic() - start
+            assert response.status_code == 200
+        # Both answered while the known account's mail was still stuck.
+        assert sent == []
+        assert timings["a@x.io"] < 1.0
+        release.set()
+        for thread in threading.enumerate():
+            if thread.name == "docist-mail":
+                thread.join(5)
+        assert sent == ["a@x.io"]
 
 
 # --------------------------------------------------------------------------
