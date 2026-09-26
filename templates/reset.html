@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docist &mdash; Choose a new password</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+    {% include "_csrf_head.html" %}
+</head>
+<body>
+    <nav class="tool-nav">
+        <span class="nav-brand">Docist</span>
+        <a href="/">Merge</a>
+        <a href="/convert">Convert Files</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print">Print Prep</a>
+        <a href="/export">Export</a>
+        <a href="/security">Watermark &amp; Security</a>
+        <a href="/api">API</a>
+        {% include "_account_nav.html" %}
+    </nav>
+    <div class="container login-container">
+        <h1>📄 Choose a new password</h1>
+        <p class="subtitle">Saving it signs out every session and revokes your API keys.</p>
+
+        {% if error %}
+        <p class="login-error">{{ error }}</p>
+        {% endif %}
+
+        <form method="post" action="/reset/{{ token }}" class="login-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="password" name="password" placeholder="New password (at least 8 characters)"
+                   autofocus autocomplete="new-password" minlength="8" maxlength="256" required>
+            <input type="password" name="confirm" placeholder="Confirm new password"
+                   autocomplete="new-password" minlength="8" maxlength="256" required>
+            <button type="submit" class="btn">Set password</button>
+        </form>
+    </div>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docist &mdash; Account</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+    {% include "_csrf_head.html" %}
+    <style>
+        /* Page-local tweaks only; the shared look comes from style.css. */
+        .container { max-width: 720px; }
+        .login-form input[type="text"] { padding: 12px 14px; border: 2px solid var(--line);
+                                         border-radius: 10px; font-size: 1em; }
+        .login-form input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    </style>
+</head>
+<body>
+    <nav class="tool-nav">
+        <span class="nav-brand">Docist</span>
+        <a href="/">Merge</a>
+        <a href="/convert">Convert Files</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print">Print Prep</a>
+        <a href="/export">Export</a>
+        <a href="/security">Watermark &amp; Security</a>
+        <a href="/api">API</a>
+        {% include "_account_nav.html" %}
+    </nav>
+    <div class="container">
+        <h1>👤 Account</h1>
+        <p class="subtitle">Signed in as <strong>{{ user.email }}</strong>.</p>
+
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+        <p class="{{ 'login-error' if category == 'error' else 'flash' }}">{{ message }}</p>
+        {% endfor %}
+        {% if error %}
+        <p class="login-error">{{ error }}</p>
+        {% endif %}
+
+        <section class="account-section">
+            <h2>Email</h2>
+            {% if user.is_verified %}
+            <p>{{ user.email }} is verified.</p>
+            {% else %}
+            <p>{{ user.email }} is <strong>not verified</strong> yet. Until it is, you share the guest
+               limit and can't create API keys.</p>
+            {% if mail_configured %}
+            <form method="post" action="/verify/resend">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn">Resend verification email</button>
+            </form>
+            {% else %}
+            <p>Email isn't set up on this instance yet, so your account runs on guest limits for now.
+               The operator can verify you by hand.</p>
+            {% endif %}
+            {% endif %}
+        </section>
+
+        <section class="account-section">
+            <h2>Plan and usage</h2>
+            <p>Plan: <strong>{{ user.plan }}</strong></p>
+            {% if usage.limit %}
+            <p>Today: <strong>{{ usage.used }} / {{ usage.limit }}</strong> operations
+               ({{ usage.remaining }} left). The count resets at midnight UTC.</p>
+            {% else %}
+            <p>Today: <strong>{{ usage.used }}</strong> operations. Your plan has no daily limit.</p>
+            {% endif %}
+        </section>
+
+        <section class="account-section">
+            <h2>API keys</h2>
+            {% if new_key %}
+            <div class="key-once">
+                <p>New key <strong>{{ new_key_label }}</strong>. Copy it now; it won't be shown again.</p>
+                <code>{{ new_key }}</code>
+            </div>
+            {% endif %}
+
+            {% if keys %}
+            <table class="key-table">
+                <thead>
+                    <tr><th>Label</th><th>Key</th><th>Created</th><th>Last used</th><th></th></tr>
+                </thead>
+                <tbody>
+                    {% for key in keys %}
+                    <tr>
+                        <td>{{ key.label }}</td>
+                        <td><code>{{ key.prefix }}…</code></td>
+                        <td>{{ key.created_at.strftime('%Y-%m-%d') if key.created_at else '' }}</td>
+                        <td>{{ key.last_used_at.strftime('%Y-%m-%d %H:%M') ~ ' UTC' if key.last_used_at else 'never' }}</td>
+                        <td>
+                            <form method="post" action="/account/keys/{{ key.id }}/revoke">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="nav-signout">Revoke</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p>No keys yet. Send one as <code>Authorization: Bearer &lt;key&gt;</code> to
+               <a href="/api">/api/v1</a>.</p>
+            {% endif %}
+
+            {% if not user.is_verified %}
+            <p>Verify your email to create API keys.</p>
+            {% elif keys|length >= max_keys %}
+            <p>You have {{ max_keys }} keys, the most allowed. Revoke one to make room.</p>
+            {% else %}
+            <form method="post" action="/account/keys" class="login-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="label" placeholder="Label, e.g. laptop script" maxlength="60">
+                <button type="submit" class="btn">Create API key</button>
+            </form>
+            {% endif %}
+        </section>
+
+        <section class="account-section">
+            <h2>Change password</h2>
+            <form method="post" action="/account/password" class="login-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="password" name="current" placeholder="Current password"
+                       autocomplete="current-password" required>
+                <input type="password" name="password" placeholder="New password (at least 8 characters)"
+                       autocomplete="new-password" minlength="8" maxlength="256" required>
+                <input type="password" name="confirm" placeholder="Confirm new password"
+                       autocomplete="new-password" minlength="8" maxlength="256" required>
+                <button type="submit" class="btn">Change password</button>
+            </form>
+        </section>
+
+        <section class="account-section">
+            <h2>Sessions</h2>
+            <p>Signs out every other browser. API keys keep working.</p>
+            <form method="post" action="/account/signout-all">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn">Sign out everywhere else</button>
+            </form>
+        </section>
+    </div>
+</body>
+</html>
