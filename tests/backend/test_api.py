@@ -183,7 +183,8 @@ def test_upload_failing_converter_reports_filename(client, tmp_path):
 # GET /download -- missing file
 # --------------------------------------------------------------------------
 def test_download_missing_file_returns_404(client):
-    resp = client.get("/download?filename=" + "0" * 32 + "_does-not-exist.pdf")
+    # 48 hex: well-formed, but neither the owner nor the file matches -> 404.
+    resp = client.get("/download?filename=" + "0" * 48 + "_does-not-exist.pdf")
     assert resp.status_code == 404
     assert "error" in resp.get_json()
 

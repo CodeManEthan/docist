@@ -68,10 +68,52 @@ body {
     align-self: center;
 }
 
-.tool-nav a.nav-signout {
+/* Account corner of the nav (templates/_account_nav.html): usage line, then
+   Sign in / Account and the Sign out form. The first of them takes the
+   right-hand side. Hrefs in that partial are literal, so they are safe hooks. */
+.tool-nav .nav-usage {
     margin-left: auto;
+    align-self: center;
+    padding: 8px 4px;
+    color: var(--muted);
+    font-size: 0.82em;
+    white-space: nowrap;
+}
+
+.tool-nav a[href="/login"]:not(.nav-usage ~ a),
+.tool-nav a[href="/account"]:not(.nav-usage ~ a) {
+    margin-left: auto;
+}
+
+.tool-nav a[href="/login"],
+.tool-nav a[href="/signup"],
+.tool-nav a[href="/account"] {
     background: transparent;
     border: 1px solid var(--line);
+}
+
+.tool-nav .nav-signout-form {
+    display: inline-flex;
+    margin: 0;
+}
+
+/* Sign out is a POST form, its button drawn like the nav's outline links. */
+.tool-nav .nav-signout {
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.92em;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tool-nav .nav-signout:hover {
+    background: var(--line);
+    color: var(--ink);
 }
 
 .login-form {
@@ -80,32 +122,157 @@ body {
     gap: 14px;
 }
 
-.login-form input[type="password"] {
+.login-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--ink-soft);
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.login-form input[type="email"],
+.login-form input[type="password"],
+.login-form input[type="text"] {
     padding: 12px 14px;
     border: 2px solid var(--line);
     border-radius: 10px;
     font-size: 1em;
 }
 
-.login-form input[type="password"]:focus {
+.login-form input[type="email"]:focus,
+.login-form input[type="password"]:focus,
+.login-form input[type="text"]:focus {
     outline: none;
     border-color: var(--accent);
 }
 
-.login-demo {
-    margin: -18px 0 22px;
+.auth-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-top: 18px;
+    font-size: 0.9em;
+    color: var(--muted);
+}
+
+.auth-links a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.auth-links a:hover {
+    text-decoration: underline;
+}
+
+.flash {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    background: var(--tint);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    color: var(--ink-soft);
     font-size: 0.95em;
+}
+
+.account-section {
+    margin-top: 28px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+}
+
+.account-section h2 {
+    color: var(--ink);
+    font-size: 1.15em;
+    margin-bottom: 10px;
+}
+
+.account-section p {
+    color: var(--ink-soft);
+    font-size: 0.95em;
+    margin-bottom: 8px;
+}
+
+.account-section .btn {
+    width: auto;
+    margin-top: 10px;
+    padding: 10px 22px;
+}
+
+.key-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 6px;
+    font-size: 0.9em;
+}
+
+.key-table th,
+.key-table td {
+    text-align: left;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+}
+
+.key-table th {
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.key-table td {
     color: var(--ink-soft);
 }
 
-.login-demo code {
-    padding: 3px 8px;
-    border: 1px dashed var(--accent);
-    border-radius: 6px;
+.key-table code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.key-table form {
+    margin: 0;
+}
+
+.key-table button {
+    font: inherit;
+    font-size: 0.9em;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.key-table button:hover {
     background: var(--accent-wash);
+}
+
+/* A new API key, shown exactly once. */
+.key-once {
+    margin: 12px 0;
+    padding: 12px 14px;
+    background: var(--tint);
+    border: 1px dashed var(--accent);
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.95em;
     color: var(--ink);
-    font-size: 1.05em;
+    word-break: break-all;
     user-select: all;
+}
+
+.key-once::after {
+    content: "Copy it now. It won't be shown again.";
+    display: block;
+    margin-top: 8px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 0.85em;
+    color: var(--muted);
+    user-select: none;
 }
 
 .login-error {

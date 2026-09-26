@@ -1,4 +1,4 @@
-"""Route-level hardening regressions: unguessable outputs + content sniffing."""
+"""Route-level hardening regressions: unguessable, owner-bound outputs + content sniffing."""
 import io
 import re
 
@@ -16,12 +16,13 @@ def _run_twice(client, url, pdf_bytes, **form):
     return first.get_json()["filename"], second.get_json()["filename"]
 
 
-KEY = re.compile(r"^[0-9a-f]{32}_")
+# 16 hex owner tag + 32 random hex, then the friendly name.
+KEY = re.compile(r"^[0-9a-f]{48}_")
 
 
 def _friendly(name):
     assert KEY.match(name), name
-    return name[33:]
+    return name[49:]
 
 
 class TestUnguessableOutputs:
@@ -67,8 +68,52 @@ class TestUnguessableOutputs:
     def test_download_refuses_wrong_key(self, client, tmp_path, builders):
         pdf = builders.pdf(tmp_path / "doc.pdf", pages=2).read_bytes()
         name = _post_pdf(client, "/export/run", pdf, operation="text").get_json()["filename"]
-        guess = "0" * 32 + "_" + _friendly(name)
+        # Right owner, wrong random key: the file does not exist.
+        guess = name[:16] + "0" * 32 + "_" + _friendly(name)
         assert client.get(f"/download?filename={guess}").status_code == 404
+
+
+class TestOwnerBoundOutputs:
+    """F8: a result is served only to the browser session or signed-in user
+    that made it. Anyone else gets the same 404 as a missing file."""
+
+    def _make(self, client, tmp_path, builders):
+        pdf = builders.pdf(tmp_path / "doc.pdf", pages=2).read_bytes()
+        resp = _post_pdf(client, "/export/run", pdf, operation="text")
+        assert resp.status_code == 200, resp.data
+        return resp.get_json()["filename"]
+
+    def test_owner_can_download(self, client, tmp_path, builders):
+        name = self._make(client, tmp_path, builders)
+        assert client.get(f"/download?filename={name}").status_code == 200
+
+    def test_other_anonymous_session_gets_404(self, client, tmp_path, builders):
+        name = self._make(client, tmp_path, builders)
+        other = client.application.test_client()
+        resp = other.get(f"/download?filename={name}")
+        assert resp.status_code == 404
+        assert resp.get_json() == {"error": "No file available"}
+        # The owner still can.
+        assert client.get(f"/download?filename={name}").status_code == 200
+
+    def test_signed_in_result_not_served_to_anonymous(
+        self, client, tmp_path, builders, make_user, login
+    ):
+        login(client, make_user())
+        name = self._make(client, tmp_path, builders)
+        assert client.get(f"/download?filename={name}").status_code == 200
+        other = client.application.test_client()
+        assert other.get(f"/download?filename={name}").status_code == 404
+
+    def test_same_user_in_another_session_can_download(
+        self, client, tmp_path, builders, make_user, login
+    ):
+        user = make_user()
+        login(client, user)
+        name = self._make(client, tmp_path, builders)
+        other = client.application.test_client()
+        login(other, user)
+        assert other.get(f"/download?filename={name}").status_code == 200
 
 
 class TestContentSniffing:

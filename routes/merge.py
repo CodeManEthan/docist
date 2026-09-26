@@ -2,9 +2,10 @@
 
 Uploads land in a per-request ``tempfile.TemporaryDirectory`` (nothing is
 kept after the response), matching every other tool page. Only the merged
-result is written to OUTPUT_FOLDER, under an unguessable name, and served
-by the shared /download endpoint below.
+result is written to OUTPUT_FOLDER, under an unguessable owner-bound name,
+and served by the shared /download endpoint below.
 """
+import hmac
 import os
 import tempfile
 
@@ -13,7 +14,8 @@ from werkzeug.utils import secure_filename
 
 from converters import get_converter, supported_extensions
 from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
-from utils.naming import display_name, result_name
+from utils.identity import owner_tag
+from utils.naming import display_name, owner_of, result_name
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('merge', __name__)
@@ -124,11 +126,15 @@ def download_file():
     # Serve only plain names that exist inside OUTPUT_FOLDER — anything
     # secure_filename would alter (path separators, '..', etc.) is rejected,
     # so the query parameter can't reach files outside the folder. The name
-    # must also carry the random key result_name() gave it, so a result can
-    # only be fetched by the request that produced it.
+    # must also carry the key result_name() gave it, and that key's owner tag
+    # must be the asker's, so a result is served only to the browser session
+    # or signed-in user that made it. A wrong owner gets the same 404 as a
+    # missing file, so the answer never confirms that a name exists.
     friendly = display_name(filename)
     if not filename or filename != secure_filename(filename) or friendly is None:
         return jsonify({'error': 'Invalid filename'}), 400
+    if not hmac.compare_digest(owner_of(filename), owner_tag()):
+        return jsonify({'error': 'No file available'}), 404
     output_path = os.path.join(current_app.config['OUTPUT_FOLDER'], filename)
     if os.path.exists(output_path):
         return send_file(output_path, as_attachment=True, download_name=friendly)

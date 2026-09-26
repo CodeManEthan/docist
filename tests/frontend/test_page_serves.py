@@ -49,3 +49,30 @@ def test_formats_returns_json_with_pdf(client):
     assert isinstance(data, dict)
     assert "extensions" in data
     assert ".pdf" in data["extensions"]
+
+
+def test_index_anonymous_shows_sign_in_and_csrf_meta(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Sign in" in body
+    assert 'href="/login"' in body
+    assert '<meta name="csrf-token" content="' in body
+    assert "/static/csrf.js" in body
+    # The old shared-password sign-out link is gone.
+    assert 'href="/logout"' not in body
+
+
+def test_every_tool_page_includes_csrf_head(client):
+    for path in ("/", "/convert", "/pages", "/print", "/export", "/security", "/api"):
+        body = client.get(path).get_data(as_text=True)
+        assert '<meta name="csrf-token"' in body, path
+        assert "/static/csrf.js" in body, path
+
+
+def test_static_csrf_js_served(client):
+    resp = client.get("/static/csrf.js")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "withCsrf" in body
+    assert "X-CSRF-Token" in body

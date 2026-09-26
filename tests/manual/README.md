@@ -1,9 +1,9 @@
 ---
 type: repo-doc
 project: docist
-description: "Index and operating instructions for Docist's manual hand-test suite: what hand-testing covers that the automated suites cannot, per-session fixture setup, the two server modes and why the hardened overrides exist, the seven checklists in order, and the smoke subset."
+description: "Index and operating instructions for Docist's manual hand-test suite: what hand-testing covers that the automated suites cannot, per-session fixture setup, the two server modes and why their overrides exist, the seven checklists in order, and the smoke subset."
 tags: [index, testing, checklist]
-updated: 2026-08-02
+updated: 2026-09-25
 ---
 
 # Docist manual hand-tests
@@ -30,12 +30,16 @@ skip those items.
 
 | Mode | Command | Used by |
 |---|---|---|
-| Default | `./run.sh` → http://localhost:5010 | checklists 01–06 |
-| Hardened | `DOCIST_PASSWORD=testgate DOCIST_MAX_UPLOAD_MB=5 DOCIST_RATE_LIMIT=5 DOCIST_RATE_WINDOW=60 ./run.sh` | checklist 07 |
+| Default | `DOCIST_LIMIT_ANON=100000 DOCIST_API_ANONYMOUS=1 ./run.sh` → http://localhost:5010 | checklists 01–06 |
+| Accounts | `DOCIST_LIMIT_ANON=3 DOCIST_LIMIT_FREE=20 DOCIST_MAX_UPLOAD_MB=5 DOCIST_RATE_LIMIT=10 DOCIST_RATE_WINDOW=60 ./run.sh` | checklist 07 |
 
-The hardened overrides exist to make failures reachable by hand: a 5 MB
-cap lets `padding-6mb.pdf` trigger the oversized-upload path, and 5
-POSTs/minute makes the rate limiter fire without 30 rapid submits.
+The default-mode overrides keep 01–06 about the tools: out of the box an
+anonymous visitor gets only 10 operations a day and `/api/v1` POSTs need an
+API key, so a full pass would hit the daily limit and 06's keyless curls
+would get 401. The accounts-mode overrides make failures reachable by hand:
+a 3-operation guest allowance, a 5 MB cap that lets `padding-6mb.pdf`
+trigger the oversized-upload path, and 10 POSTs/minute so the rate limiter
+fires without 30 rapid submits.
 
 ## Checklists (suggested order)
 
@@ -45,7 +49,7 @@ POSTs/minute makes the rate limiter fire without 30 rapid submits.
 4. `04-print-export.md` — Print Prep + Export (9 checks)
 5. `05-security.md` — Watermark & Security (10 checks)
 6. `06-api.md` — REST API via curl (8 checks)
-7. `07-auth-hardening.md` — login gate, limits, spoofing (10 checks)
+7. `07-auth-hardening.md` — accounts, daily limits, API keys, owner-bound downloads, CSRF, throttles (16 checks)
 
 Roughly 2–2.5 hours for a full pass.
 

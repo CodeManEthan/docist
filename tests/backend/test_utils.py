@@ -3,33 +3,50 @@ import os
 
 import pytest
 
-from utils.naming import display_name, result_name
+from utils.naming import display_name, owner_of, result_name
 from utils.validation import UploadValidationError, validate_upload
 from utils.cleanup import OutputJanitor, prune_old_files
 from utils.ratelimit import RateLimiter
 
 
 # --------------------------------------------------------------------------
-# result_name / display_name
+# result_name / display_name / owner_of
 # --------------------------------------------------------------------------
+OWNER = "0123456789abcdef"
+
+
 class TestResultName:
-    def test_key_prefix_and_friendly_name(self):
-        name = result_name("doc.pdf")
-        assert len(name) == 32 + 1 + len("doc.pdf")
+    def test_owner_key_and_friendly_name(self):
+        name = result_name("doc.pdf", owner=OWNER)
+        assert len(name) == 16 + 32 + 1 + len("doc.pdf")
+        assert name.startswith(OWNER)
         assert display_name(name) == "doc.pdf"
+        assert owner_of(name) == OWNER
 
     def test_names_are_unique(self):
-        assert len({result_name("doc.pdf") for _ in range(100)}) == 100
+        assert len({result_name("doc.pdf", owner=OWNER) for _ in range(100)}) == 100
 
     def test_extension_is_preserved(self):
-        assert result_name("bundle.zip").endswith("_bundle.zip")
+        assert result_name("bundle.zip", owner=OWNER).endswith("_bundle.zip")
+
+    def test_needs_owner_outside_a_request(self):
+        with pytest.raises(RuntimeError):
+            result_name("doc.pdf")
+
+    def test_owner_defaults_to_request_owner_tag(self, client):
+        from utils.identity import owner_tag
+        with client.application.test_request_context("/"):
+            name = result_name("doc.pdf")
+            assert owner_of(name) == owner_tag()
+        assert display_name(name) == "doc.pdf"
 
     @pytest.mark.parametrize("stored", [
-        "doc.pdf", "report-merged.pdf", "0" * 31 + "_doc.pdf",
-        "G" * 32 + "_doc.pdf", "0" * 32 + "_", "", None,
+        "doc.pdf", "report-merged.pdf", "0" * 47 + "_doc.pdf",
+        "G" * 48 + "_doc.pdf", "0" * 48 + "_", "0" * 32 + "_doc.pdf", "", None,
     ])
     def test_display_name_rejects_unkeyed(self, stored):
         assert display_name(stored) is None
+        assert owner_of(stored) is None
 
 
 # --------------------------------------------------------------------------
