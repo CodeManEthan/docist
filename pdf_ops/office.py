@@ -207,7 +207,8 @@ def check_archive(infos):
     Rule: a Word file reaches LibreOffice or the reflow only if its entry
     count, each entry's uncompressed size, the total uncompressed size and
     each large entry's compression ratio are all inside the limits. The strip
-    then counts the bytes that actually come out against the same limits, so
+    then counts the bytes that actually come out against the same limits
+    (per entry, in all, and per entry against its stored compressed size), so
     an archive that lies about its sizes is caught as it is read.
     """
     if len(infos) > MAX_ENTRIES:
@@ -470,6 +471,9 @@ def strip_external(src_path, dst_path, check=None):
                         entry += len(chunk)
                         if entry > MAX_ENTRY_BYTES:
                             raise ArchiveError(f'{info.filename} unpacks too large')
+                        if (entry > RATIO_FLOOR
+                                and entry > MAX_RATIO * max(info.compress_size, 1)):
+                            raise ArchiveError(f'{info.filename} is compressed too far')
                         if first:
                             _check_head(info.filename, chunk[:8])
                             first = False

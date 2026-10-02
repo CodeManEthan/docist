@@ -102,6 +102,26 @@ def test_an_archive_that_lies_about_its_sizes_is_caught_while_read(tmp_path, mon
         office.strip_external(str(src), str(tmp_path / 'out.docx'))
 
 
+def test_a_lied_uncompressed_size_is_caught_by_the_ratio_while_read(tmp_path, monkeypatch):
+    """A declared size that passes the ratio check, and actual output that
+    doesn't: the strip measures the ratio on the bytes that come out."""
+    src = tmp_path / 'liar2.docx'
+    wf.write_docx(src, {'word/document.xml': wf.document(wf.para('x'), '')})
+    with zipfile.ZipFile(src, 'a', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('word/media/zeros.bin', b'\0' * (4 * MIB))
+    real_infolist = zipfile.ZipFile.infolist
+
+    def lying_infolist(self):
+        infos = real_infolist(self)
+        for info in infos:
+            if info.filename == 'word/media/zeros.bin':
+                info.file_size = 1000      # declared tiny, so the declared ratio passes
+        return infos
+    monkeypatch.setattr(zipfile.ZipFile, 'infolist', lying_infolist)
+    with pytest.raises((office.ArchiveError, zipfile.BadZipFile)):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
 def test_out_of_time_still_checks_the_archive_first(tmp_path, no_reflow, no_libreoffice):
     """With no time left the engine falls back, but only after the check: a
     bomb is refused rather than re-flowed."""
