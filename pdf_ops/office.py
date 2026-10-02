@@ -62,6 +62,7 @@ MAX_ENTRIES = 10_000
 MAX_XML_PART_BYTES = 32 * 1024 * 1024    # a part the strip scans, streamed
 MAX_RELS_PART_BYTES = 1024 * 1024        # a .rels or [Content_Types].xml, parsed whole
 MAX_XML_DEPTH = 1000                     # Word nests well under 100
+MAX_REL_ID = 255                         # characters; Word writes ids like rId12
 MAX_UNPACKED_BYTES = 1024 * 1024 * 1024
 _STDERR_TAIL = 2000
 
@@ -260,13 +261,15 @@ def scan_references(stream, rel_ids, name='part', check=None):
 
     refs = {rel_id: [] for rel_id in rel_ids}
     longest = max((len(r) for r in rel_ids), default=0)
-    # One entry per open element: [tag, text before its first child with
-    # leading whitespace dropped, a child has opened, the text grew too long].
-    # Like ElementTree's ``elem.text``; only text that strips to an id matters,
-    # so at most ``longest`` characters past the leading whitespace are kept
-    # (trailing whitespace beyond that marks it too long, which is safe:
-    # nothing that long strips to an id unless it is whitespace, kept short).
+    # One entry per open element, for the text before its first child (as
+    # ElementTree's ``elem.text``): [tag, kept pieces, a child has opened,
+    # non-space seen, length so far, length up to the last non-space].
+    # Each call costs the length of its own data; the pieces are joined once,
+    # in end(). Only text that strips to an id matters, so the text is "too
+    # long" once its non-space span passes ``longest``, and pieces stop being
+    # kept past ``2 * longest + 1`` characters (only trailing space is lost).
     stack = []
+    keep = 2 * longest + 1
     parser = expat.ParserCreate(namespace_separator=' ')
 
     def refuse_dtd(*_args):
@@ -281,29 +284,32 @@ def scan_references(stream, rel_ids, name='part', check=None):
         for attr, value in attrs.items():
             if value in refs:
                 refs[value].append((tag, _expat_name(attr)))
-        stack.append([tag, '', False, False])
+        stack.append([tag, [], False, False, 0, 0])
 
     def chars(data):
         if not stack:
             return
         top = stack[-1]
-        if top[2] or top[3]:
+        if top[2] or top[5] > longest:
             return
-        text = top[1] + data
-        if not top[1]:
-            text = text.lstrip()
-        # Keep trailing whitespace only up to the cap; past it, the text can't
-        # strip to an id unless no more non-space follows, which end() checks.
-        if len(text.rstrip()) > longest:
+        if not top[3]:
+            data = data.lstrip()
+            if not data:
+                return
             top[3] = True
-            return
-        core = text.rstrip()
-        top[1] = core + text[len(core):][:longest + 1]
+        core = len(data.rstrip())
+        if core:
+            top[5] = top[4] + core
+            if top[5] > longest:
+                return
+        if top[4] < keep:
+            top[1].append(data[:keep - top[4]])
+        top[4] += len(data)
 
     def end(_tag):
-        tag, text, _child, too_long = stack.pop()
-        if not too_long:
-            text = text.strip()
+        tag, pieces, _child, _seen, _length, core = stack.pop()
+        if core <= longest:
+            text = ''.join(pieces).strip()
             if text in refs:
                 refs[text].append((tag, None))
 
@@ -354,6 +360,8 @@ def strip_rels(rels_xml, scan_source):
     children = list(root)
     if any(child.tag != rel_tag or len(child) for child in children):
         raise OfficeError('a .rels part has an unexpected element')
+    if any(len(child.get('Id', '')) > MAX_REL_ID for child in children):
+        raise OfficeError('a .rels part has an over-long relationship id')
     outside = [rel for rel in children if _is_outside(rel)]
     if not outside:
         return rels_xml, []

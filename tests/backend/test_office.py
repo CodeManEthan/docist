@@ -445,6 +445,30 @@ def test_text_that_is_not_the_id_is_not_a_reference(text):
     assert removed == []
 
 
+def test_text_scan_is_linear_in_a_long_id():
+    """verification-b2-recheck2 MAJOR 1: a 900,000-character id and 450,000
+    entity references (one CharacterData call each) took 17 s on 3 MB when
+    each call rebuilt the buffer. Each call now costs its own data only."""
+    import io
+    long_id = 'r' * 450_000
+    doc = (f'<w:document xmlns:w="{wf.W}"><w:t>' + '&#x72;' * 450_000
+           + '</w:t></w:document>').encode()
+    t0 = time.monotonic()
+    refs = office.scan_references(io.BytesIO(doc), {long_id})
+    assert time.monotonic() - t0 < 3
+    assert refs == {long_id: [('{%s}t' % wf.W, None)]}
+    # And an id twice as long as the text is not matched, just as fast.
+    t0 = time.monotonic()
+    assert office.scan_references(io.BytesIO(doc), {'r' * 900_000}) == {'r' * 900_000: []}
+    assert time.monotonic() - t0 < 3
+
+
+def test_an_over_long_relationship_id_is_refused():
+    rels = wf.rels(('r' * (office.MAX_REL_ID + 1), 'hyperlink', 'http://x/', True)).encode()
+    with pytest.raises(OfficeError, match='over-long'):
+        office.strip_rels(rels, lambda ids: {})
+
+
 def test_the_deadline_stops_the_strip(tmp_path, fake_soffice):
     """The strip runs inside the request's deadline: a check that says time is
     up stops it, and soffice never starts."""
