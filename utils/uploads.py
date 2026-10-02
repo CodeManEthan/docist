@@ -13,6 +13,16 @@ after ``identity.load_identity`` and before ``csrf.check_csrf``, the first
 step that may parse the form. It also records ``g.request_started``, the
 moment the request's render budget counts from (utils/render_opts.py).
 
+Rule: the paid limit raises a request's limit only where B2 bounds the work
+it lets through: Merge and Convert, in the browser and on the API
+(``PAID_ENDPOINTS``). There, only a PDF or a Word file the Word engine will
+render may be over the free limit (the routes check each file with
+:func:`file_limit`), and form text fields never take more memory than the
+free limit allows. Every other endpoint, and every other file, keeps the free
+limit for everyone, so the larger limit doesn't enlarge the resource holes
+the 2026-10-02 critic review found on main (raster and frame bombs, archive
+expansion, split parts, results read into memory).
+
 Rule: a missed step fails closed. :class:`LimitedRequest` returns the limit
 :func:`apply_limit` stored in the WSGI environ, else ``MAX_CONTENT_LENGTH``,
 the free limit. Only that step can raise a request's limit.
@@ -22,13 +32,20 @@ Every 413 is JSON, the same shape as the daily limit's 429:
 """
 import time
 
-from flask import Request, current_app, g, jsonify, request
+from flask import Request, current_app, g, has_request_context, jsonify, request
 
 from utils.identity import current_user
 from utils.metering import tier
 
 ENVIRON_KEY = 'docist.max_body'
 MIB = 1024 * 1024
+
+# The endpoints a paid request may send more than the free limit to.
+PAID_ENDPOINTS = frozenset({
+    'merge.upload_files', 'api.api_merge', 'convert.run_convert', 'api.api_convert',
+})
+# A tool page's own uploads go to this endpoint (for the page's meta tag).
+_PAGE_UPLOADS = {'merge.index': 'merge.upload_files', 'convert.convert_index': 'convert.run_convert'}
 
 
 class LimitedRequest(Request):
@@ -50,11 +67,32 @@ def paid_limit_bytes():
     return current_app.config['MAX_CONTENT_LENGTH_PAID']
 
 
-def limit_bytes(user):
-    """The body limit for ``user``, in bytes. The one place it is computed."""
-    if tier(user) == 'paid':
+def limit_bytes(user, endpoint=None):
+    """The body limit for ``user`` sending to ``endpoint``, in bytes. The one
+    place it is computed: the paid limit for a paid user on
+    ``PAID_ENDPOINTS``, else the free limit."""
+    if tier(user) == 'paid' and endpoint in PAID_ENDPOINTS:
         return paid_limit_bytes()
     return free_limit_bytes()
+
+
+def merge_large_ok(ext, render_opts):
+    """Merge: only a PDF, or a Word file the Word engine renders, may be over
+    the free limit."""
+    return ext == '.pdf' or (ext == '.docx' and render_opts.word_engine == 'libreoffice')
+
+
+def convert_large_ok(src_ext, target, render_opts):
+    """Convert: only a Word file the Word engine renders to PDF may be over the
+    free limit."""
+    return (src_ext == '.docx' and target == '.pdf'
+            and render_opts.word_engine == 'libreoffice')
+
+
+def file_limit(large_ok):
+    """The size one uploaded file may have: None (only the body limit) when
+    the route bounds this file's work at the paid size, else the free limit."""
+    return None if large_ok else free_limit_bytes()
 
 
 def limit_mb(limit):
@@ -80,7 +118,7 @@ def apply_limit():
     the 413 here; a chunked body is cut at the limit when it is read.
     """
     g.request_started = time.monotonic()
-    limit = limit_bytes(current_user())
+    limit = limit_bytes(current_user(), request.endpoint)
     request.environ[ENVIRON_KEY] = limit
     length = request.content_length
     if length is not None and length > limit:
@@ -98,5 +136,8 @@ def init_app(app):
 
     @app.context_processor
     def _inject_upload_limit():
-        limit = limit_bytes(current_user())
-        return {'upload_limit_bytes': limit, 'upload_limit_mb': limit_mb(limit)}
+        # The number the page's own uploads will meet on the server.
+        endpoint = _PAGE_UPLOADS.get(request.endpoint) if has_request_context() else None
+        limit = limit_bytes(current_user(), endpoint)
+        return {'upload_limit_bytes': limit, 'upload_limit_mb': limit_mb(limit),
+                'paid_upload_limit_mb': limit_mb(paid_limit_bytes())}

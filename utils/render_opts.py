@@ -87,6 +87,9 @@ def from_form(form, user=None, *, paper=True, ocr=False):
     ``user`` is the request's user (None = anonymous); it picks the Word engine.
     """
     opts = RenderOptions(word_engine=word_engine(user), deadline=request_deadline())
+    if opts.word_engine == 'libreoffice' and has_request_context():
+        # The fallback reflow takes only what a free user could send (§7).
+        opts.reflow_max_bytes = current_app.config['MAX_CONTENT_LENGTH']
     if paper:
         opts.paper = parse_paper(form.get('paper'))
     if ocr:

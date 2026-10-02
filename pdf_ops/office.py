@@ -59,11 +59,14 @@ MIN_CALL_SECONDS = 10      # under this, LibreOffice isn't started
 # Bounds on the work the strip does before LibreOffice sees anything. A real
 # image-heavy .docx near the paid upload limit unpacks to about its own size.
 MAX_ENTRIES = 10_000
+MAX_ENTRY_BYTES = 128 * 1024 * 1024      # one entry, uncompressed
+MAX_RATIO = 100                          # uncompressed / compressed, per entry...
+RATIO_FLOOR = 1024 * 1024                # ...for entries larger than this
 MAX_XML_PART_BYTES = 32 * 1024 * 1024    # a part the strip scans, streamed
 MAX_RELS_PART_BYTES = 1024 * 1024        # a .rels or [Content_Types].xml, parsed whole
 MAX_XML_DEPTH = 1000                     # Word nests well under 100
 MAX_REL_ID = 255                         # characters; Word writes ids like rId12
-MAX_UNPACKED_BYTES = 1024 * 1024 * 1024
+MAX_UNPACKED_BYTES = 512 * 1024 * 1024   # all entries, uncompressed
 _STDERR_TAIL = 2000
 
 _PROFILE_SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -82,6 +85,11 @@ _OUTSIDE_TARGET = re.compile(r'^\s*([A-Za-z][A-Za-z0-9+.\-]*:|//|\\\\)')
 
 class OfficeError(Exception):
     """LibreOffice couldn't render this file; the caller falls back to the reflow."""
+
+
+class ArchiveError(OfficeError):
+    """The package fails the archive-expansion check. Nothing may open it:
+    not LibreOffice, and not the reflow either."""
 
 
 def soffice_path():
@@ -184,16 +192,49 @@ def _open_zip(path):
     except (zipfile.BadZipFile, OSError) as exc:
         raise OfficeError('not a Word document') from exc
     infos = zin.infolist()
-    if len(infos) > MAX_ENTRIES:
+    try:
+        check_archive(infos)
+    except OfficeError:
         zin.close()
-        raise OfficeError('too many parts')
+        raise
+    return zin, infos
+
+
+def check_archive(infos):
+    """The archive-expansion check, on the entries' declared sizes, before any
+    entry is opened. Raises :class:`ArchiveError`.
+
+    Rule: a Word file reaches LibreOffice or the reflow only if its entry
+    count, each entry's uncompressed size, the total uncompressed size and
+    each large entry's compression ratio are all inside the limits. The strip
+    then counts the bytes that actually come out against the same limits, so
+    an archive that lies about its sizes is caught as it is read.
+    """
+    if len(infos) > MAX_ENTRIES:
+        raise ArchiveError('too many parts')
+    total = 0
+    for info in infos:
+        size = info.file_size
+        if size > MAX_ENTRY_BYTES:
+            raise ArchiveError(f'{info.filename} unpacks too large')
+        if size > RATIO_FLOOR and size > MAX_RATIO * max(info.compress_size, 1):
+            raise ArchiveError(f'{info.filename} is compressed too far')
+        total += size
+        if total > MAX_UNPACKED_BYTES:
+            raise ArchiveError('the document unpacks too large')
     # Part names are case-insensitive (OPC). Two entries with one name would
     # let the strip read one copy of a part while LibreOffice reads the other.
     lowered = [info.filename.lower() for info in infos]
     if len(set(lowered)) != len(lowered):
-        zin.close()
-        raise OfficeError('duplicate part names')
-    return zin, infos
+        raise ArchiveError('duplicate part names')
+
+
+def check_package(path):
+    """Open the zip at ``path`` and run :func:`check_archive`. Raises
+    :class:`ArchiveError` for a package over the limits, :class:`OfficeError`
+    for a file that isn't a zip."""
+    zin, _ = _open_zip(path)
+    zin.close()
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +435,7 @@ def strip_external(src_path, dst_path, check=None):
             nonlocal unpacked
             unpacked += n
             if unpacked > MAX_UNPACKED_BYTES:
-                raise OfficeError('the document unpacks too large')
+                raise ArchiveError('the document unpacks too large')
 
         with zipfile.ZipFile(dst_path, 'w', zipfile.ZIP_DEFLATED) as zout:
             for info in infos:
@@ -419,12 +460,16 @@ def strip_external(src_path, dst_path, check=None):
                     continue
                 tail = b''
                 first = True
+                entry = 0
                 with zin.open(info) as fh, zout.open(info.filename, 'w') as out:
                     while True:
                         chunk = fh.read(1024 * 1024)
                         if not chunk:
                             break
                         count(len(chunk))
+                        entry += len(chunk)
+                        if entry > MAX_ENTRY_BYTES:
+                            raise ArchiveError(f'{info.filename} unpacks too large')
                         if first:
                             _check_head(info.filename, chunk[:8])
                             first = False

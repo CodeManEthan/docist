@@ -8,8 +8,10 @@ the browser routes on purpose:
   * the response *is* the file (``send_file`` with a proper ``download_name``),
     not JSON pointing at ``/download``;
   * nothing is written to OUTPUT_FOLDER -- all work happens inside a
-    ``tempfile.TemporaryDirectory`` and the finished bytes are streamed from
-    memory, so API traffic leaves no residue on disk;
+    ``tempfile.TemporaryDirectory``, so API traffic leaves no residue on disk.
+    Merge and convert stream the finished file from an open handle; the other
+    endpoints still send it from memory (critic review 2026-10-02, blocker 7,
+    left for its own round);
   * every failure is JSON ``{"error": ...}`` with 400 (user-fixable) or 500
     (unexpected), so clients never have to parse HTML.
 
@@ -52,6 +54,7 @@ from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr_langs import language_choices
 from utils.identity import current_user
 from utils.render_opts import RenderOptionsError, from_form, notes_header
+from utils.uploads import convert_large_ok, file_limit, merge_large_ok
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('api', __name__)
@@ -77,6 +80,26 @@ def _send_bytes(data, download_name):
         as_attachment=True,
         download_name=download_name,
     )
+
+
+def _stream_path(path, download_name=None):
+    """Stream a file produced inside the temp dir back without reading it into
+    memory. The open handle outlives the TemporaryDirectory's removal (POSIX
+    keeps an unlinked file's data until its last handle closes), and the
+    response closes the handle when it has been sent. Used by merge and
+    convert, which take paid-size uploads (round prelaunch-fixes B2)."""
+    name = download_name or os.path.basename(path)
+    mimetype = mimetypes.guess_type(name)[0] or 'application/octet-stream'
+    handle = open(path, 'rb')
+    try:
+        size = os.fstat(handle.fileno()).st_size
+        response = send_file(handle, mimetype=mimetype, as_attachment=True,
+                             download_name=name, conditional=False)
+    except Exception:
+        handle.close()
+        raise
+    response.content_length = size
+    return response
 
 
 def _send_path(path, download_name=None):
@@ -213,7 +236,8 @@ def api_merge():
             title = os.path.splitext(filename)[0]
             upload.save(path)
             try:
-                validate_upload(path, ext)
+                validate_upload(path, ext,
+                                max_bytes=file_limit(merge_large_ok(ext, render_opts)))
             except UploadValidationError as exc:
                 raise ApiError(f'{filename}: {exc}')
 
@@ -247,12 +271,12 @@ def api_merge():
         except Exception as exc:  # pragma: no cover - defensive
             raise ApiError(str(exc), status=500)
 
-        buffer = io.BytesIO()
-        writer.write(buffer)
-        data = buffer.getvalue()
-
-    base = os.path.splitext(first_filename)[0] or 'document'
-    return notes_header(_send_bytes(data, f'{base}-merged.pdf'), render_opts)
+        base = os.path.splitext(first_filename)[0] or 'document'
+        merged = os.path.join(tmpdir, 'merged.pdf')
+        with open(merged, 'wb') as out:
+            writer.write(out)
+        del writer
+        return notes_header(_stream_path(merged, f'{base}-merged.pdf'), render_opts)
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +332,8 @@ def api_convert():
         input_path = os.path.join(tmpdir, filename)
         upload.save(input_path)
         try:
-            validate_upload(input_path, src_ext)
+            validate_upload(input_path, src_ext, max_bytes=file_limit(
+                convert_large_ok(src_ext, target, render_opts)))
         except UploadValidationError as exc:
             raise ApiError(str(exc))
 
@@ -320,7 +345,7 @@ def api_convert():
         except Exception as exc:  # pragma: no cover - defensive
             raise ApiError(f'Unexpected error: {exc}', status=500)
 
-        return notes_header(_send_path(actual_path), render_opts)
+        return notes_header(_stream_path(actual_path), render_opts)
 
 
 # ---------------------------------------------------------------------------

@@ -271,7 +271,7 @@ Additional OCR languages are Tesseract data packages (e.g. `tesseract-langpack-d
 
 ## Notes
 
-- Maximum upload size: 50 MB per request, 90 MB for paid accounts (`DOCIST_MAX_UPLOAD_MB`, `DOCIST_MAX_UPLOAD_MB_PAID`)
+- Maximum upload size: 50 MB per request; paid accounts can send 90 MB of PDFs and Word files to Merge and Convert (`DOCIST_MAX_UPLOAD_MB`, `DOCIST_MAX_UPLOAD_MB_PAID`)
 - Accepted formats are listed by the `/formats` endpoint and shown in the UI
 - Uploads are processed in per-request temporary directories and never persisted; results live in `output/` until pruned
 - Conversion fidelity notes: DOCX styling is simplified for free and anonymous use (semantic structure is kept, Word theme fonts/colors are not); paid accounts get LibreOffice, which keeps the document's layout, page size, headers and footers but drops remote images; HTML rendering ignores external resources and JavaScript; plain text supports Latin-1 glyphs (others render as `?`)

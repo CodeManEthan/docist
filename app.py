@@ -26,8 +26,9 @@ local development):
     DOCIST_MAX_UPLOAD_MB           request body cap in MiB for every tier but
                                    paid (default 50)
     DOCIST_MAX_UPLOAD_MB_PAID      request body cap in MiB for paid accounts
-                                   (default 90; keep it at least 5 MB under a
-                                   proxy's own cap, see utils/uploads.py)
+                                   on Merge and Convert, for PDFs and Word
+                                   files (default 90; keep it at least 5 MB
+                                   under a proxy's own cap; utils/uploads.py)
     DOCIST_RENDER_BUDGET           seconds from the start of a request by which
                                    Word-engine work must end (default 90)
     DOCIST_OFFICE_TIMEOUT          seconds one LibreOffice call may run

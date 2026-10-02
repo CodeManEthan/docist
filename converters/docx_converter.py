@@ -130,12 +130,30 @@ def convert(input_path, output_path, opts=None):
     engine ``opts.word_engine`` names (see the module docstring)."""
     opts = resolve(opts)
     if opts.word_engine == 'libreoffice':
+        # Rule: nothing B2 adds opens a Word file before it passes the
+        # archive-expansion check, and one that fails it is refused, not
+        # handed to the reflow (which has no such check of its own).
+        try:
+            office.check_package(input_path)
+        except office.ArchiveError as exc:
+            raise ConversionError(
+                f"This Word file can't be converted: {exc}.") from exc
+        except office.OfficeError:
+            pass   # not a zip: docx_to_pdf refuses it, and the reflow says why
         try:
             office.docx_to_pdf(input_path, output_path, opts.deadline)
             return
+        except office.ArchiveError as exc:
+            raise ConversionError(
+                f"This Word file can't be converted: {exc}.") from exc
         except office.OfficeError as exc:
-            log.warning('Word engine failed on %s, reflowing: %s',
-                        os.path.basename(input_path), exc)
+            log.warning('Word engine failed on %s: %s', os.path.basename(input_path), exc)
+            if (opts.reflow_max_bytes is not None
+                    and os.path.getsize(input_path) > opts.reflow_max_bytes):
+                # The reflow takes only what a free user could send.
+                raise ConversionError(
+                    "The Word engine couldn't convert this file, and it is too "
+                    "large for the basic converter.") from exc
             if FALLBACK_NOTE not in opts.notes:
                 opts.notes.append(FALLBACK_NOTE)
     _reflow(input_path, output_path, opts)

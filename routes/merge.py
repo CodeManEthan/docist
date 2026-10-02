@@ -17,6 +17,7 @@ from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
 from utils.identity import current_user, owner_tag
 from utils.naming import display_name, owner_of, result_name
 from utils.render_opts import RenderOptionsError, from_form, with_notes
+from utils.uploads import file_limit, merge_large_ok
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('merge', __name__)
@@ -67,7 +68,8 @@ def upload_files():
             title = os.path.splitext(filename)[0]  # original name without extension
             file.save(filepath)
             try:
-                validate_upload(filepath, ext)
+                validate_upload(filepath, ext,
+                                max_bytes=file_limit(merge_large_ok(ext, render_opts)))
             except UploadValidationError as e:
                 return jsonify({'error': f'{filename}: {e}'}), 400
 

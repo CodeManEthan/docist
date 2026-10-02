@@ -33,6 +33,7 @@ from pdf_ops.ocr_langs import language_choices
 from utils.identity import current_user
 from utils.naming import display_name, result_name
 from utils.render_opts import RenderOptionsError, from_form, with_notes
+from utils.uploads import convert_large_ok, file_limit
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('convert', __name__)
@@ -136,7 +137,8 @@ def run_convert():
             input_path = os.path.join(tmpdir, filename or ('input' + src_ext))
             upload.save(input_path)
             try:
-                validate_upload(input_path, src_ext)
+                validate_upload(input_path, src_ext,
+                                max_bytes=file_limit(convert_large_ok(src_ext, target, render_opts)))
             except UploadValidationError as exc:
                 return jsonify({'error': str(exc)}), 400
 

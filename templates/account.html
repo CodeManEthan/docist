@@ -70,7 +70,7 @@
             <p>Your plan includes:</p>
             <ul>
                 <li>The Word engine: Word files keep their own layout and page size{% if not word_engine_available() %} (not installed on this server right now, so Word files are re-flowed){% endif %}.</li>
-                <li>Uploads up to {{ upload_limit_mb }} MB per request.</li>
+                <li>Merge and Convert uploads up to {{ paid_upload_limit_mb }} MB per request, for PDFs and Word files.</li>
             </ul>
             {% endif %}
         </section>

@@ -248,8 +248,12 @@ def test_page_limit_equals_limit_bytes(client, make_user, login):
     login(client, paid_user)
     html = client.get('/').get_data(as_text=True)
     with app.test_request_context('/'):
-        expected = uploads.limit_bytes(db.session.get(User, paid_user.id))
+        expected = uploads.limit_bytes(db.session.get(User, paid_user.id), 'merge.upload_files')
     assert meta_limit(html) == expected == 90 * MIB
+    # Pages whose uploads keep the free limit say so, for paid users too.
+    for page in ('/pages', '/print', '/export', '/security'):
+        assert meta_limit(client.get(page).get_data(as_text=True)) == 50 * MIB, page
+    assert meta_limit(client.get('/convert').get_data(as_text=True)) == 90 * MIB
 
 
 # --------------------------------------------------------------------------

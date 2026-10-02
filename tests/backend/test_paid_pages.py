@@ -49,7 +49,7 @@ def test_account_lists_paid_features_to_paid_users(client, make_user, login, lo_
     html = client.get('/account').get_data(as_text=True)
     assert 'Your plan includes' in html
     assert 'The Word engine' in html
-    assert 'Uploads up to 90 MB per request.' in html
+    assert 'Merge and Convert uploads up to 90 MB per request' in html
 
 
 def test_account_shows_free_users_nothing_about_paid_plans(client, make_user, login, lo_on):
