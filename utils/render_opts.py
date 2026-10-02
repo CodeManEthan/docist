@@ -34,14 +34,16 @@ def parse_paper(raw):
 def parse_language(raw):
     """A validated ``'+'``-joined Tesseract spec; missing or blank means ``'eng'``.
 
-    When Tesseract isn't installed the spec is passed on unchecked, so the
-    renderer's own "OCR requires Tesseract" message reaches the user.
+    When Tesseract isn't installed, the length-bounded spec is passed on
+    unchecked so the renderer's own "OCR requires Tesseract" message reaches
+    the user.
     """
-    if raw is None or not str(raw).strip():
-        return 'eng'
-    if not ocr_ops.is_available():
-        return str(raw).strip()
     try:
+        raw = ocr_ops.bound_language_spec(raw)
+        if not raw.strip():
+            return 'eng'
+        if not ocr_ops.is_available():
+            return raw.strip()
         return ocr_ops.validate_language(raw)
     except ValueError as exc:
         raise RenderOptionsError(str(exc)) from exc

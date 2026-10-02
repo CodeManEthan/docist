@@ -39,6 +39,10 @@ def tesseract_version():
 
 DEFAULT_MAX_LANGS = 2
 DEFAULT_OCR_JOBS = 2
+# The longest shipped code is 7 characters, so two codes need 15 characters.
+# 128 leaves room for surrounding whitespace, empty '+' components, and a
+# higher configured cap while bounding request work before parsing starts.
+MAX_LANGUAGE_SPEC_LENGTH = 128
 
 
 def _env_int(name, default, minimum=1):
@@ -58,6 +62,24 @@ def max_languages():
 def ocr_jobs():
     """OCRmyPDF's parallel Tesseract processes (``DOCIST_OCR_JOBS``)."""
     return _env_int('DOCIST_OCR_JOBS', DEFAULT_OCR_JOBS)
+
+
+def _language_count_error(cap):
+    return ValueError('Choose at most {} OCR language{}.'.format(
+        cap, '' if cap == 1 else 's'))
+
+
+def bound_language_spec(spec):
+    """Return ``spec`` as text after enforcing the fixed request-size bound."""
+    if spec is None:
+        raw = ''
+    elif isinstance(spec, str):
+        raw = spec
+    else:
+        raw = str(spec)
+    if len(raw) > MAX_LANGUAGE_SPEC_LENGTH:
+        raise _language_count_error(max_languages())
+    return raw
 
 
 @functools.lru_cache(maxsize=1)
@@ -87,13 +109,13 @@ def validate_language(spec):
     Each code must be installed, and the count must be at most
     :func:`max_languages`. Raises ``ValueError`` with a user-facing message.
     """
-    requested = [code.strip() for code in str(spec or '').split('+') if code.strip()]
+    raw = bound_language_spec(spec)
+    requested = [code.strip() for code in raw.split('+') if code.strip()]
     if not requested:
         raise ValueError('Provide a Tesseract language code, e.g. "eng".')
     cap = max_languages()
     if len(requested) > cap:
-        raise ValueError('Choose at most {} OCR language{}.'.format(
-            cap, '' if cap == 1 else 's'))
+        raise _language_count_error(cap)
     installed = installed_languages()
     unknown = [code for code in requested if code not in installed]
     if unknown:

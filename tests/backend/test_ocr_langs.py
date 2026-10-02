@@ -4,6 +4,7 @@ display names. None of these needs Tesseract installed; the real-pack checks
 are at the bottom and skip without it.
 """
 import io
+import time
 
 import pytest
 
@@ -77,6 +78,38 @@ def test_cap_checked_before_any_probe(monkeypatch):
     monkeypatch.setattr(ocr_ops, 'installed_languages', boom)
     with pytest.raises(ValueError, match='at most 2'):
         ocr_ops.validate_language('a+b+c')
+
+
+def test_huge_spec_is_rejected_before_parsing_or_probe(monkeypatch):
+    """A request-sized value must take constant work in the validator."""
+    class UnparsedLanguage(str):
+        def split(self, *_args, **_kwargs):
+            raise AssertionError('language was split')
+
+        def strip(self, *_args, **_kwargs):
+            raise AssertionError('language was stripped')
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError('Tesseract was probed')
+
+    spec = UnparsedLanguage('eng+' * (2 * 1024 * 1024))
+    monkeypatch.setattr(ocr_ops, 'installed_languages', boom)
+    monkeypatch.setattr(ocr_ops, '_probe_languages', boom)
+
+    started = time.perf_counter()
+    with pytest.raises(ValueError, match='Choose at most 2 OCR languages.'):
+        ocr_ops.validate_language(spec)
+    assert time.perf_counter() - started < 0.1
+
+
+def test_language_spec_length_boundary(langs):
+    at_bound = 'eng' + ' ' * (ocr_ops.MAX_LANGUAGE_SPEC_LENGTH - 3)
+    assert len(at_bound) == ocr_ops.MAX_LANGUAGE_SPEC_LENGTH
+    assert ocr_ops.validate_language(at_bound) == 'eng'
+
+    over_bound = at_bound + ' '
+    with pytest.raises(ValueError, match='Choose at most 2 OCR languages.'):
+        ocr_ops.validate_language(over_bound)
 
 
 # ------------------------------------------------------------- jobs

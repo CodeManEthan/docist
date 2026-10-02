@@ -143,6 +143,17 @@ def test_language_unchecked_when_tesseract_missing(monkeypatch):
     assert from_form(MultiDict({'language': 'spa'}), ocr=True).ocr_language == 'spa'
 
 
+def test_language_is_bounded_when_tesseract_missing(monkeypatch):
+    class UnstrippedLanguage(str):
+        def strip(self, *_args, **_kwargs):
+            raise AssertionError('language was stripped')
+
+    monkeypatch.setattr(ocr_ops, 'is_available', lambda: False)
+    raw = UnstrippedLanguage('eng+' * (2 * 1024 * 1024))
+    with pytest.raises(RenderOptionsError, match='Choose at most 2 OCR languages.'):
+        from_form(MultiDict({'language': raw}), ocr=True)
+
+
 # ------------------------------------------------------------------- notes
 def test_with_notes():
     opts = RenderOptions()
