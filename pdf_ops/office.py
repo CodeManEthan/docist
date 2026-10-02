@@ -61,6 +61,7 @@ MIN_CALL_SECONDS = 10      # under this, LibreOffice isn't started
 MAX_ENTRIES = 10_000
 MAX_XML_PART_BYTES = 32 * 1024 * 1024    # a part the strip scans, streamed
 MAX_RELS_PART_BYTES = 1024 * 1024        # a .rels or [Content_Types].xml, parsed whole
+MAX_XML_DEPTH = 1000                     # Word nests well under 100
 MAX_UNPACKED_BYTES = 1024 * 1024 * 1024
 _STDERR_TAIL = 2000
 
@@ -248,39 +249,61 @@ def scan_references(stream, rel_ids, name='part', check=None):
     read from ``stream`` without building a tree.
 
     Any attribute in any namespace whose value is one of ``rel_ids`` counts,
-    and so does an element's own text, so an unexpected way of pointing at a
-    relationship counts as a non-hyperlink use. Memory stays flat however many
-    elements the part holds; the part is read in 1 MiB chunks, at most
-    ``MAX_XML_PART_BYTES`` in all, and ``check()`` runs between chunks.
+    and so does an element's own text (before its first child, stripped, as
+    ElementTree's ``elem.text``), so an unexpected way of pointing at a
+    relationship counts as a non-hyperlink use. Memory is bounded by
+    ``MAX_XML_DEPTH`` open elements, not by how many the part holds; the part
+    is read in 1 MiB chunks, at most ``MAX_XML_PART_BYTES`` in all, and
+    ``check()`` runs between chunks.
     """
     from xml.parsers import expat
 
     refs = {rel_id: [] for rel_id in rel_ids}
-    longest = max((len(r) for r in rel_ids), default=0) + 64
-    texts = []   # per open element: [text so far, overflowed]
+    longest = max((len(r) for r in rel_ids), default=0)
+    # One entry per open element: [tag, text before its first child with
+    # leading whitespace dropped, a child has opened, the text grew too long].
+    # Like ElementTree's ``elem.text``; only text that strips to an id matters,
+    # so at most ``longest`` characters past the leading whitespace are kept
+    # (trailing whitespace beyond that marks it too long, which is safe:
+    # nothing that long strips to an id unless it is whitespace, kept short).
+    stack = []
     parser = expat.ParserCreate(namespace_separator=' ')
 
     def refuse_dtd(*_args):
         raise OfficeError(f'{name} declares a DOCTYPE')
 
     def start(tag, attrs):
+        if len(stack) >= MAX_XML_DEPTH:
+            raise OfficeError(f'{name} nests too deeply')
+        if stack:
+            stack[-1][2] = True
         tag = _expat_name(tag)
         for attr, value in attrs.items():
             if value in refs:
                 refs[value].append((tag, _expat_name(attr)))
-        texts.append([tag, [], 0])
+        stack.append([tag, '', False, False])
 
     def chars(data):
-        if texts:
-            top = texts[-1]
-            if top[2] <= longest:
-                top[1].append(data)
-                top[2] += len(data)
+        if not stack:
+            return
+        top = stack[-1]
+        if top[2] or top[3]:
+            return
+        text = top[1] + data
+        if not top[1]:
+            text = text.lstrip()
+        # Keep trailing whitespace only up to the cap; past it, the text can't
+        # strip to an id unless no more non-space follows, which end() checks.
+        if len(text.rstrip()) > longest:
+            top[3] = True
+            return
+        core = text.rstrip()
+        top[1] = core + text[len(core):][:longest + 1]
 
     def end(_tag):
-        tag, parts, size = texts.pop()
-        if size <= longest:
-            text = ''.join(parts).strip()
+        tag, text, _child, too_long = stack.pop()
+        if not too_long:
+            text = text.strip()
             if text in refs:
                 refs[text].append((tag, None))
 

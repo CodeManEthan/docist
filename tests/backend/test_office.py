@@ -400,6 +400,51 @@ def test_scanning_a_huge_part_keeps_memory_flat():
     assert peak < 32 * 1024 * 1024
 
 
+def test_deep_nesting_is_refused_with_flat_memory():
+    """verification-b2-recheck MINOR 1: 10 million nested elements from a 69 KB
+    upload took 3 GB of stack. Past MAX_XML_DEPTH the scan stops."""
+    import io
+    import tracemalloc
+    doc = f'<w:document xmlns:w="{wf.W}">'.encode() + b'<a>' * 2_000_000
+    tracemalloc.start()
+    try:
+        with pytest.raises(OfficeError, match='nests too deeply'):
+            office.scan_references(io.BytesIO(doc), {'rId1'})
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 16 * 1024 * 1024
+
+
+def test_normal_nesting_passes():
+    import io
+    depth = 200
+    doc = (f'<w:document xmlns:w="{wf.W}">' + '<a>' * depth + '</a>' * depth
+           + '</w:document>').encode()
+    assert office.scan_references(io.BytesIO(doc), {'rId1'}) == {'rId1': []}
+
+
+@pytest.mark.parametrize('text', [
+    'rId5<w:x/>junk',            # text before the first child, as elem.text
+    ' ' * 70 + 'rId5',           # long leading whitespace
+    'rId5' + ' ' * 5000,         # long trailing whitespace
+    '\n  rI<![CDATA[d]]>5  \n',  # split across character-data calls
+])
+def test_text_references_match_the_tree_walk(text):
+    """verification-b2-recheck MINOR 2: a text use of a hyperlink's id is a
+    non-hyperlink use, however the text is laid out."""
+    body = f'<w:p><w:hyperlink r:id="rId5"/></w:p><w:p><w:t>{text}</w:t></w:p>'
+    _, removed = _strip([('rId5', 'hyperlink', 'http://x.example/', True)], body)
+    assert removed == ['rId5']
+
+
+@pytest.mark.parametrize('text', ['rId5 x', 'xrId5', 'rId55', ' ' * 70 + 'rId5' + ' ' * 70 + 'x'])
+def test_text_that_is_not_the_id_is_not_a_reference(text):
+    body = f'<w:p><w:hyperlink r:id="rId5"/></w:p><w:p><w:t>{text}</w:t></w:p>'
+    _, removed = _strip([('rId5', 'hyperlink', 'http://x.example/', True)], body)
+    assert removed == []
+
+
 def test_the_deadline_stops_the_strip(tmp_path, fake_soffice):
     """The strip runs inside the request's deadline: a check that says time is
     up stops it, and soffice never starts."""
