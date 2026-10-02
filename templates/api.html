@@ -88,6 +88,8 @@
                     <td><code>standard</code> (default) concatenates; <code>interleave</code> zips exactly two files (fronts + backs) into A1, B1, A2, B2…</td></tr>
                 <tr><td><code>reverse_second</code></td><td>no</td>
                     <td>Interleave only: flip the second file first, for reversed back-side scans (default <code>true</code>).</td></tr>
+                <tr><td><code>paper</code></td><td>no</td>
+                    <td><code>letter</code> (default) or <code>a4</code>: the page size for converted files. PDFs keep their own pages, and a duplex blank matches the page before it.</td></tr>
             </table>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/merge \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
@@ -114,7 +116,13 @@
                 <tr><td><code>file</code></td><td>yes</td><td>The file to convert.</td></tr>
                 <tr><td><code>target</code></td><td>yes</td>
                     <td>Target extension, e.g. <code>.png</code> (a bare <code>png</code> works too).</td></tr>
+                <tr><td><code>paper</code></td><td>no</td>
+                    <td><code>letter</code> (default) or <code>a4</code>, when the target is <code>.pdf</code> or the conversion goes through one. Read only then.</td></tr>
+                <tr><td><code>language</code></td><td>no</td>
+                    <td>Image to <code>.txt</code> only: the OCR language code from <code>ocr_languages</code> (default <code>eng</code>), or two joined with <code>+</code>, e.g. <code>eng+spa</code>.</td></tr>
             </table>
+            <p>If the server has to tell you something about how it made the file,
+               the response carries an <code>X-Docist-Notes</code> header (plain ASCII text).</p>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/convert \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@diagram.png" \
@@ -196,6 +204,10 @@
                     <td>Source extensions <code>/api/v1/convert</code> understands.</td></tr>
                 <tr><td><code>convert_matrix</code></td>
                     <td><code>{source: [target, …]}</code> — the full conversion map.</td></tr>
+                <tr><td><code>paper</code></td>
+                    <td>The paper sizes <code>paper</code> accepts: <code>["letter", "a4"]</code>.</td></tr>
+                <tr><td><code>ocr_languages</code></td>
+                    <td><code>[{"code": "eng", "name": "English"}, …]</code> — the OCR languages installed, English first.</td></tr>
             </table>
 <pre class="api-curl">curl http://localhost:5010/api/v1/formats</pre>
         </div>

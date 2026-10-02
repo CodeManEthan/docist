@@ -7,13 +7,18 @@ Each module in this package is a transform plugin. A plugin defines:
         ...
     }
 
-where each function has the signature ``func(input_path, output_path)``
-and writes the converted file to ``output_path``. A function may return
-the path it actually wrote (e.g. a ``.zip`` when one input yields many
+where each function has the signature ``func(input_path, output_path)`` or
+``func(input_path, output_path, opts=None)`` and writes the converted file to
+``output_path``. A function may return the path it actually wrote (e.g. a ``.zip`` when one input yields many
 outputs); returning ``None`` means ``output_path`` was written as given.
 Raise ``TransformError`` (or any exception) on failure.
 
 Plugins are discovered automatically at import time.
+
+``opts`` is a :class:`converters.options.RenderOptions` or None. Every callable
+:func:`get_transform` returns takes ``(input_path, output_path, opts=None)``,
+whether the plugin function declares ``opts`` or not; a pivot passes the same
+``opts`` object to both halves.
 
 Pivot routing: when no direct (src, dst) transform exists but both
 (src, '.pdf') and ('.pdf', dst) do, the registry composes them through a
@@ -23,6 +28,8 @@ import importlib
 import os
 import pkgutil
 import tempfile
+
+from converters import with_opts
 
 
 class TransformError(Exception):
@@ -38,31 +45,31 @@ for _mod_info in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
     _pairs = getattr(_module, 'TRANSFORMS', None)
     if _pairs:
         for (_src, _dst), _func in _pairs.items():
-            _DIRECT.setdefault((_src.lower(), _dst.lower()), _func)
+            _DIRECT.setdefault((_src.lower(), _dst.lower()), with_opts(_func))
 
 
-def _run(func, input_path, output_path):
-    result = func(input_path, output_path)
+def _run(func, input_path, output_path, opts):
+    result = func(input_path, output_path, opts)
     return result or output_path
 
 
 def _composed(to_pdf, from_pdf):
-    def transform(input_path, output_path):
+    def transform(input_path, output_path, opts=None):
         with tempfile.TemporaryDirectory() as tmp:
             mid = os.path.join(tmp, 'pivot.pdf')
-            mid = _run(to_pdf, input_path, mid)
-            return _run(from_pdf, mid, output_path)
+            mid = _run(to_pdf, input_path, mid, opts)
+            return _run(from_pdf, mid, output_path, opts)
     return transform
 
 
 def get_transform(src, dst):
-    """Callable(input, output) -> actual output path, or None if unsupported."""
+    """Callable(input, output, opts=None) -> actual output path, or None if unsupported."""
     src, dst = src.lower(), dst.lower()
     if src == dst:
         return None
     direct = _DIRECT.get((src, dst))
     if direct:
-        return lambda i, o: _run(direct, i, o)
+        return lambda i, o, opts=None: _run(direct, i, o, opts)
     to_pdf = _DIRECT.get((src, PIVOT))
     from_pdf = _DIRECT.get((PIVOT, dst))
     if to_pdf and from_pdf:
@@ -79,6 +86,23 @@ def targets_for(src):
         targets.add(PIVOT)
     targets.discard(src)
     return sorted(targets)
+
+
+def renders_pages(src, dst):
+    """True when ``src -> dst`` lays out pages, so the paper choice applies.
+
+    That is a target of ``.pdf``, or a route that pivots through one.
+    """
+    src, dst = src.lower(), dst.lower()
+    if dst == PIVOT:
+        return src != PIVOT
+    return (src, dst) not in _DIRECT and (src, PIVOT) in _DIRECT
+
+
+def uses_ocr(src, dst):
+    """True when ``src -> dst`` runs OCR (a raster image to ``.txt``)."""
+    from transforms.ocr_text import IMAGE_FORMATS
+    return dst.lower() == '.txt' and src.lower() in IMAGE_FORMATS
 
 
 def supported_sources():

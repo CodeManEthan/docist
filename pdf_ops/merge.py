@@ -1,7 +1,8 @@
 """Configurable merge pipeline.
 
 Merges a list of source PDFs into one document, optionally:
-  * inserting a blank page after any odd-page source (duplex friendliness),
+  * inserting a blank page after any odd-page source (duplex friendliness);
+    the blank matches the page it follows in size and rotation,
   * stamping sequential page numbers (position + start value configurable),
   * adding one top-level outline (bookmark) entry per source file.
 
@@ -28,9 +29,6 @@ import io
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-
-BLANK_PDF_PATH = 'Blank PDF Document.pdf'
 
 VALID_POSITIONS = ('bottom-right', 'bottom-center', 'bottom-left')
 VALID_MODES = ('standard', 'interleave')
@@ -138,17 +136,37 @@ def _number_xy(position, page_width):
     return page_width - 50, y
 
 
-def _number_overlay(number, page_width, position):
-    """Build a single-page PDF overlay bearing ``number`` at ``position``."""
+def _number_overlay(number, page_width, position, page_height=792.0):
+    """Build a single-page PDF overlay bearing ``number`` at ``position``.
+
+    The overlay canvas is the page's own size, so it covers the page on any
+    paper. The number lands from ``page_width`` as before.
+    """
     packet = io.BytesIO()
-    # pagesize=letter mirrors the original implementation exactly.
-    can = canvas.Canvas(packet, pagesize=letter)
+    can = canvas.Canvas(packet, pagesize=(page_width, page_height))
     x, y = _number_xy(position, page_width)
     can.setFont("Helvetica", 10)
     can.drawString(x, y, str(number))
     can.save()
     packet.seek(0)
     return PdfReader(packet).pages[0]
+
+
+def _add_padding_blank(writer, after_page):
+    """Append a blank page matching ``after_page`` in mediabox size and ``/Rotate``."""
+    box = after_page.mediabox
+    blank = writer.add_blank_page(width=float(box.width), height=float(box.height))
+    rotation = after_page.rotation
+    if rotation:
+        blank.rotation = rotation
+    return blank
+
+
+def _stamp_number(page, number, position):
+    """Merge a page-number overlay sized to ``page`` onto it."""
+    overlay = _number_overlay(number, float(page.mediabox.width), position,
+                              float(page.mediabox.height))
+    page.merge_page(overlay)
 
 
 def merge_pipeline(sources, options=None):
@@ -193,7 +211,7 @@ def merge_pipeline(sources, options=None):
         running += page_count
 
         if opts['blank_pages'] and page_count % 2 == 1:
-            merger.append(BLANK_PDF_PATH, pages=(0, 1))
+            _add_padding_blank(merger, merger.pages[-1])
             running += 1
 
     merged_buffer = io.BytesIO()
@@ -211,10 +229,7 @@ def merge_pipeline(sources, options=None):
         # onto pages that already belong to a writer.
         new_page = writer.add_page(page)
         if opts['page_numbers']:
-            page_width = float(new_page.mediabox.width)
-            overlay = _number_overlay(start + offset, page_width,
-                                      opts['number_position'])
-            new_page.merge_page(overlay)
+            _stamp_number(new_page, start + offset, opts['number_position'])
 
     # Outline is added to the FINAL writer, so it survives page-number stamping.
     if opts['bookmarks']:
@@ -302,10 +317,7 @@ def _interleave_pipeline(sources, opts):
     for offset, page in enumerate(ordered):
         new_page = writer.add_page(page)
         if opts['page_numbers']:
-            page_width = float(new_page.mediabox.width)
-            overlay = _number_overlay(start + offset, page_width,
-                                      opts['number_position'])
-            new_page.merge_page(overlay)
+            _stamp_number(new_page, start + offset, opts['number_position'])
 
     if opts['bookmarks']:
         writer.add_outline_item(a_title, 0)
@@ -332,16 +344,17 @@ def add_page_numbers(pdf_path, output_path):
 
     for page_num in range(len(reader.pages)):
         new_page = writer.add_page(reader.pages[page_num])
-        page_width = float(new_page.mediabox.width)
-        overlay = _number_overlay(page_num + 1, page_width, 'bottom-right')
-        new_page.merge_page(overlay)
+        _stamp_number(new_page, page_num + 1, 'bottom-right')
 
     with open(output_path, 'wb') as output_file:
         writer.write(output_file)
 
 
 def merge_pdfs_with_blanks(pdf_files):
-    """Merge PDFs, adding a blank page after any odd-page source (legacy)."""
+    """Merge PDFs, adding a blank page after any odd-page source (legacy).
+
+    The blank matches the page it follows, as in :func:`merge_pipeline`.
+    """
     merger = PdfWriter()
 
     for pdf_file in pdf_files:
@@ -349,6 +362,6 @@ def merge_pdfs_with_blanks(pdf_files):
         page_count = len(reader.pages)
         merger.append(pdf_file)
         if page_count % 2 == 1:
-            merger.append(BLANK_PDF_PATH, pages=(0, 1))
+            _add_padding_blank(merger, merger.pages[-1])
 
     return merger

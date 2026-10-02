@@ -33,7 +33,6 @@ uploads/
 output/
 tests/manual/fixtures/
 *.pdf
-!Blank PDF Document.pdf
 
 # IDE
 .vscode/

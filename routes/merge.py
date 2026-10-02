@@ -16,6 +16,7 @@ from converters import get_converter, supported_extensions
 from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
 from utils.identity import owner_tag
 from utils.naming import display_name, owner_of, result_name
+from utils.render_opts import RenderOptionsError, from_form, with_notes
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('merge', __name__)
@@ -45,7 +46,8 @@ def upload_files():
     # Validate merge options up front so bad input fails fast with a 400.
     try:
         options = parse_options(request.form)
-    except OptionsError as e:
+        render_opts = from_form(request.form)
+    except (OptionsError, RenderOptionsError) as e:
         return jsonify({'error': str(e)}), 400
 
     output_folder = current_app.config['OUTPUT_FOLDER']
@@ -74,7 +76,7 @@ def upload_files():
             else:
                 pdf_path = filepath + '.converted.pdf'
                 try:
-                    get_converter(ext)(filepath, pdf_path)
+                    get_converter(ext)(filepath, pdf_path, render_opts)
                 except Exception as e:
                     return jsonify({'error': f'Could not convert {filename}: {e}'}), 400
                 uploaded_files.append((pdf_path, title))
@@ -108,7 +110,8 @@ def upload_files():
 
             return jsonify({
                 'success': True,
-                'message': f'Successfully merged {len(uploaded_files)} file(s)',
+                'message': with_notes(
+                    f'Successfully merged {len(uploaded_files)} file(s)', render_opts),
                 'download_url': '/download',
                 'filename': output_filename
             })

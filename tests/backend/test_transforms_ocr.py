@@ -227,3 +227,63 @@ def test_pdf_to_txt_still_resolves_to_bridge_text_layer(tmp_path):
     body = out.read_text(encoding="utf-8")
     assert marker in body            # embedded text layer extracted
     assert "--- Page 1 ---" in body  # bridge's pdf_to_text page-header style
+
+
+# --------------------------------------------------------------------------
+# Language (round prelaunch-fixes, design §4.2): image to text takes
+# opts.ocr_language through the shared validator.
+# --------------------------------------------------------------------------
+from converters.options import RenderOptions  # noqa: E402
+from pdf_ops import ocr as ocr_ops  # noqa: E402
+
+
+def _fake_tesseract(monkeypatch, langs=('eng', 'spa')):
+    import pytesseract
+    seen = []
+
+    def fake_image_to_string(image, lang=None, **_k):
+        seen.append(lang)
+        return 'texto'
+
+    monkeypatch.setattr(ocr_text, 'is_available', lambda: True)
+    monkeypatch.setattr(ocr_ops, 'is_available', lambda: True)
+    monkeypatch.setattr(ocr_ops, 'installed_languages', lambda: list(langs))
+    monkeypatch.setattr(pytesseract, 'image_to_string', fake_image_to_string)
+    return seen
+
+
+def test_image_to_text_passes_language(tmp_path, monkeypatch):
+    seen = _fake_tesseract(monkeypatch)
+    src = tmp_path / 'in.png'
+    Image.new('RGB', (40, 20), 'white').save(src, 'PNG')
+    fn = transforms.get_transform('.png', '.txt')
+    fn(str(src), str(tmp_path / 'out.txt'), RenderOptions(ocr_language='spa'))
+    fn(str(src), str(tmp_path / 'out2.txt'), RenderOptions(ocr_language='eng+spa'))
+    fn(str(src), str(tmp_path / 'out3.txt'))
+    assert seen == ['spa', 'eng+spa', 'eng']
+
+
+def test_image_to_text_refuses_uninstalled_language(tmp_path, monkeypatch):
+    seen = _fake_tesseract(monkeypatch)
+    src = tmp_path / 'in.png'
+    Image.new('RGB', (40, 20), 'white').save(src, 'PNG')
+    with pytest.raises(TransformError, match="Unknown OCR language 'fra'"):
+        ocr_text.image_to_text(str(src), str(tmp_path / 'o.txt'),
+                               RenderOptions(ocr_language='fra'))
+    assert seen == []
+
+
+def test_image_to_text_has_no_language_constant():
+    assert not hasattr(ocr_text, 'OCR_LANGUAGE')
+
+
+@pytest.mark.skipif('spa' not in ocr_ops.installed_languages(),
+                    reason='needs the Spanish Tesseract pack')
+def test_real_spanish_reads_back(tmp_path):
+    text = 'Mañana señora'
+    src = tmp_path / 'es.png'
+    _draw_text_image(text=text, size=(1400, 400)).save(src, 'PNG')
+    out = tmp_path / 'es.txt'
+    transforms.get_transform('.png', '.txt')(str(src), str(out),
+                                             RenderOptions(ocr_language='spa'))
+    assert 'Mañana' in out.read_text(encoding='utf-8')

@@ -21,6 +21,8 @@ from pdf_ops.pages import (
 )
 from pdf_ops.optimize import compress_pdf
 from pdf_ops import ocr as ocr_ops
+from pdf_ops.ocr_langs import language_choices
+from utils.render_opts import from_form
 from utils.naming import result_name
 from pypdf import PdfReader
 
@@ -47,7 +49,8 @@ def _human_size(num_bytes):
 
 @bp.route('/pages')
 def pages_index():
-    return render_template('pages.html', ocr_available=ocr_ops.is_available())
+    return render_template('pages.html', ocr_available=ocr_ops.is_available(),
+                           ocr_languages=language_choices(ocr_ops.installed_languages()))
 
 
 def _output_name(base, suffix, ext):
@@ -163,7 +166,8 @@ def run_operation():
             elif operation == 'ocr':
                 if not ocr_ops.is_available():
                     return jsonify({'error': ocr_ops.UNAVAILABLE_HINT}), 400
-                language = (request.form.get('language') or 'eng').strip() or 'eng'
+                # RenderOptionsError is a ValueError: a 400 below.
+                language = from_form(request.form, paper=False, ocr=True).ocr_language
                 deskew = _is_truthy(request.form.get('deskew'))
                 force = _is_truthy(request.form.get('force'))
                 out_name = _output_name(base, 'searchable', '.pdf')

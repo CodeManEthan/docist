@@ -1,9 +1,25 @@
 # Docist — production image (see DEPLOYMENT.md for configuration)
 FROM python:3.12-slim
 
-# System deps: tesseract + ghostscript for OCR (ocrmypdf), fonts for PDF rendering
+# System deps: tesseract + ghostscript for OCR (ocrmypdf), fonts for PDF rendering.
+# OCR language packs: English (with OSD) comes with tesseract-ocr; the rest are
+# the 14-language set (round prelaunch-fixes [Q2], ruled 2026-10-02), about
+# 30 MB. Names for each are in pdf_ops/ocr_langs.py.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
+    tesseract-ocr-spa \
+    tesseract-ocr-fra \
+    tesseract-ocr-deu \
+    tesseract-ocr-por \
+    tesseract-ocr-ita \
+    tesseract-ocr-chi-sim \
+    tesseract-ocr-chi-tra \
+    tesseract-ocr-vie \
+    tesseract-ocr-ara \
+    tesseract-ocr-rus \
+    tesseract-ocr-kor \
+    tesseract-ocr-jpn \
+    tesseract-ocr-fil \
     ghostscript \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*

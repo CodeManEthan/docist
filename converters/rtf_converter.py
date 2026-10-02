@@ -38,7 +38,7 @@ def _looks_like_rtf(input_path):
     return head.startswith(_RTF_MAGIC)
 
 
-def convert(input_path, output_path):
+def convert(input_path, output_path, opts=None):
     """Convert an RTF file to a PDF written to ``output_path``."""
     if not _looks_like_rtf(input_path):
         raise ConversionError('not an RTF file')
@@ -61,7 +61,7 @@ def convert(input_path, output_path):
     try:
         with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmp:
             tmp.write(text)
-        text_converter.convert(tmp_path, output_path)
+        text_converter.convert(tmp_path, output_path, opts)
     finally:
         try:
             os.remove(tmp_path)

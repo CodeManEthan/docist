@@ -8,26 +8,35 @@ Page indices used internally are 0-based. Geometry uses PDF points (1/72").
 
 Sheet sizes
 -----------
-* Letter portrait  : 612 x 792
-* Letter landscape : 792 x 612
+The sheet is the chosen paper (``paper='letter'`` or ``'a4'``, a key of
+:data:`converters.options.PAPER_SIZES`):
 
-2-up   -> one letter *landscape* sheet, two slots side by side (396 x 612 each).
-4-up   -> one letter *portrait*  sheet, a 2x2 grid (306 x 396 each), filled in
+* Letter portrait  : 612 x 792       A4 portrait  : 595.276 x 841.89
+* Letter landscape : 792 x 612       A4 landscape : 841.89 x 595.276
+
+2-up   -> one *landscape* sheet, two slots side by side (half the sheet each).
+4-up   -> one *portrait*  sheet, a 2x2 grid (a quarter each), filled in
           reading order: left-right, top-bottom.
-booklet-> letter *landscape* 2-up sheets ordered as a saddle-stitch signature
+booklet-> *landscape* 2-up sheets ordered as a saddle-stitch signature
           so that printing duplex (flip on short edge) and folding in half
           yields correct reading order.
 """
 from pypdf import PdfReader, PdfWriter, Transformation
 
-# Page geometry (PDF points).
-LETTER_PORTRAIT = (612.0, 792.0)
-LETTER_LANDSCAPE = (792.0, 612.0)
+from converters.options import DEFAULT_PAPER, PAPER_SIZES
 
-_PAGE_SIZES = {
-    "letter-landscape": LETTER_LANDSCAPE,
-    "letter-portrait": LETTER_PORTRAIT,
-}
+# Letter geometry (PDF points), kept for callers that name it.
+LETTER_PORTRAIT = PAPER_SIZES['letter']
+LETTER_LANDSCAPE = (LETTER_PORTRAIT[1], LETTER_PORTRAIT[0])
+
+
+def sheet_size(paper=DEFAULT_PAPER, landscape=False):
+    """``(width, height)`` of the sheet for ``paper``. Raises ``ValueError`` if unknown."""
+    try:
+        w, h = PAPER_SIZES[paper]
+    except KeyError:
+        raise ValueError("Paper must be letter or a4.") from None
+    return (h, w) if landscape else (w, h)
 
 
 def booklet_page_order(page_count):
@@ -102,15 +111,15 @@ def _place(sheet_page, src_page, x, y, w, h):
     sheet_page.merge_transformed_page(src_page, transform)
 
 
-def nup_pdf(input_path, output_path, n=2, page_size="letter-landscape"):
+def nup_pdf(input_path, output_path, n=2, paper=DEFAULT_PAPER):
     """Impose ``n`` source pages per sheet (N-up) and write ``output_path``.
 
     ``n`` must be 2 or 4.
 
-    * ``n == 2``: letter *landscape* sheet (792 x 612); two source pages side by
-      side, left then right.
-    * ``n == 4``: letter *portrait* sheet (612 x 792); a 2x2 grid filled
-      left-right, top-bottom.
+    * ``n == 2``: *landscape* sheet of ``paper`` (792 x 612 for Letter); two
+      source pages side by side, left then right.
+    * ``n == 4``: *portrait* sheet of ``paper`` (612 x 792 for Letter); a 2x2
+      grid filled left-right, top-bottom.
 
     Each source page is scaled to fit its slot preserving aspect ratio and
     centered. The final sheet's leftover slots stay blank. Returns
@@ -118,6 +127,8 @@ def nup_pdf(input_path, output_path, n=2, page_size="letter-landscape"):
     """
     if n not in (2, 4):
         raise ValueError("N-up supports only 2 or 4 pages per sheet.")
+    landscape_sheet = sheet_size(paper, landscape=True)
+    portrait_sheet = sheet_size(paper)
 
     reader = PdfReader(input_path)
     page_count = len(reader.pages)
@@ -125,14 +136,14 @@ def nup_pdf(input_path, output_path, n=2, page_size="letter-landscape"):
         raise ValueError("The PDF has no pages to impose.")
 
     if n == 2:
-        sheet_w, sheet_h = LETTER_LANDSCAPE
+        sheet_w, sheet_h = landscape_sheet
         # Two slots side by side.
         slots = [
             (0.0, 0.0, sheet_w / 2.0, sheet_h),
             (sheet_w / 2.0, 0.0, sheet_w / 2.0, sheet_h),
         ]
     else:  # n == 4
-        sheet_w, sheet_h = LETTER_PORTRAIT
+        sheet_w, sheet_h = portrait_sheet
         cw, ch = sheet_w / 2.0, sheet_h / 2.0
         # Reading order: top-left, top-right, bottom-left, bottom-right.
         # Row 0 is the TOP half (higher y) since PDF y grows upward.
@@ -161,21 +172,21 @@ def nup_pdf(input_path, output_path, n=2, page_size="letter-landscape"):
     return output_path
 
 
-def booklet_pdf(input_path, output_path):
+def booklet_pdf(input_path, output_path, paper=DEFAULT_PAPER):
     """Impose ``input_path`` as a saddle-stitch booklet, writing ``output_path``.
 
     The input is padded to a multiple of 4 with blank pages, then emitted as
-    2-up letter *landscape* sheets in signature order (see
+    2-up *landscape* sheets of ``paper`` in signature order (see
     :func:`booklet_page_order`). Print the result duplex, flip on the short
     edge, and fold in half to get a correctly ordered booklet. Returns
     ``output_path``.
     """
+    sheet_w, sheet_h = sheet_size(paper, landscape=True)
     reader = PdfReader(input_path)
     page_count = len(reader.pages)
     if page_count < 1:
         raise ValueError("The PDF has no pages to impose.")
 
-    sheet_w, sheet_h = LETTER_LANDSCAPE
     left_slot = (0.0, 0.0, sheet_w / 2.0, sheet_h)
     right_slot = (sheet_w / 2.0, 0.0, sheet_w / 2.0, sheet_h)
 

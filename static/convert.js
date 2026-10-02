@@ -60,6 +60,14 @@ function validateConvertState(state) {
     return { valid: true };
 }
 
+// Which extra choices a target needs, from /convert/targets' lists:
+// { paper: true } when the route lays out pages (a .pdf target or a pivot
+// through one), { ocr: true } when it runs OCR (an image to .txt).
+function targetOptions(target, paperTargets, ocrTargets) {
+    const has = (list) => Array.isArray(list) && list.includes(target);
+    return { paper: !!target && has(paperTargets), ocr: !!target && has(ocrTargets) };
+}
+
 // ============================== DOM wiring =================================
 
 function initConvertApp() {
@@ -74,9 +82,23 @@ function initConvertApp() {
     const matrixToggle = document.getElementById('matrixToggle');
     const matrixBody = document.getElementById('matrixBody');
     const matrixList = document.getElementById('matrixList');
+    const paperRow = document.getElementById('paperRow');
+    const ocrRow = document.getElementById('ocrRow');
 
     let selectedFile = null;
     let currentTargets = [];
+    let paperTargets = [];
+    let ocrTargets = [];
+
+    function currentExtras() {
+        return targetOptions(targetSelect.value, paperTargets, ocrTargets);
+    }
+
+    function updateExtras() {
+        const extras = currentExtras();
+        if (paperRow) paperRow.style.display = extras.paper ? 'block' : 'none';
+        if (ocrRow) ocrRow.style.display = extras.ocr ? 'block' : 'none';
+    }
 
     function showMessage(kind, text) {
         message.className = 'message ' + kind;
@@ -90,6 +112,8 @@ function initConvertApp() {
 
     function resetTargets(placeholder) {
         currentTargets = [];
+        paperTargets = [];
+        ocrTargets = [];
         targetSelect.innerHTML = '';
         const opt = document.createElement('option');
         opt.value = '';
@@ -97,6 +121,7 @@ function initConvertApp() {
         targetSelect.appendChild(opt);
         targetSelect.disabled = true;
         updateRunBtn();
+        updateExtras();
     }
 
     async function loadTargets(ext) {
@@ -111,6 +136,8 @@ function initConvertApp() {
                 return;
             }
             currentTargets = Array.isArray(data.targets) ? data.targets : [];
+            paperTargets = Array.isArray(data.paper_targets) ? data.paper_targets : [];
+            ocrTargets = Array.isArray(data.ocr_targets) ? data.ocr_targets : [];
             if (!currentTargets.length) {
                 resetTargets('No targets available');
                 targetHint.textContent =
@@ -174,7 +201,10 @@ function initConvertApp() {
         fileInput.value = '';
     });
 
-    targetSelect.addEventListener('change', updateRunBtn);
+    targetSelect.addEventListener('change', () => {
+        updateRunBtn();
+        updateExtras();
+    });
 
     // ---- Run ----
     runBtn.addEventListener('click', async () => {
@@ -193,6 +223,10 @@ function initConvertApp() {
         const formData = new FormData();
         formData.append('file', selectedFile);
         formData.append('target', targetSelect.value);
+        const extras = currentExtras();
+        const paperEl = document.getElementById('paperSelect');
+        if (extras.paper && paperEl) formData.append('paper', paperEl.value);
+        if (extras.ocr) formData.append('language', selectedLanguage(document));
 
         runBtn.disabled = true;
         loading.style.display = 'block';
@@ -294,6 +328,7 @@ if (typeof module !== 'undefined' && module.exports) {
         buildTargetLabel,
         formatMatrix,
         validateConvertState,
+        targetOptions,
         escapeHtml,
     };
 }

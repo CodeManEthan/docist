@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from pdf_ops.imposition import nup_pdf, booklet_pdf
 from utils.naming import result_name
+from utils.render_opts import RenderOptionsError, from_form
 from pypdf import PdfReader
 
 bp = Blueprint('print', __name__)
@@ -45,6 +46,11 @@ def run_print():
             'error': "Choose an operation: nup or booklet."
         }), 400
 
+    try:
+        paper = from_form(request.form).paper
+    except RenderOptionsError as exc:
+        return jsonify({'error': str(exc)}), 400
+
     base = os.path.splitext(filename)[0] or 'document'
     output_folder = current_app.config['OUTPUT_FOLDER']
 
@@ -68,7 +74,7 @@ def run_print():
                     raise ValueError("Pages per sheet must be 2 or 4.")
                 out_name = result_name(f"{base}_{n}up.pdf")
                 out_path = os.path.join(output_folder, out_name)
-                nup_pdf(input_path, out_path, n=n)
+                nup_pdf(input_path, out_path, n=n, paper=paper)
                 sheets = (page_count + n - 1) // n
                 message = (
                     f"Imposed {page_count} page(s) as {n}-up "
@@ -78,7 +84,7 @@ def run_print():
             else:  # booklet
                 out_name = result_name(f"{base}_booklet.pdf")
                 out_path = os.path.join(output_folder, out_name)
-                booklet_pdf(input_path, out_path)
+                booklet_pdf(input_path, out_path, paper=paper)
                 padded = page_count + (-page_count % 4)
                 message = (
                     f"Built a {padded}-page booklet ({padded // 2} sheet(s)). "

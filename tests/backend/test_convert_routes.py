@@ -25,14 +25,14 @@ from utils.naming import display_name
 # --------------------------------------------------------------------------
 # Fake transform functions: func(input_path, output_path) -> actual path|None
 # --------------------------------------------------------------------------
-def _fake_write_requested(input_path, output_path):
+def _fake_write_requested(input_path, output_path, opts=None):
     """Write exactly the requested output; return None (actual == requested)."""
     with open(output_path, 'wb') as fh:
         fh.write(b'converted-bytes')
     return None  # signals "wrote output_path as given"
 
 
-def _fake_write_zip(input_path, output_path):
+def _fake_write_zip(input_path, output_path, opts=None):
     """Multi-page style conversion: writes a .zip and returns its real path."""
     zip_path = os.path.splitext(output_path)[0] + '.zip'
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -41,7 +41,7 @@ def _fake_write_zip(input_path, output_path):
     return zip_path  # actual path differs from the requested .png
 
 
-def _fake_raises(input_path, output_path):
+def _fake_raises(input_path, output_path, opts=None):
     raise transforms.TransformError('conversion blew up on purpose')
 
 

@@ -107,12 +107,9 @@
 
         {% if ocr_available %}
         <div class="options-panel" id="panel-ocr" style="display:none">
-            <label>Language
-                <input type="text" id="ocrLanguage" value="eng" placeholder="eng">
-            </label>
+            {% with ocr_disabled = False %}{% include '_ocr_language.html' %}{% endwith %}
             <div class="upload-hint">
-                A Tesseract language code (or several joined with '+', e.g.
-                "eng+deu"). Only installed language packs work.
+                Pick a second language for documents that mix two.
             </div>
             <label><input type="checkbox" id="ocrDeskew"> Deskew crooked scans</label>
             <label><input type="checkbox" id="ocrForce"> Force re-OCR (replace any existing text layer)</label>
@@ -133,6 +130,7 @@
         <div class="message" id="message"></div>
     </div>
 
+    <script src="/static/ocr-langs.js"></script>
     <script src="/static/pages.js"></script>
 </body>
 </html>

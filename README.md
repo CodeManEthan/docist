@@ -36,10 +36,11 @@ A self-hosted document toolkit: merge PDFs (auto-converting ~19 input formats on
   - Plain text (`.txt`) — monospace, line-wrapped, multi-page
   - Rich text (`.rtf`) — plain-text extraction
   - Spreadsheets (`.csv`, `.xlsx`) — rendered as tables, one per sheet, landscape for wide sheets
-  - Images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`, `.tiff`, `.tif`, `.heic`, `.heif`) — centered on letter pages, multi-frame TIFF/GIF becomes multiple pages
-  - Vector graphics (`.svg`) — scaled to fit a letter page
+  - Images (`.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.webp`, `.tiff`, `.tif`, `.heic`, `.heif`) — centered on the chosen paper, multi-frame TIFF/GIF becomes multiple pages
+  - Vector graphics (`.svg`) — scaled to fit the page
+- **Paper**: Letter (default) or A4 for every converted file; the browser remembers the choice. PDFs keep their own pages, and HTML that sets its own `@page` size keeps it
 - **Reorder & Remove**: Drag rows (or use ▲/▼ buttons) to reorder files before merging; remove files with ✕
-- **Merge Options**: Toggle page numbers (position: bottom left/center/right, custom start number), toggle blank-page insertion, toggle bookmarks
+- **Merge Options**: Toggle page numbers (position: bottom left/center/right, custom start number), toggle blank-page insertion, toggle bookmarks, paper size
 - **Bookmarks**: The merged PDF gets one outline entry per source file
 - **Front Page Alignment**: Optionally insert blank pages after odd-page documents so every file starts on a front page (perfect for duplex printing; off by default)
 - **Interleave Mode**: Combine two separately-scanned stacks (fronts + backs) by alternating pages, with reverse-order handling for flatbed/ADF back-side scans
@@ -54,7 +55,7 @@ Universal file-to-file conversion — upload a file, pick a target format. The p
 - **Documents**: Markdown ↔ HTML, HTML → Markdown/text, DOCX → HTML/Markdown/text, RTF → text, Markdown → text
 - **Data**: CSV ↔ XLSX, CSV/XLSX → JSON, JSON → CSV, JSON ↔ YAML, CSV → HTML table
 - **PDF bridge**: any supported format → PDF; PDF → PNG/JPG (zip when multi-page) or text
-- **Image → text (OCR)**: any raster image → `.txt` via Tesseract
+- **Image → text (OCR)**: any raster image → `.txt` via Tesseract, in one or two of the installed languages
 - **Pivot routing**: when no direct path exists, conversions chain automatically through PDF (e.g. Markdown → PNG, SVG → JPG)
 
 ### Page Tools (`/pages`)
@@ -66,10 +67,10 @@ Universal file-to-file conversion — upload a file, pick a target format. The p
 - **Rotate pages** (90°/180°/270°, all pages or a range)
 - **Split PDF** — every N pages, or by ranges (`;`-separated), delivered as a zip
 - **Compress** — lossless content-stream compression plus image downsampling/re-encoding (quality and DPI caps); output never larger than input
-- **OCR (make searchable)** — adds an invisible text layer to scanned PDFs via OCRmyPDF/Tesseract; language selection, optional deskew, force re-OCR; pages that already have text pass through untouched
+- **OCR (make searchable)** — adds an invisible text layer to scanned PDFs via OCRmyPDF/Tesseract; choice of up to two installed languages (14 in the Docker image), optional deskew, force re-OCR; pages that already have text pass through untouched
 
 ### Print Prep (`/print`)
-- **N-up** — 2 or 4 pages per sheet, aspect-preserving, centered
+- **N-up** — 2 or 4 pages per sheet on Letter or A4, aspect-preserving, centered
 - **Booklet** — saddle-stitch imposition: print duplex (flip on short edge), fold in half, read in order
 
 ### Export (`/export`)
@@ -255,7 +256,7 @@ sudo dnf install tesseract ghostscript
 sudo apt install tesseract-ocr ghostscript
 ```
 
-Additional OCR languages are Tesseract data packages (e.g. `tesseract-langpack-deu`).
+Additional OCR languages are Tesseract data packages (e.g. `tesseract-langpack-deu` on Fedora, `tesseract-ocr-deu` on Debian). The Docker image installs 14: English, Spanish, French, German, Portuguese, Italian, Chinese (Simplified and Traditional), Vietnamese, Arabic, Russian, Korean, Japanese and Filipino. One request may name at most `DOCIST_OCR_MAX_LANGS` languages (default 2).
 
 ### Python
 

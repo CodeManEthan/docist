@@ -1,13 +1,13 @@
 """Converter plugin: plain text (.txt) to PDF.
 
-Renders text with a monospace font on letter-size pages, preserving line
-breaks and wrapping long lines. Multi-page output is handled automatically.
+Renders text with a monospace font on pages of the chosen paper (Letter by
+default), preserving line breaks and wrapping long lines. Multi-page output is handled automatically.
 """
-from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfbase.pdfmetrics import stringWidth
 
 from . import ConversionError
+from .options import paper_size
 
 EXTENSIONS = ['.txt']
 
@@ -57,7 +57,7 @@ def _wrap_line(line, max_width, font_name, font_size):
     return lines
 
 
-def convert(input_path, output_path):
+def convert(input_path, output_path, opts=None):
     """Render the text file at input_path to a PDF at output_path."""
     # reportlab's Courier is a Latin-1 (WinAnsi) core font. Characters
     # outside that range are dropped by the PDF renderer, so substitute a
@@ -73,12 +73,12 @@ def convert(input_path, output_path):
     try:
         from reportlab.pdfgen import canvas
 
-        page_width, page_height = letter
+        page_width, page_height = paper_size(opts)
         usable_width = page_width - 2 * _MARGIN
         top = page_height - _MARGIN
         bottom = _MARGIN
 
-        pdf = canvas.Canvas(output_path, pagesize=letter)
+        pdf = canvas.Canvas(output_path, pagesize=(page_width, page_height))
         pdf.setFont(_FONT_NAME, _FONT_SIZE)
 
         y = top

@@ -209,3 +209,94 @@ def test_upload_with_options_succeeds_and_bookmarks_disabled(client, tmp_path, b
     assert len(reader.pages) == 1  # no blank padding
     assert len(reader.outline) == 0  # bookmarks disabled
     assert _stamped(reader) == []  # numbers disabled
+
+
+# ---------------------------------------------------------------------------
+# Padding blanks and number overlays on any paper (round prelaunch-fixes,
+# design §3.3): a blank matches the page it follows in size and /Rotate.
+# ---------------------------------------------------------------------------
+from pdf_ops.merge import merge_pdfs_with_blanks  # noqa: E402
+
+_A4 = (595.276, 841.89)
+
+
+def _pdf_of_size(path, size, pages=1, rotate=0):
+    from reportlab.pdfgen import canvas
+    c = canvas.Canvas(str(path), pagesize=size)
+    for i in range(pages):
+        c.drawString(72, 400, f"Sized page {i + 1}")
+        c.showPage()
+    c.save()
+    if rotate:
+        from pypdf import PdfWriter
+        reader = PdfReader(str(path))
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+            writer.pages[-1].rotate(rotate)
+        with open(path, "wb") as fh:
+            writer.write(fh)
+    return str(path)
+
+
+def _size(page):
+    return round(float(page.mediabox.width), 2), round(float(page.mediabox.height), 2)
+
+
+def test_blank_after_a4_source_is_a4(tmp_path):
+    a4 = _pdf_of_size(tmp_path / "a4.pdf", _A4, pages=3)
+    letter = _pdf_of_size(tmp_path / "l.pdf", (612.0, 792.0), pages=1)
+    reader = _render(merge_pipeline([(a4, "a4"), (letter, "l")],
+                                    {"blank_pages": True, "page_numbers": False}),
+                     tmp_path)
+    sizes = [_size(p) for p in reader.pages]
+    assert len(sizes) == 6
+    assert sizes[3] == (595.28, 841.89)   # the blank after 3 A4 pages
+    assert sizes[5] == (612.0, 792.0)     # the blank after 1 Letter page
+
+
+def test_blank_after_letter_source_is_letter(tmp_path):
+    letter = _pdf_of_size(tmp_path / "l.pdf", (612.0, 792.0), pages=1)
+    reader = _render(merge_pipeline([(letter, "l")], {"blank_pages": True}), tmp_path)
+    assert [_size(p) for p in reader.pages] == [(612.0, 792.0)] * 2
+
+
+def test_blank_copies_rotation(tmp_path):
+    rotated = _pdf_of_size(tmp_path / "r.pdf", _A4, pages=1, rotate=90)
+    reader = _render(merge_pipeline([(rotated, "r")], {"blank_pages": True}), tmp_path)
+    assert len(reader.pages) == 2
+    assert reader.pages[1].rotation == 90
+    assert _size(reader.pages[1]) == (595.28, 841.89)
+
+
+def test_unrotated_blank_has_no_rotation(tmp_path):
+    src = _pdf_of_size(tmp_path / "s.pdf", _A4, pages=1)
+    reader = _render(merge_pipeline([(src, "s")], {"blank_pages": True}), tmp_path)
+    assert reader.pages[1].rotation == 0
+
+
+def test_page_numbers_land_inside_an_a4_page(tmp_path):
+    src = _pdf_of_size(tmp_path / "a4.pdf", _A4, pages=2)
+    for position in ("bottom-right", "bottom-center", "bottom-left"):
+        reader = _render(merge_pipeline([(src, "a4")], {"number_position": position}),
+                         tmp_path, name=f"{position}.pdf")
+        stamps = _stamped(reader)
+        assert sorted(n for _x, n in stamps) == [1, 2]
+        assert all(0 < x < _A4[0] for x, _n in stamps)
+
+
+def test_overlay_canvas_matches_the_page(tmp_path):
+    from pdf_ops.merge import _number_overlay
+    overlay = _number_overlay(1, _A4[0], "bottom-right", _A4[1])
+    assert _size(overlay) == (595.28, 841.89)
+
+
+def test_legacy_helper_blank_matches_page(tmp_path):
+    a4 = _pdf_of_size(tmp_path / "a4.pdf", _A4, pages=1, rotate=90)
+    letter = _pdf_of_size(tmp_path / "l.pdf", (612.0, 792.0), pages=3)
+    merger = merge_pdfs_with_blanks([a4, letter])
+    reader = _render(merger, tmp_path)
+    sizes = [_size(p) for p in reader.pages]
+    assert sizes == [(595.28, 841.89)] * 2 + [(612.0, 792.0)] * 4
+    assert reader.pages[1].rotation == 90
+    assert reader.pages[5].rotation == 0

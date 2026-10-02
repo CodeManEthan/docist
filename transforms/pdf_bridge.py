@@ -59,12 +59,12 @@ def _make_to_pdf(ext):
 
     Bound via a factory so each closure captures its own extension.
     """
-    def to_pdf(input_path, output_path):
+    def to_pdf(input_path, output_path, opts=None):
         convert = converters.get_converter(ext)
         if convert is None:  # pragma: no cover - registry built from same list
             raise TransformError(f"No converter registered for '{ext}'.")
         try:
-            return convert(input_path, output_path)
+            return convert(input_path, output_path, opts)
         except ConversionError as exc:
             raise TransformError(
                 f"Could not convert '{ext}' file to PDF: {exc}"

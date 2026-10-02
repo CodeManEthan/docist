@@ -176,6 +176,8 @@ function initPrintApp() {
         const formData = new FormData();
         formData.append('file', selectedFile);
         Object.entries(payload.fields).forEach(([k, v]) => formData.append(k, v));
+        const paperEl = document.getElementById('paperSelect');
+        if (paperEl) formData.append('paper', paperEl.value);
 
         runBtn.disabled = true;
         loading.style.display = 'block';
