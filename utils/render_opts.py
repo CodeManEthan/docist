@@ -88,7 +88,8 @@ def from_form(form, user=None, *, paper=True, ocr=False):
     """
     opts = RenderOptions(word_engine=word_engine(user), deadline=request_deadline())
     if opts.word_engine == 'libreoffice' and has_request_context():
-        # The fallback reflow takes only what a free user could send (§7).
+        # The fallback reflow takes only what a free user could send (§7),
+        # across the whole request; docx_converter spends it.
         opts.reflow_max_bytes = current_app.config['MAX_CONTENT_LENGTH']
     if paper:
         opts.paper = parse_paper(form.get('paper'))

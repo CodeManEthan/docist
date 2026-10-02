@@ -148,6 +148,26 @@ def test_a_large_word_file_is_never_re_flowed(tmp_path, monkeypatch, no_reflow):
         get_converter('.docx')(str(src), str(tmp_path / 'out.pdf'), opts)
 
 
+def test_the_reflow_budget_is_shared_across_the_request(tmp_path, monkeypatch):
+    """verification-b2-bounds-recheck MINOR 1: two Word files that each fit the
+    free limit but not together; the engine fails on both. Only the first is
+    re-flowed, as a free request could carry only one of them."""
+    reflowed = []
+    monkeypatch.setattr(docx_converter, '_reflow', lambda i, o, opts: reflowed.append(i))
+
+    def fail(*_a, **_k):
+        raise office.OfficeError('boom')
+    monkeypatch.setattr(office, 'docx_to_pdf', fail)
+    one = wf.letter_1page(tmp_path / 'one.docx')
+    two = wf.letter_1page(tmp_path / 'two.docx')
+    size = os.path.getsize(one)
+    opts = RenderOptions(word_engine='libreoffice', reflow_max_bytes=size + size // 2)
+    get_converter('.docx')(str(one), str(tmp_path / 'one.pdf'), opts)
+    with pytest.raises(ConversionError, match='too large for the basic converter'):
+        get_converter('.docx')(str(two), str(tmp_path / 'two.pdf'), opts)
+    assert reflowed == [str(one)]
+
+
 # --------------------------------------------------------------------------
 # The paid limit only where B2 bounds the work
 # --------------------------------------------------------------------------

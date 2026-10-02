@@ -148,12 +148,15 @@ def convert(input_path, output_path, opts=None):
                 f"This Word file can't be converted: {exc}.") from exc
         except office.OfficeError as exc:
             log.warning('Word engine failed on %s: %s', os.path.basename(input_path), exc)
-            if (opts.reflow_max_bytes is not None
-                    and os.path.getsize(input_path) > opts.reflow_max_bytes):
-                # The reflow takes only what a free user could send.
-                raise ConversionError(
-                    "The Word engine couldn't convert this file, and it is too "
-                    "large for the basic converter.") from exc
+            if opts.reflow_max_bytes is not None:
+                # The reflow takes only what a free user could send, counted
+                # across every Word file it re-flows in this request.
+                size = os.path.getsize(input_path)
+                if size > opts.reflow_max_bytes:
+                    raise ConversionError(
+                        "The Word engine couldn't convert this file, and it is too "
+                        "large for the basic converter.") from exc
+                opts.reflow_max_bytes -= size
             if FALLBACK_NOTE not in opts.notes:
                 opts.notes.append(FALLBACK_NOTE)
     _reflow(input_path, output_path, opts)
