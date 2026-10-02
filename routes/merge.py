@@ -17,7 +17,7 @@ from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
 from utils.identity import current_user, owner_tag
 from utils.naming import display_name, owner_of, result_name
 from utils.render_opts import RenderOptionsError, from_form, with_notes
-from utils.uploads import file_limit, merge_large_ok
+from utils.uploads import charge_uploads, merge_large_ok, upload_ext
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('merge', __name__)
@@ -51,6 +51,14 @@ def upload_files():
     except (OptionsError, RenderOptionsError) as e:
         return jsonify({'error': str(e)}), 400
 
+    # Before anything is saved or converted: the files that can't be large
+    # share the free limit across the request (utils/uploads.py).
+    try:
+        charge_uploads((f, merge_large_ok(upload_ext(f), render_opts))
+                       for f in files if f and f.filename)
+    except UploadValidationError as e:
+        return jsonify({'error': str(e)}), 400
+
     output_folder = current_app.config['OUTPUT_FOLDER']
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -68,8 +76,7 @@ def upload_files():
             title = os.path.splitext(filename)[0]  # original name without extension
             file.save(filepath)
             try:
-                validate_upload(filepath, ext,
-                                max_bytes=file_limit(merge_large_ok(ext, render_opts)))
+                validate_upload(filepath, ext)
             except UploadValidationError as e:
                 return jsonify({'error': f'{filename}: {e}'}), 400
 

@@ -47,18 +47,11 @@ def _head(path):
         return fh.read(_SNIFF_LEN)
 
 
-def validate_upload(path, ext=None, max_bytes=None):
-    """Raise UploadValidationError if the file's content belies its extension,
-    or if it is larger than ``max_bytes`` (when given).
+def validate_upload(path, ext=None):
+    """Raise UploadValidationError if the file's content belies its extension.
 
     ``ext`` defaults to the extension of ``path``. Unknown extensions pass.
     """
-    if max_bytes is not None and os.path.getsize(path) > max_bytes:
-        mb = max_bytes / (1024 * 1024)
-        mb = int(mb) if mb == int(mb) else round(mb, 1)
-        raise UploadValidationError(
-            f"This file is over the {mb} MB limit for this kind of file."
-        )
     if ext is None:
         ext = os.path.splitext(path)[1]
     ext = (ext or '').lower()

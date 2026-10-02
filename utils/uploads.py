@@ -30,12 +30,16 @@ the free limit. Only that step can raise a request's limit.
 Every 413 is JSON, the same shape as the daily limit's 429:
 ``{"error": ..., "code": "upload_too_large", "limit_mb": N}``.
 """
+import os
 import time
 
 from flask import Request, current_app, g, has_request_context, jsonify, request
+from werkzeug.utils import secure_filename
 
+from pdf_ops import office
 from utils.identity import current_user
 from utils.metering import tier
+from utils.validation import UploadValidationError
 
 ENVIRON_KEY = 'docist.max_body'
 MIB = 1024 * 1024
@@ -76,6 +80,11 @@ def limit_bytes(user, endpoint=None):
     return free_limit_bytes()
 
 
+def upload_ext(upload):
+    """An upload's extension, as the routes derive it from its filename."""
+    return os.path.splitext(secure_filename(upload.filename or ''))[1].lower()
+
+
 def merge_large_ok(ext, render_opts):
     """Merge: only a PDF, or a Word file the Word engine renders, may be over
     the free limit."""
@@ -89,10 +98,35 @@ def convert_large_ok(src_ext, target, render_opts):
             and render_opts.word_engine == 'libreoffice')
 
 
-def file_limit(large_ok):
-    """The size one uploaded file may have: None (only the body limit) when
-    the route bounds this file's work at the paid size, else the free limit."""
-    return None if large_ok else free_limit_bytes()
+def _upload_size(upload):
+    """Bytes in a parsed upload (a FileStorage), read from its spooled stream."""
+    stream = upload.stream
+    here = stream.tell()
+    stream.seek(0, os.SEEK_END)
+    size = stream.tell()
+    stream.seek(here)
+    return size
+
+
+def charge_uploads(uploads_and_flags):
+    """Check a request's uploads against its budget before any is saved or
+    converted; raise :class:`utils.validation.UploadValidationError`.
+
+    ``uploads_and_flags`` is ``(FileStorage, large_ok)`` pairs. Rule: the
+    files a route can't bound at the paid size (``large_ok`` False) share the
+    free limit across the whole request, so a paid request carries no more of
+    them than a free request can. The others are bounded only by the
+    request's body limit.
+    """
+    limit = free_limit_bytes()
+    used = 0
+    for upload, large_ok in uploads_and_flags:
+        if large_ok:
+            continue
+        used += _upload_size(upload)
+        if used > limit:
+            raise UploadValidationError(
+                f"Files of this kind can't be more than {limit_mb(limit)} MB in one request.")
 
 
 def limit_mb(limit):
@@ -138,6 +172,8 @@ def init_app(app):
     def _inject_upload_limit():
         # The number the page's own uploads will meet on the server.
         endpoint = _PAGE_UPLOADS.get(request.endpoint) if has_request_context() else None
+        if endpoint == 'convert.run_convert' and not office.available():
+            endpoint = None   # Convert's only large file is a Word file for the engine
         limit = limit_bytes(current_user(), endpoint)
         return {'upload_limit_bytes': limit, 'upload_limit_mb': limit_mb(limit),
                 'paid_upload_limit_mb': limit_mb(paid_limit_bytes())}

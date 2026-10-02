@@ -258,7 +258,82 @@ def test_merge_holds_other_files_to_the_free_limit(client, paid, filename, head)
         assert response.status_code == 400 and 'over the 50 MB' not in body['error']
         return
     assert response.status_code == 400
-    assert 'over the 50 MB limit for this kind of file' in body['error']
+    assert "can't be more than 50 MB in one request" in body['error']
+
+
+class MultiZeroBody(ZeroBody):
+    """Several file parts of ``size`` bytes each."""
+
+    def __init__(self, count, size, field, filename, head=b''):
+        b = 'b2boundsboundary'
+        self.content_type = f'multipart/form-data; boundary={b}'
+        part = (f'--{b}\r\nContent-Disposition: form-data; name="{field}"; '
+                f'filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'
+                ).encode() + head
+        # Build as one in-memory body: count * size stays small in these tests.
+        body = b''.join(part + bytes(size - len(head)) + b'\r\n' for _ in range(count))
+        self.pre = body[:-2]
+        self.tail = f'\r\n--{b}--\r\n'.encode()
+        self.size = 0
+        self.length = len(self.pre) + len(self.tail)
+        self.pos = 0
+
+
+def test_files_that_cant_be_large_share_the_free_limit_per_request(client, paid,
+                                                                    monkeypatch):
+    """verification-b2-bounds MAJOR 1: two 44 MiB SVGs in one paid Merge carried
+    twice what a free request can. Such files now share the free limit."""
+    from utils import uploads
+    monkeypatch.setitem(app.config, 'MAX_CONTENT_LENGTH', 3 * MIB)   # small, for speed
+    one = post(client, '/upload', MultiZeroBody(1, 2 * MIB, 'files[]', 'a.svg', b'<svg'))
+    assert "in one request" not in (one.get_json() or {}).get('error', '')
+    two = post(client, '/upload', MultiZeroBody(2, 2 * MIB, 'files[]', 'a.svg', b'<svg'))
+    assert two.status_code == 400
+    assert "can't be more than 3 MB in one request" in two.get_json()['error']
+    # PDFs don't count against it.
+    pdfs = post(client, '/upload', MultiZeroBody(2, 2 * MIB, 'files[]', 'a.pdf', b'%PDF-'))
+    assert "in one request" not in (pdfs.get_json() or {}).get('error', '')
+    assert uploads  # imported for the monkeypatched config's sake
+
+
+def test_api_merge_shares_the_free_limit_too(client, make_user, monkeypatch):
+    monkeypatch.setitem(app.config, 'MAX_CONTENT_LENGTH', 3 * MIB)
+    response = post(client, '/api/v1/merge',
+                    MultiZeroBody(2, 2 * MIB, 'files[]', 'a.png', b'\x89PNG\r\n\x1a\n'),
+                    headers=paid_key(make_user))
+    assert response.status_code == 400
+    assert "in one request" in response.get_json()['error']
+
+
+def test_a_lying_archive_is_refused_not_re_flowed(tmp_path, monkeypatch, no_reflow):
+    """verification-b2-bounds MINOR 1: zipfile stops a lying entry with a CRC
+    error; that is an archive failure, so the file is refused."""
+    src = tmp_path / 'liar.docx'
+    wf.write_docx(src, {'word/document.xml': wf.document(wf.para('x'), '')})
+    with zipfile.ZipFile(src, 'a', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('word/media/zeros.bin', b'\0' * (2 * MIB))
+    real_infolist = zipfile.ZipFile.infolist
+
+    def lying_infolist(self):
+        infos = real_infolist(self)
+        for info in infos:
+            if info.filename == 'word/media/zeros.bin':
+                info.file_size = 1000
+        return infos
+    monkeypatch.setattr(zipfile.ZipFile, 'infolist', lying_infolist)
+    with pytest.raises(ConversionError, match="can't be converted"):
+        get_converter('.docx')(str(src), str(tmp_path / 'out.pdf'),
+                               RenderOptions(word_engine='libreoffice'))
+
+
+def test_convert_page_meta_without_the_engine_is_the_free_limit(client, paid, monkeypatch):
+    import re
+    monkeypatch.setattr(office, 'available', lambda: False)
+    html = client.get('/convert').get_data(as_text=True)
+    assert re.search(r'docist-upload-limit" content="52428800"', html)
+    monkeypatch.setattr(office, 'available', lambda: True)
+    html = client.get('/convert').get_data(as_text=True)
+    assert re.search(r'docist-upload-limit" content="94371840"', html)
 
 
 def test_merge_lets_a_large_pdf_through_the_size_check(client, paid):
@@ -271,7 +346,7 @@ def test_merge_without_the_engine_holds_word_files_to_the_free_limit(client, pai
                                                                      monkeypatch):
     monkeypatch.setattr(office, 'available', lambda: False)
     response = post(client, '/upload', ZeroBody(51 * MIB, 'files[]', 'big.docx', b'PK'))
-    assert 'over the 50 MB limit for this kind of file' in response.get_json()['error']
+    assert "can't be more than 50 MB in one request" in response.get_json()['error']
 
 
 @pytest.mark.parametrize('target,refused', [('.pdf', False), ('.txt', True), ('.png', True)])
@@ -279,7 +354,7 @@ def test_convert_lets_only_word_to_pdf_be_large(client, paid, monkeypatch, targe
     monkeypatch.setattr(office, 'available', lambda: True)
     body = ZeroBody(51 * MIB, 'file', 'big.docx', b'PK', fields=[('target', target.encode())])
     error = post(client, '/convert/run', body).get_json().get('error', '')
-    assert ('over the 50 MB limit for this kind of file' in error) is refused
+    assert ("can't be more than 50 MB in one request" in error) is refused
 
 
 def test_api_convert_holds_a_large_png_to_the_free_limit(client, make_user):
@@ -287,7 +362,7 @@ def test_api_convert_holds_a_large_png_to_the_free_limit(client, make_user):
                     fields=[('target', b'.jpg')])
     response = post(client, '/api/v1/convert', body, headers=paid_key(make_user))
     assert response.status_code == 400
-    assert 'over the 50 MB limit for this kind of file' in response.get_json()['error']
+    assert "can't be more than 50 MB in one request" in response.get_json()['error']
 
 
 # --------------------------------------------------------------------------

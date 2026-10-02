@@ -146,10 +146,11 @@ def test_unverified_paid_plan_gets_the_free_limit(client, make_user, login):
 
 
 def test_paid_passes_51_mib(client, paid):
-    response, body = post(client, '/upload', 51 * MIB)
-    # The body was read in full and the route answered; big.bin isn't convertible.
+    response, body = post(client, '/upload', 51 * MIB, filename='big.pdf')
+    # The body was read in full and the route reached the file itself: the
+    # zeros aren't a PDF. (Only PDFs and engine Word files may be this big.)
     assert response.status_code == 400
-    assert response.get_json()['error'] == 'No supported files provided'
+    assert 'does not look like a .pdf' in response.get_json()['error']
     assert body.read_bytes == body.length
 
 
@@ -161,8 +162,9 @@ def test_paid_gets_413_at_91_mib(client, paid):
 def test_paid_api_key_gets_the_paid_limit(client, make_user):
     raw = paid_api_key(make_user)
     auth = {'Authorization': f'Bearer {raw}'}
-    response, _ = post(client, '/api/v1/merge', 51 * MIB, headers=auth)
-    assert response.status_code == 400   # passed the limit; nothing to merge
+    response, _ = post(client, '/api/v1/merge', 51 * MIB, headers=auth, filename='big.pdf')
+    assert response.status_code == 400   # passed the limit; the zeros aren't a PDF
+    assert 'does not look like a .pdf' in response.get_json()['error']
     response, _ = post(client, '/api/v1/merge', 91 * MIB, headers=auth)
     assert_413(response, 90)
 
@@ -295,10 +297,10 @@ def test_free_chunked_body_is_cut_at_the_free_limit(client):
 
 def test_paid_chunked_body_passes_51_mib(client, make_user):
     raw = paid_api_key(make_user)
-    body = ZeroFileBody(51 * MIB, rewindable=False)
+    body = ZeroFileBody(51 * MIB, filename='big.pdf', rewindable=False)
     code, data = call_chunked('/api/v1/merge', body,
                               headers={'Authorization': f'Bearer {raw}'})
-    assert code == 400 and b'No supported files' in data
+    assert code == 400 and b'does not look like a .pdf' in data
     assert body.read_bytes == body.length
 
 

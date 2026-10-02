@@ -49,7 +49,8 @@ def test_account_lists_paid_features_to_paid_users(client, make_user, login, lo_
     html = client.get('/account').get_data(as_text=True)
     assert 'Your plan includes' in html
     assert 'The Word engine' in html
-    assert 'Merge and Convert uploads up to 90 MB per request' in html
+    assert 'Merge takes up to 90 MB per request of PDFs and Word files.' in html
+    assert 'Convert takes a Word file up to 90 MB' in html
 
 
 def test_account_shows_free_users_nothing_about_paid_plans(client, make_user, login, lo_on):
@@ -58,3 +59,12 @@ def test_account_shows_free_users_nothing_about_paid_plans(client, make_user, lo
     assert 'Your plan includes' not in html
     assert 'Word engine' not in html
     assert '90 MB' not in html
+
+
+def test_account_without_libreoffice_doesnt_promise_large_word_files(client, make_user,
+                                                                     login, monkeypatch):
+    monkeypatch.setattr(office, 'available', lambda: False)
+    login(client, make_user(plan='monthly'))
+    html = client.get('/account').get_data(as_text=True)
+    assert 'Merge takes up to 90 MB per request of PDFs.' in html
+    assert 'Convert takes a Word file' not in html

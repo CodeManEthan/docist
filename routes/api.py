@@ -54,7 +54,7 @@ from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr_langs import language_choices
 from utils.identity import current_user
 from utils.render_opts import RenderOptionsError, from_form, notes_header
-from utils.uploads import convert_large_ok, file_limit, merge_large_ok
+from utils.uploads import charge_uploads, convert_large_ok, merge_large_ok, upload_ext
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('api', __name__)
@@ -215,6 +215,11 @@ def api_merge():
         render_opts = from_form(request.form, current_user())
     except (OptionsError, RenderOptionsError) as exc:
         raise ApiError(str(exc))
+    try:
+        charge_uploads((f, merge_large_ok(upload_ext(f), render_opts))
+                       for f in files if f and f.filename)
+    except UploadValidationError as exc:
+        raise ApiError(str(exc))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         sources = []  # (pdf_path, bookmark_title)
@@ -236,8 +241,7 @@ def api_merge():
             title = os.path.splitext(filename)[0]
             upload.save(path)
             try:
-                validate_upload(path, ext,
-                                max_bytes=file_limit(merge_large_ok(ext, render_opts)))
+                validate_upload(path, ext)
             except UploadValidationError as exc:
                 raise ApiError(f'{filename}: {exc}')
 
@@ -325,6 +329,10 @@ def api_convert():
                                 ocr=uses_ocr(src_ext, target))
     except RenderOptionsError as exc:
         raise ApiError(str(exc))
+    try:
+        charge_uploads([(upload, convert_large_ok(src_ext, target, render_opts))])
+    except UploadValidationError as exc:
+        raise ApiError(str(exc))
 
     stem = os.path.splitext(filename)[0] or 'document'
 
@@ -332,8 +340,7 @@ def api_convert():
         input_path = os.path.join(tmpdir, filename)
         upload.save(input_path)
         try:
-            validate_upload(input_path, src_ext, max_bytes=file_limit(
-                convert_large_ok(src_ext, target, render_opts)))
+            validate_upload(input_path, src_ext)
         except UploadValidationError as exc:
             raise ApiError(str(exc))
 

@@ -42,6 +42,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import zlib
 from xml.etree import ElementTree as ET
 
 log = logging.getLogger(__name__)
@@ -208,8 +209,10 @@ def check_archive(infos):
     count, each entry's uncompressed size, the total uncompressed size and
     each large entry's compression ratio are all inside the limits. The strip
     then counts the bytes that actually come out against the same limits
-    (per entry, in all, and per entry against its stored compressed size), so
-    an archive that lies about its sizes is caught as it is read.
+    (per entry, in all, and per entry against its stored compressed size). On
+    CPython those counts are a second line: zipfile itself stops an entry at
+    its declared size and raises on the CRC, and docx_to_pdf turns that into
+    an ArchiveError too, so a lying archive is refused either way.
     """
     if len(infos) > MAX_ENTRIES:
         raise ArchiveError('too many parts')
@@ -554,6 +557,11 @@ def docx_to_pdf(input_path, output_path, deadline=None, *, strip=True, profile=T
                 shutil.copyfile(input_path, doc)
         except OfficeError:
             raise
+        except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
+            # CPython's zipfile stops an entry at its declared size and checks
+            # its CRC, so an archive that lies about its sizes ends here. Rule 1
+            # of the archive check: refused, never re-flowed.
+            raise ArchiveError(f'the archive is damaged or misstates its sizes: {exc}') from exc
         except Exception as exc:
             # A damaged or encrypted member, a compression zipfile lacks, or
             # anything else a malformed package raises: "a file it can't open".
