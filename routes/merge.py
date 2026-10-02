@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 
 from converters import get_converter, supported_extensions
 from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
-from utils.identity import owner_tag
+from utils.identity import current_user, owner_tag
 from utils.naming import display_name, owner_of, result_name
 from utils.render_opts import RenderOptionsError, from_form, with_notes
 from utils.validation import UploadValidationError, validate_upload
@@ -46,7 +46,7 @@ def upload_files():
     # Validate merge options up front so bad input fails fast with a 400.
     try:
         options = parse_options(request.form)
-        render_opts = from_form(request.form)
+        render_opts = from_form(request.form, current_user())
     except (OptionsError, RenderOptionsError) as e:
         return jsonify({'error': str(e)}), 400
 

@@ -7,12 +7,26 @@ pass ``paper=True`` (the default), OCR paths pass ``ocr=True``. A path that
 doesn't read ``language`` never starts Tesseract, and a missing field takes
 its default without a probe.
 
+The Word engine: ``from_form(form, user)`` sets ``word_engine='libreoffice'``
+when ``metering.tier(user) == 'paid'`` and LibreOffice is installed, and sets
+``deadline`` to ``g.request_started + RENDER_BUDGET`` (default 90 s), so time
+spent uploading counts against it. ``g.request_started`` is stamped by
+``utils.uploads.apply_limit``; when it is absent (a request that step never
+reached, or no request at all) ``deadline`` stays None and only the per-call
+LibreOffice timeout applies.
+
 Renderer notes (``opts.notes``) reach the user wherever the result goes:
 :func:`with_notes` for a browser route's message, :func:`notes_header` for an
 API response.
 """
+from flask import current_app, g, has_request_context
+
 from converters.options import DEFAULT_PAPER, PAPER_SIZES, RenderOptions
 from pdf_ops import ocr as ocr_ops
+from pdf_ops import office
+from utils.metering import tier
+
+DEFAULT_RENDER_BUDGET = 90
 
 NOTES_HEADER = 'X-Docist-Notes'
 
@@ -49,9 +63,30 @@ def parse_language(raw):
         raise RenderOptionsError(str(exc)) from exc
 
 
-def from_form(form, *, paper=True, ocr=False):
-    """RenderOptions for one request. Raises :class:`RenderOptionsError`."""
-    opts = RenderOptions()
+def request_deadline():
+    """``g.request_started + RENDER_BUDGET``, or None outside a stamped request."""
+    if not has_request_context():
+        return None
+    started = getattr(g, 'request_started', None)
+    if started is None:
+        return None
+    budget = current_app.config.get('RENDER_BUDGET', DEFAULT_RENDER_BUDGET)
+    return started + budget
+
+
+def word_engine(user):
+    """``'libreoffice'`` for a paid user when LibreOffice is installed, else ``'reflow'``."""
+    if tier(user) == 'paid' and office.available():
+        return 'libreoffice'
+    return 'reflow'
+
+
+def from_form(form, user=None, *, paper=True, ocr=False):
+    """RenderOptions for one request. Raises :class:`RenderOptionsError`.
+
+    ``user`` is the request's user (None = anonymous); it picks the Word engine.
+    """
+    opts = RenderOptions(word_engine=word_engine(user), deadline=request_deadline())
     if paper:
         opts.paper = parse_paper(form.get('paper'))
     if ocr:

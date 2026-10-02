@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Seed for the per-call LibreOffice profile (pdf_ops/office.py, design
+  prelaunch-fixes v0.4 §5.2 step 3). Each conversion copies this file into a
+  fresh profile directory, so no setting a document changes survives the call.
+
+  MacroSecurityLevel 3 is "very high": only macros from trusted locations run,
+  and none are listed. DisableMacrosExecution turns macros off outright.
+  BlockUntrustedRefererLinks stops LibreOffice loading linked content (remote
+  images, linked templates, OLE links) for a document from an untrusted
+  location, which an upload always is. Rendering an upload makes no network
+  request; the strip in office.py is the second guard, and each is tested alone.
+-->
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="DisableMacrosExecution" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="BlockUntrustedRefererLinks" oor:op="fuse"><value>true</value></prop></item>
+</oor:items>

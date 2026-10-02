@@ -50,6 +50,7 @@ from transforms import (
 from converters.options import PAPER_SIZES
 from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr_langs import language_choices
+from utils.identity import current_user
 from utils.render_opts import RenderOptionsError, from_form, notes_header
 from utils.validation import UploadValidationError, validate_upload
 
@@ -188,7 +189,7 @@ def api_merge():
 
     try:
         options = parse_options(request.form)
-        render_opts = from_form(request.form)
+        render_opts = from_form(request.form, current_user())
     except (OptionsError, RenderOptionsError) as exc:
         raise ApiError(str(exc))
 
@@ -295,7 +296,8 @@ def api_convert():
         raise ApiError(f'No converter for {src_ext} -> {target}.')
 
     try:
-        render_opts = from_form(request.form, paper=renders_pages(src_ext, target),
+        render_opts = from_form(request.form, current_user(),
+                                paper=renders_pages(src_ext, target),
                                 ocr=uses_ocr(src_ext, target))
     except RenderOptionsError as exc:
         raise ApiError(str(exc))

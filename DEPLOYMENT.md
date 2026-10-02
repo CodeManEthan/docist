@@ -65,13 +65,31 @@ There is no shared password. Every tool page works without an account:
 | `DOCIST_RESEND_API_KEY` | — | Resend backend. |
 | `DOCIST_HOST` | `127.0.0.1` | Dev-server bind address (`app.py` only; gunicorn takes `--bind`). |
 | `DOCIST_PORT` | `5010` | Port for both `run.sh` modes. |
-| `DOCIST_MAX_UPLOAD_MB` | `50` | Request-size cap; oversized uploads are rejected with 413. |
+| `DOCIST_MAX_UPLOAD_MB` | `50` | Request-body cap in MiB for anonymous visitors and free accounts; oversized uploads get a JSON 413 (`code: upload_too_large`). |
+| `DOCIST_MAX_UPLOAD_MB_PAID` | `90` | Request-body cap in MiB for paid accounts. Keep it at least 5 MB under any proxy's own body cap: Cloudflare passes at most 100 MB per request on its Free and Pro plans, and a body over that gets Cloudflare's HTML page, not Docist's. |
+| `DOCIST_RENDER_BUDGET` | `90` | Seconds from the start of a request by which all Word-engine (LibreOffice) work must end, upload time included. Keep it 30 s inside gunicorn's `--timeout`. |
+| `DOCIST_OFFICE_TIMEOUT` | `60` | Seconds one LibreOffice conversion may run. 15 s of the render budget are kept for the reflow fallback, and a call with under 10 s left isn't started. |
+| `DOCIST_OFFICE_MEM_MB` | `1536` | Address-space cap (`RLIMIT_AS`) for each LibreOffice process, in MiB. A conversion over it fails and the file is re-flowed instead. |
 | `DOCIST_OCR_MAX_LANGS` | `2` | How many OCR languages one request may name (`eng+spa` is two). Each extra language costs about 15 MB per Tesseract process; re-check the memory budget before raising it. |
 | `DOCIST_OCR_JOBS` | `2` | Tesseract processes OCRmyPDF runs at once for one Page Tools OCR request. `1` halves OCR's peak memory again on a small box. |
 | `DOCIST_RATE_LIMIT` | `30` | POST requests allowed per window, per client IP. |
 | `DOCIST_RATE_WINDOW` | `60` | Rate-limit window in seconds. |
 | `DOCIST_OUTPUT_MAX_AGE_MINUTES` | `1440` | Results in `output/` older than this are pruned automatically (check runs at most every 5 minutes, piggybacked on requests). |
 | `FLASK_DEBUG` | off | Dev server debugger/reloader. **Never set in production**: the Werkzeug debugger is remote code execution for anyone who can reach it. |
+
+### The Word engine
+
+Paid accounts' Word files are rendered by LibreOffice Writer (installed in
+the image), which keeps each document's own layout and page size; everyone
+else gets the reflow onto Letter or A4. Each conversion runs in its own
+process group on a fresh, locked-down profile and makes no network request:
+remote images and linked templates in a `.docx` are dropped, images stored
+inside the file are kept. If LibreOffice can't convert a file in time, the
+file is re-flowed and the user is told. The process group is killed on every
+exit the worker sees. If the worker itself is `SIGKILL`ed (gunicorn after a
+failed graceful abort, the kernel's OOM killer, or `docker stop` past its
+grace period), a spinning LibreOffice is stopped by its CPU limit (three times
+the call's timeout), and an idle one lives until the container restarts.
 
 `DOCIST_PASSWORD` and `DOCIST_PUBLIC_DEMO` are gone. If `DOCIST_PASSWORD` is
 still set, the app logs a warning at startup and ignores it.
@@ -186,7 +204,7 @@ server {
 
     # ssl_certificate ...; ssl_certificate_key ...;   (e.g. via certbot)
 
-    client_max_body_size 60m;          # slightly above DOCIST_MAX_UPLOAD_MB
+    client_max_body_size 100m;         # slightly above DOCIST_MAX_UPLOAD_MB_PAID
 
     location / {
         proxy_pass http://127.0.0.1:5010;

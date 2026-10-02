@@ -138,3 +138,21 @@ class TestSummary:
             assert metering.usage_summary(unverified)["tier"] == "unverified"
             assert metering.resolve(unverified)[0].startswith("ip:")
             assert metering.resolve(paid)[0] == f"u:{paid.id}"
+
+
+class TestTier:
+    """``metering.tier`` is the one answer to "paid?" (prelaunch-fixes §5.3)."""
+
+    @pytest.mark.parametrize("make,expected", [
+        (None, "anon"),
+        (dict(verified=False, plan="monthly"), "unverified"),
+        (dict(verified=True, plan="free"), "free"),
+        (dict(verified=True, plan="monthly"), "paid"),
+    ])
+    def test_tier_matches_usage_summary(self, client, make_user, make, expected):
+        user = make_user(**make) if make else None
+        with app.test_request_context("/"):
+            if user is not None:
+                user = db.session.get(type(user), user.id)
+            assert metering.tier(user) == expected
+            assert metering.usage_summary(user)["tier"] == expected

@@ -35,7 +35,13 @@ def today():
     return datetime.now(timezone.utc).date()
 
 
-def _tier(user):
+def tier(user):
+    """``'anon'``, ``'unverified'``, ``'free'`` or ``'paid'`` for ``user``.
+
+    The one function that decides "paid" for every feature: metering, the
+    Word engine (utils/render_opts.py) and the upload limit (utils/uploads.py)
+    all read it. A paid feature never checks ``user.plan`` itself.
+    """
     if user is None:
         return 'anon'
     if not user.is_verified:
@@ -46,10 +52,10 @@ def _tier(user):
 def resolve(user):
     """``(subject, limit)`` for ``user`` (None = anonymous); limit 0 = unlimited."""
     config = current_app.config
-    tier = _tier(user)
-    if tier in ('anon', 'unverified'):
+    level = tier(user)
+    if level in ('anon', 'unverified'):
         return anon_subject(), config['LIMIT_ANON']
-    limit = config['LIMIT_PAID'] if tier == 'paid' else config['LIMIT_FREE']
+    limit = config['LIMIT_PAID'] if level == 'paid' else config['LIMIT_FREE']
     return f'u:{user.id}', limit
 
 
@@ -64,7 +70,7 @@ def usage_summary(user):
         'used': used,
         'limit': limit or None,
         'remaining': max(0, limit - used) if limit else None,
-        'tier': _tier(user),
+        'tier': tier(user),
     }
 
 
@@ -102,7 +108,7 @@ def check():
     g.meter = (subject, limit, used)
     if limit and used >= limit:
         response = jsonify({
-            'error': _limit_message(_tier(user), limit),
+            'error': _limit_message(tier(user), limit),
             'code': 'daily_limit',
             'limit': limit,
             'used': used,
