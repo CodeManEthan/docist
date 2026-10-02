@@ -1,0 +1,17 @@
+{# OCR language pair: needs `ocr_languages` ([{code, name}], English first) and
+   static/ocr-langs.js, which joins the two into 'eng+spa'. #}
+<label>Language
+    <select id="ocrLanguage"{% if ocr_disabled %} disabled{% endif %}>
+        {% for lang in ocr_languages or [{'code': 'eng', 'name': 'English'}] %}
+        <option value="{{ lang.code }}">{{ lang.name }}</option>
+        {% endfor %}
+    </select>
+</label>
+<label>Second language (optional)
+    <select id="ocrLanguage2"{% if ocr_disabled %} disabled{% endif %}>
+        <option value="">None</option>
+        {% for lang in ocr_languages or [] %}
+        <option value="{{ lang.code }}">{{ lang.name }}</option>
+        {% endfor %}
+    </select>
+</label>

@@ -8,6 +8,7 @@ import markdown as _markdown
 from xhtml2pdf import pisa
 
 from . import ConversionError
+from .options import paper_css
 from .safe_links import link_callback
 
 
@@ -24,7 +25,7 @@ _MD_EXTENSIONS = [
 # Minimal document CSS for clean, readable typography in the PDF.
 _CSS = """
 @page {
-    size: letter;
+    size: __PAPER__;
     margin: 1in 0.9in;
 }
 body {
@@ -127,7 +128,12 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def convert(input_path, output_path):
+def _page_css(opts):
+    """The document CSS with the ``@page`` size set to the chosen paper."""
+    return _CSS.replace('__PAPER__', paper_css(opts))
+
+
+def convert(input_path, output_path, opts=None):
     """Convert a Markdown file to a PDF written to ``output_path``.
 
     Raises ``ConversionError`` with a helpful message on failure.
@@ -156,7 +162,7 @@ def convert(input_path, output_path):
             f"Failed to render Markdown to HTML: {exc}"
         ) from exc
 
-    document = _HTML_TEMPLATE.format(css=_CSS, body=body_html)
+    document = _HTML_TEMPLATE.format(css=_page_css(opts), body=body_html)
 
     try:
         with open(output_path, 'wb') as out_file:

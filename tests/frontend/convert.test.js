@@ -103,3 +103,19 @@ test('validateConvertState is case-insensitive on the target', () => {
 test('escapeHtml escapes special characters', () => {
     assert.equal(escapeHtml('<a & "b" \'c\'>'), '&lt;a &amp; &quot;b&quot; &#39;c&#39;&gt;');
 });
+
+// --------------------------------------------------------------------------
+// targetOptions: which extra choices a target needs (round prelaunch-fixes)
+// --------------------------------------------------------------------------
+const { targetOptions } = require(path.join(__dirname, '..', '..', 'static', 'convert.js'));
+
+test('targetOptions: paper for page-laying targets, OCR for image to text', () => {
+    assert.deepEqual(targetOptions('.pdf', ['.pdf', '.png'], []), { paper: true, ocr: false });
+    assert.deepEqual(targetOptions('.txt', ['.pdf'], ['.txt']), { paper: false, ocr: true });
+    assert.deepEqual(targetOptions('.jpg', ['.pdf'], ['.txt']), { paper: false, ocr: false });
+});
+
+test('targetOptions: no target or missing lists means neither', () => {
+    assert.deepEqual(targetOptions('', ['.pdf'], ['.txt']), { paper: false, ocr: false });
+    assert.deepEqual(targetOptions('.pdf', undefined, null), { paper: false, ocr: false });
+});

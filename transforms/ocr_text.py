@@ -52,9 +52,10 @@ produces plain text with no header.
 
 Language
 --------
-The transform signature is ``func(input_path, output_path)`` -- there is no
-channel to route a language code through it, so recognition always uses English
-(``'eng'``). Non-English documents are a known limitation of this entry point.
+The transform takes ``opts`` (a :class:`converters.options.RenderOptions`);
+recognition uses ``opts.ocr_language``, English (``'eng'``) by default. The
+language is checked by :func:`pdf_ops.ocr.validate_language` before any frame
+is read.
 
 Empty vs. corrupt
 -----------------
@@ -69,14 +70,12 @@ from . import TransformError
 # Import ONLY the stable read-only availability helpers. pdf_ops.ocr is being
 # extended concurrently; is_available / tesseract_version are the stable API.
 from pdf_ops.ocr import is_available, tesseract_version  # noqa: F401
+from pdf_ops.ocr import validate_language
 
 
 # Image source extensions that OCR to text.
 IMAGE_FORMATS = ['.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp', '.webp',
                  '.gif', '.heic', '.heif']
-
-# Tesseract recognises this language (see module docstring -- not routable).
-OCR_LANGUAGE = 'eng'
 
 # Teach Pillow to open HEIF/HEIC. Idempotent, safe to call repeatedly.
 pillow_heif.register_heif_opener()
@@ -111,16 +110,16 @@ def _flatten_to_white(frame):
     return frame.convert('RGB')
 
 
-def _ocr_frame(frame):
+def _ocr_frame(frame, language):
     """Recognise text in a single (already-flattened) frame -> str."""
     import pytesseract  # deferred: only needed once Tesseract is confirmed present
     try:
-        return pytesseract.image_to_string(frame, lang=OCR_LANGUAGE)
+        return pytesseract.image_to_string(frame, lang=language)
     except Exception as exc:
         raise TransformError(f"OCR failed: {exc}") from exc
 
 
-def image_to_text(input_path, output_path):
+def image_to_text(input_path, output_path, opts=None):
     """Recognise text in a raster image and write it as a UTF-8 ``.txt``.
 
     Multi-frame images are OCR'd per frame and joined with form-feed +
@@ -133,6 +132,10 @@ def image_to_text(input_path, output_path):
             "OCR requires Tesseract (and Ghostscript). Install the tesseract "
             "and ghostscript system packages to enable image -> text."
         )
+    try:
+        language = validate_language(opts.ocr_language if opts is not None else 'eng')
+    except ValueError as exc:
+        raise TransformError(str(exc)) from exc
 
     img = _open(input_path)
 
@@ -141,10 +144,10 @@ def image_to_text(input_path, output_path):
         frames = [_flatten_to_white(img)]
 
     if len(frames) == 1:
-        body = _ocr_frame(frames[0])
+        body = _ocr_frame(frames[0], language)
     else:
         sections = [
-            f"--- Frame {i} ---\n{_ocr_frame(frame)}"
+            f"--- Frame {i} ---\n{_ocr_frame(frame, language)}"
             for i, frame in enumerate(frames, start=1)
         ]
         # Form-feed between frames so downstream readers see a real break.

@@ -517,3 +517,103 @@ class TestDocsPage:
         assert "429" in body and "Retry-After" in body
         assert "DOCIST_MAX_UPLOAD_MB" in body and "50 MB" in body
         assert "DOCIST_RATE_LIMIT" in body
+
+
+# --------------------------------------------------------------------------
+# Paper, OCR language and notes (round prelaunch-fixes, design §2, §3.5, §4.2)
+# --------------------------------------------------------------------------
+def _first_size(response):
+    box = PdfReader(io.BytesIO(response.data)).pages[0].mediabox
+    return round(float(box.width), 2), round(float(box.height), 2)
+
+
+class TestPaperAndLanguage:
+    def test_formats_lists_paper_and_ocr_languages(self, client, monkeypatch):
+        from routes import api as api_routes
+        monkeypatch.setattr(api_routes, "installed_languages", lambda: ["spa", "osd", "eng"])
+        data = client.get("/api/v1/formats").get_json()
+        assert data["paper"] == ["letter", "a4"]
+        assert data["ocr_languages"] == [
+            {"code": "eng", "name": "English"}, {"code": "spa", "name": "Spanish"},
+        ]
+
+    def test_merge_converts_on_a4(self, client, tmp_path, builders):
+        md = builders.markdown(tmp_path / "doc.md")
+        response = client.post(
+            "/api/v1/merge", data={"files[]": [upload(md)], "paper": "a4"},
+            content_type="multipart/form-data")
+        assert response.status_code == 200
+        assert _first_size(response) == (595.28, 841.89)
+        assert "X-Docist-Notes" not in response.headers
+
+    def test_merge_default_is_letter(self, client, tmp_path, builders):
+        md = builders.markdown(tmp_path / "doc.md")
+        response = client.post("/api/v1/merge", data={"files[]": [upload(md)]},
+                               content_type="multipart/form-data")
+        assert _first_size(response) == (612.0, 792.0)
+
+    def test_merge_bad_paper_is_400(self, client, tmp_path, builders):
+        md = builders.markdown(tmp_path / "doc.md")
+        response = client.post(
+            "/api/v1/merge", data={"files[]": [upload(md)], "paper": "legal"},
+            content_type="multipart/form-data")
+        assert response.status_code == 400
+        assert response.get_json()["error"] == "Paper must be letter or a4."
+        assert_no_residue(client)
+
+    def test_convert_to_pdf_on_a4(self, client, tmp_path, builders):
+        txt = builders.text_rich(tmp_path / "notes.txt")
+        response = client.post(
+            "/api/v1/convert", data={"file": upload(txt), "target": ".pdf", "paper": "a4"},
+            content_type="multipart/form-data")
+        assert response.status_code == 200
+        assert _first_size(response) == (595.28, 841.89)
+
+    def test_convert_ignores_paper_where_not_consumed(self, client, tmp_path, builders):
+        """png -> jpg lays out no pages, so `paper` isn't read or validated."""
+        png = builders.png(tmp_path / "pic.png")
+        response = client.post(
+            "/api/v1/convert", data={"file": upload(png), "target": ".jpg", "paper": "legal"},
+            content_type="multipart/form-data")
+        assert response.status_code == 200
+
+    def test_convert_image_to_text_takes_language(self, client, tmp_path, builders,
+                                                  monkeypatch):
+        import pytesseract
+        from pdf_ops import ocr as ocr_ops
+        from transforms import ocr_text
+        seen = []
+        monkeypatch.setattr(ocr_text, "is_available", lambda: True)
+        monkeypatch.setattr(ocr_ops, "is_available", lambda: True)
+        monkeypatch.setattr(ocr_ops, "installed_languages", lambda: ["eng", "spa"])
+        monkeypatch.setattr(pytesseract, "image_to_string",
+                            lambda image, lang=None, **k: seen.append(lang) or "hola")
+        png = builders.png(tmp_path / "pic.png")
+        response = client.post(
+            "/api/v1/convert", data={"file": upload(png), "target": ".txt", "language": "spa"},
+            content_type="multipart/form-data")
+        assert response.status_code == 200
+        assert seen == ["spa"]
+
+        bad = client.post(
+            "/api/v1/convert", data={"file": upload(png), "target": ".txt", "language": "fra"},
+            content_type="multipart/form-data")
+        assert bad.status_code == 400
+        assert "Unknown OCR language 'fra'" in bad.get_json()["error"]
+
+    def test_renderer_notes_reach_the_api_header(self, client, tmp_path, builders,
+                                                 monkeypatch):
+        import converters
+        real = converters.get_converter(".md")
+
+        def noting(i, o, opts=None):
+            real(i, o, opts)
+            opts.notes.append("A note from the renderer.")
+
+        monkeypatch.setitem(converters._REGISTRY, ".md", noting)
+        md = builders.markdown(tmp_path / "doc.md")
+        for url, data in (("/api/v1/merge", {"files[]": [upload(md)]}),
+                          ("/api/v1/convert", {"file": upload(md), "target": ".pdf"})):
+            response = client.post(url, data=data, content_type="multipart/form-data")
+            assert response.status_code == 200, url
+            assert response.headers["X-Docist-Notes"] == "A note from the renderer.", url

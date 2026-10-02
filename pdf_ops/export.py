@@ -24,6 +24,7 @@ from pypdf import PdfReader
 from pdf_ops.pdfium_lock import PDFIUM_LOCK
 
 from pdf_ops.ocr import is_available as _ocr_is_available
+from pdf_ops.ocr import validate_language
 
 # Accepted raster formats and the sane DPI window we render within.
 VALID_FORMATS = {"png", "jpg"}
@@ -122,13 +123,17 @@ def pdf_to_text_report(input_path, output_path, *, ocr_fallback=False, language=
 
     Gating: OCR needs the Tesseract (and Ghostscript) system binaries. If
     ``ocr_fallback`` is requested while they are unavailable, ``ValueError`` is
-    raised before any work is done. A bad ``language`` surfaces as a clean
-    ``ValueError`` (Tesseract's own error is mapped to a readable message).
+    raised before any work is done. ``language`` is checked by
+    :func:`pdf_ops.ocr.validate_language` (installed codes, at most the
+    configured count) before any page is read, and a bad one surfaces as a
+    ``ValueError``.
     """
     if ocr_fallback and not _ocr_is_available():
         raise ValueError(
             "OCR requires Tesseract and Ghostscript to be installed."
         )
+    if ocr_fallback:
+        language = validate_language(language)
 
     reader = PdfReader(input_path)
     page_texts = []

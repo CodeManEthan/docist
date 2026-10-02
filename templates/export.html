@@ -63,13 +63,11 @@
                 <input type="checkbox" id="ocrFallback"{% if not ocr_available %} disabled{% endif %}>
                 Use OCR for scanned pages
             </label>
-            <label>Language
-                <input type="text" id="ocrLanguage" value="eng" size="8"{% if not ocr_available %} disabled{% endif %}>
-            </label>
+            {% with ocr_disabled = not ocr_available %}{% include '_ocr_language.html' %}{% endwith %}
             {% if not ocr_available %}
             <p class="upload-hint" id="ocrHint">OCR is unavailable: requires Tesseract + Ghostscript on the server.</p>
             {% else %}
-            <p class="upload-hint">OCR only runs on pages with no text layer, so pages that already have text are never re-scanned. Language is a Tesseract code (e.g. <code>eng</code>, <code>deu</code>, <code>fra</code>).</p>
+            <p class="upload-hint">OCR only runs on pages with no text layer, so pages that already have text are never re-scanned. Pick a second language for documents that mix two.</p>
             {% endif %}
         </div>
 
@@ -83,6 +81,7 @@
         <div class="message" id="message"></div>
     </div>
 
+    <script src="/static/ocr-langs.js"></script>
     <script src="/static/export.js"></script>
 </body>
 </html>

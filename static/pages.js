@@ -428,7 +428,7 @@ function initPagesApp() {
             imageMaxDpi: document.getElementById('compressDpi')
                 ? document.getElementById('compressDpi').value : '',
             language: document.getElementById('ocrLanguage')
-                ? document.getElementById('ocrLanguage').value : '',
+                ? selectedLanguage(document) : '',
             deskew: !!(document.getElementById('ocrDeskew')
                 && document.getElementById('ocrDeskew').checked),
             force: !!(document.getElementById('ocrForce')

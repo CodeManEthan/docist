@@ -42,9 +42,15 @@ from transforms import (
     TransformError,
     get_transform,
     matrix,
+    renders_pages,
     supported_sources,
     targets_for,
+    uses_ocr,
 )
+from converters.options import PAPER_SIZES
+from pdf_ops.ocr import installed_languages
+from pdf_ops.ocr_langs import language_choices
+from utils.render_opts import RenderOptionsError, from_form, notes_header
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('api', __name__)
@@ -154,11 +160,13 @@ def api_docs():
 # ---------------------------------------------------------------------------
 @bp.route('/api/v1/formats')
 def api_formats():
-    """What the API accepts: merge inputs plus the full conversion matrix."""
+    """What the API accepts: merge inputs, the conversion matrix, papers and OCR languages."""
     return jsonify({
         'merge_extensions': ['.pdf'] + supported_extensions(),
         'convert_sources': supported_sources(),
         'convert_matrix': matrix(),
+        'paper': list(PAPER_SIZES),
+        'ocr_languages': language_choices(installed_languages()),
     })
 
 
@@ -171,7 +179,8 @@ def api_merge():
 
     Form fields mirror the merge UI exactly (see pdf_ops.merge.parse_options):
     ``page_numbers``, ``number_position``, ``start_number``, ``blank_pages``,
-    ``bookmarks``, ``mode`` (standard|interleave), ``reverse_second``.
+    ``bookmarks``, ``mode`` (standard|interleave), ``reverse_second``, plus
+    ``paper`` (letter|a4) for converted files.
     """
     files = request.files.getlist('files[]')
     if not files or all(not f or not f.filename for f in files):
@@ -179,7 +188,8 @@ def api_merge():
 
     try:
         options = parse_options(request.form)
-    except OptionsError as exc:
+        render_opts = from_form(request.form)
+    except (OptionsError, RenderOptionsError) as exc:
         raise ApiError(str(exc))
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -211,7 +221,7 @@ def api_merge():
             else:
                 converted = path + '.converted.pdf'
                 try:
-                    get_converter(ext)(path, converted)
+                    get_converter(ext)(path, converted, render_opts)
                 except Exception as exc:
                     raise ApiError(f'Could not convert {filename}: {exc}')
                 sources.append((converted, title))
@@ -241,7 +251,7 @@ def api_merge():
         data = buffer.getvalue()
 
     base = os.path.splitext(first_filename)[0] or 'document'
-    return _send_bytes(data, f'{base}-merged.pdf')
+    return notes_header(_send_bytes(data, f'{base}-merged.pdf'), render_opts)
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +294,12 @@ def api_convert():
     if transform is None:  # pragma: no cover - targets_for gates this
         raise ApiError(f'No converter for {src_ext} -> {target}.')
 
+    try:
+        render_opts = from_form(request.form, paper=renders_pages(src_ext, target),
+                                ocr=uses_ocr(src_ext, target))
+    except RenderOptionsError as exc:
+        raise ApiError(str(exc))
+
     stem = os.path.splitext(filename)[0] or 'document'
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -296,13 +312,13 @@ def api_convert():
 
         requested_output = os.path.join(tmpdir, f'{stem}{target}')
         try:
-            actual_path = transform(input_path, requested_output)
+            actual_path = transform(input_path, requested_output, render_opts)
         except TransformError as exc:
             raise ApiError(str(exc))
         except Exception as exc:  # pragma: no cover - defensive
             raise ApiError(f'Unexpected error: {exc}', status=500)
 
-        return _send_path(actual_path)
+        return notes_header(_send_path(actual_path), render_opts)
 
 
 # ---------------------------------------------------------------------------

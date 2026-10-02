@@ -176,7 +176,7 @@ function initExportApp() {
             fmt: fmtEl ? fmtEl.value : '',
             dpi: dpiEl ? dpiEl.value : '',
             ocrFallback: !!(ocrEl && !ocrEl.disabled && ocrEl.checked),
-            language: langEl ? langEl.value : 'eng',
+            language: langEl ? selectedLanguage(document) : 'eng',
         };
 
         const payload = buildExportPayload(state);

@@ -322,3 +322,93 @@ def test_run_missing_file_is_400(client):
     resp = client.post("/print/run", data={"operation": "nup", "n": "2"},
                        content_type="multipart/form-data")
     assert resp.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# Paper choice (round prelaunch-fixes, design §3.2): the sheet is the paper.
+# --------------------------------------------------------------------------
+_A4_PORTRAIT = (595.276, 841.89)
+_A4_LANDSCAPE = (841.89, 595.276)
+
+
+def _sheet(reader, index=0):
+    box = reader.pages[index].mediabox
+    return float(box.width), float(box.height)
+
+
+def _close(actual, expected):
+    return all(abs(a - e) <= 0.01 for a, e in zip(actual, expected))
+
+
+@pytest.mark.parametrize("paper, two_up, four_up", [
+    ("letter", LETTER_LANDSCAPE, LETTER_PORTRAIT),
+    ("a4", _A4_LANDSCAPE, _A4_PORTRAIT),
+])
+def test_nup_sheet_follows_paper(tmp_path, paper, two_up, four_up):
+    src = _make_numbered_pdf(tmp_path / "src.pdf", 5)
+    out2, out4 = tmp_path / "2.pdf", tmp_path / "4.pdf"
+    nup_pdf(str(src), str(out2), n=2, paper=paper)
+    nup_pdf(str(src), str(out4), n=4, paper=paper)
+    r2, r4 = PdfReader(str(out2)), PdfReader(str(out4))
+    assert all(_close(_sheet(r2, i), two_up) for i in range(len(r2.pages)))
+    assert all(_close(_sheet(r4, i), four_up) for i in range(len(r4.pages)))
+
+
+@pytest.mark.parametrize("paper, sheet", [
+    ("letter", LETTER_LANDSCAPE), ("a4", _A4_LANDSCAPE),
+])
+def test_booklet_sheet_follows_paper(tmp_path, paper, sheet):
+    src = _make_numbered_pdf(tmp_path / "src.pdf", 6)
+    out = tmp_path / "b.pdf"
+    booklet_pdf(str(src), str(out), paper=paper)
+    reader = PdfReader(str(out))
+    assert len(reader.pages) == 4  # 6 pages padded to 8, two per sheet
+    assert all(_close(_sheet(reader, i), sheet) for i in range(4))
+
+
+def test_default_paper_is_letter(tmp_path):
+    src = _make_numbered_pdf(tmp_path / "src.pdf", 2)
+    out = tmp_path / "o.pdf"
+    nup_pdf(str(src), str(out), n=2)
+    assert _sheet(PdfReader(str(out))) == LETTER_LANDSCAPE
+    booklet_pdf(str(src), str(out))
+    assert _sheet(PdfReader(str(out))) == LETTER_LANDSCAPE
+
+
+def test_unknown_paper_is_value_error(tmp_path):
+    src = _make_numbered_pdf(tmp_path / "src.pdf", 2)
+    with pytest.raises(ValueError, match="Paper must be letter or a4."):
+        nup_pdf(str(src), str(tmp_path / "o.pdf"), n=2, paper="legal")
+    with pytest.raises(ValueError, match="Paper must be letter or a4."):
+        booklet_pdf(str(src), str(tmp_path / "o.pdf"), paper="legal")
+
+
+@pytest.mark.parametrize("paper", ["letter", "a4"])
+def test_slots_still_split_the_sheet(paper):
+    """2-up slots are halves of the landscape sheet; 4-up quarters of the portrait."""
+    import pdf_ops.imposition as imp
+
+    placed = []
+    real_place = imp._place
+
+    def spy(sheet_page, src_page, x, y, w, h):
+        placed.append((x, y, w, h))
+        return real_place(sheet_page, src_page, x, y, w, h)
+
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmp:
+        src = _make_numbered_pdf(os.path.join(tmp, "s.pdf"), 4)
+        imp._place, saved = spy, imp._place
+        try:
+            imp.nup_pdf(str(src), os.path.join(tmp, "2.pdf"), n=2, paper=paper)
+            two = list(placed)
+            placed.clear()
+            imp.nup_pdf(str(src), os.path.join(tmp, "4.pdf"), n=4, paper=paper)
+            four = list(placed)
+        finally:
+            imp._place = saved
+    lw, lh = imp.sheet_size(paper, landscape=True)
+    pw, ph = imp.sheet_size(paper)
+    assert two[:2] == [(0.0, 0.0, lw / 2, lh), (lw / 2, 0.0, lw / 2, lh)]
+    assert four == [(0.0, ph / 2, pw / 2, ph / 2), (pw / 2, ph / 2, pw / 2, ph / 2),
+                    (0.0, 0.0, pw / 2, ph / 2), (pw / 2, 0.0, pw / 2, ph / 2)]

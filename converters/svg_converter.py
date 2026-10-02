@@ -1,11 +1,12 @@
 """Converter plugin: SVG (.svg) -> PDF.
 
 Parses the SVG into a reportlab ``Drawing`` with :func:`svglib.svglib.svg2rlg`
-and renders it onto a single US-letter page (612 x 792 pt).
+and renders it onto a single page of the chosen paper (Letter, 612 x 792 pt,
+by default).
 
 Scaling policy
 --------------
-The drawing is fit inside the printable area (letter minus a 0.5 in margin on
+The drawing is fit inside the printable area (the page minus a 0.5 in margin on
 every side) while preserving its aspect ratio, then centred on the page:
 
 * If the drawing is larger than the printable area it is scaled *down* to fit.
@@ -20,26 +21,23 @@ drawing for junk input -- both are treated as a :class:`ConversionError`.
 import io
 
 from reportlab.graphics import renderPDF
-from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from svglib.svglib import svg2rlg
 
 from . import ConversionError
+from .options import paper_size
 
 
 EXTENSIONS = ['.svg']
 
-# US-letter page geometry, in PostScript points (1/72 in).
-LETTER_W, LETTER_H = letter          # (612.0, 792.0)
+# Page geometry is the chosen paper (Letter by default), in PostScript points.
 MARGIN = 0.5 * 72                     # 36 pt margin on every side
-PRINTABLE_W = LETTER_W - 2 * MARGIN
-PRINTABLE_H = LETTER_H - 2 * MARGIN
 
 # Never magnify a small drawing beyond this factor (see module docstring).
 MAX_UPSCALE = 2.0
 
 
-def convert(input_path, output_path):
+def convert(input_path, output_path, opts=None):
     """Convert the SVG at ``input_path`` into a PDF written to ``output_path``.
 
     Raises :class:`ConversionError` with a helpful message on failure.
@@ -69,7 +67,9 @@ def convert(input_path, output_path):
 
     # Fit inside the printable area, preserving aspect ratio; allow limited
     # upscaling of small drawings.
-    scale = min(PRINTABLE_W / drawing.width, PRINTABLE_H / drawing.height)
+    page_w, page_h = paper_size(opts)
+    scale = min((page_w - 2 * MARGIN) / drawing.width,
+                (page_h - 2 * MARGIN) / drawing.height)
     scale = min(scale, MAX_UPSCALE)
 
     scaled_w = drawing.width * scale
@@ -80,11 +80,11 @@ def convert(input_path, output_path):
     drawing.height = scaled_h
 
     # Centre on the page.
-    x = (LETTER_W - scaled_w) / 2.0
-    y = (LETTER_H - scaled_h) / 2.0
+    x = (page_w - scaled_w) / 2.0
+    y = (page_h - scaled_h) / 2.0
 
     try:
-        c = canvas.Canvas(output_path, pagesize=letter)
+        c = canvas.Canvas(output_path, pagesize=(page_w, page_h))
         renderPDF.draw(drawing, c, x, y)
         c.showPage()
         c.save()

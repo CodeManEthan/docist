@@ -42,6 +42,12 @@
                 </select>
             </label>
             <p class="upload-hint" id="targetHint"></p>
+            <div id="paperRow" style="display:none">
+                {% include '_paper_select.html' %}
+            </div>
+            <div id="ocrRow" style="display:none">
+                {% with ocr_disabled = False %}{% include '_ocr_language.html' %}{% endwith %}
+            </div>
         </div>
 
         <button class="btn" id="runBtn" disabled>Convert</button>
@@ -63,6 +69,8 @@
         </div>
     </div>
 
+    <script src="/static/paper.js"></script>
+    <script src="/static/ocr-langs.js"></script>
     <script src="/static/convert.js"></script>
 </body>
 </html>

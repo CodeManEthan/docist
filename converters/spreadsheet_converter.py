@@ -5,7 +5,7 @@ has a shaded, repeated header row (``repeatRows=1``), grid lines and light
 alternating row shading. Multi-page tables flow naturally across pages.
 
 Wide-table strategy
-    When a table has many columns the page is switched to *landscape* letter
+    When a table has many columns the page is switched to *landscape* paper
     to win back horizontal room. Column widths are then capped to a maximum
     and individual cells whose text is far too long are truncated with an
     ellipsis so nothing overflows the page. Very wide tables therefore stay
@@ -28,7 +28,6 @@ import csv
 import io
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
@@ -42,6 +41,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from xml.sax.saxutils import escape
 
 from . import ConversionError
+from .options import paper_size
 
 EXTENSIONS = ['.csv', '.xlsx']
 
@@ -195,7 +195,7 @@ def _make_table(rows, usable_width, body_style, header_style):
     return table
 
 
-def _build_pdf(output_path, sections):
+def _build_pdf(output_path, sections, opts=None):
     """Render ``sections`` (list of ``(heading_or_None, rows)``) to a PDF.
 
     Chooses landscape orientation when any section is wide.
@@ -216,7 +216,7 @@ def _build_pdf(output_path, sections):
 
     max_cols = max((max((len(r) for r in rows), default=0)
                     for _, rows in sections), default=0)
-    pagesize = landscape(letter) if max_cols >= _LANDSCAPE_COL_THRESHOLD else letter
+    pagesize = paper_size(opts, landscape=max_cols >= _LANDSCAPE_COL_THRESHOLD)
     usable_width = pagesize[0] - 2 * _MARGIN
 
     doc = SimpleDocTemplate(
@@ -247,7 +247,7 @@ def _build_pdf(output_path, sections):
         raise ConversionError(f'Failed to render spreadsheet to PDF: {exc}') from exc
 
 
-def convert(input_path, output_path):
+def convert(input_path, output_path, opts=None):
     """Convert a .csv or .xlsx file to a PDF written to ``output_path``."""
     lower = input_path.lower()
     try:
@@ -265,4 +265,4 @@ def convert(input_path, output_path):
     except Exception as exc:  # noqa: BLE001
         raise ConversionError(f'Failed to parse spreadsheet: {exc}') from exc
 
-    _build_pdf(output_path, sections)
+    _build_pdf(output_path, sections, opts)

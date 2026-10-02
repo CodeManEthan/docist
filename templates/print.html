@@ -40,6 +40,10 @@
             <label><input type="radio" name="operation" value="booklet"> Booklet</label>
         </div>
 
+        <div class="options-panel">
+            {% include '_paper_select.html' %}
+        </div>
+
         <div class="options-panel" id="panel-nup">
             <label>Pages per sheet
                 <select id="nupN">
@@ -73,6 +77,7 @@
         <div class="message" id="message"></div>
     </div>
 
+    <script src="/static/paper.js"></script>
     <script src="/static/print.js"></script>
 </body>
 </html>

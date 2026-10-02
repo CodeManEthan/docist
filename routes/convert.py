@@ -23,10 +23,15 @@ from transforms import (
     TransformError,
     get_transform,
     matrix,
+    renders_pages,
     supported_sources,
     targets_for,
+    uses_ocr,
 )
+from pdf_ops.ocr import installed_languages
+from pdf_ops.ocr_langs import language_choices
 from utils.naming import display_name, result_name
+from utils.render_opts import RenderOptionsError, from_form, with_notes
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('convert', __name__)
@@ -50,7 +55,8 @@ def _norm_ext(raw):
 
 @bp.route('/convert')
 def convert_index():
-    return render_template('convert.html')
+    return render_template('convert.html',
+                           ocr_languages=language_choices(installed_languages()))
 
 
 @bp.route('/convert/matrix')
@@ -68,7 +74,13 @@ def convert_targets():
     ext = _norm_ext(raw)
     if not ext:
         return jsonify({'error': 'Malformed ext parameter.'}), 400
-    return jsonify({'targets': targets_for(ext)})
+    targets = targets_for(ext)
+    return jsonify({
+        'targets': targets,
+        # Targets that take the paper choice, and those that take OCR languages.
+        'paper_targets': [t for t in targets if renders_pages(ext, t)],
+        'ocr_targets': [t for t in targets if uses_ocr(ext, t)],
+    })
 
 
 @bp.route('/convert/run', methods=['POST'])
@@ -107,6 +119,12 @@ def run_convert():
     if transform is None:  # pragma: no cover - defensive; targets_for gates this
         return jsonify({'error': f"No converter for {src_ext} -> {target}."}), 400
 
+    try:
+        render_opts = from_form(request.form, paper=renders_pages(src_ext, target),
+                                ocr=uses_ocr(src_ext, target))
+    except RenderOptionsError as exc:
+        return jsonify({'error': str(exc)}), 400
+
     stem = os.path.splitext(filename)[0] or 'document'
     requested_name = f"{stem}{target}"
     output_folder = current_app.config['OUTPUT_FOLDER']
@@ -121,7 +139,7 @@ def run_convert():
                 return jsonify({'error': str(exc)}), 400
 
             requested_output = os.path.join(tmpdir, requested_name)
-            actual_path = transform(input_path, requested_output)
+            actual_path = transform(input_path, requested_output, render_opts)
 
             actual_name = os.path.basename(actual_path)
             actual_ext = os.path.splitext(actual_name)[1].lower()
@@ -143,7 +161,7 @@ def run_convert():
 
     return jsonify({
         'success': True,
-        'message': message,
+        'message': with_notes(message, render_opts),
         'filename': final_name,
         'download_url': '/download?filename=' + final_name,
     })

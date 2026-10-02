@@ -76,6 +76,8 @@
                 <input type="checkbox" id="optBookmarks" checked>
                 Add bookmarks (one per source file)
             </label>
+            {% include '_paper_select.html' %}
+            <div class="upload-hint">Converted files use this paper. PDFs keep their own pages.</div>
         </div>
 
         <button class="btn" id="mergeBtn" disabled>Merge Files</button>
@@ -97,6 +99,7 @@
         </div>
     </div>
 
+    <script src="/static/paper.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

@@ -1,24 +1,27 @@
-"""Image converter plugin: turns raster images into letter-size PDF pages.
+"""Image converter plugin: turns raster images into PDF pages on the chosen paper.
 
 Handles common raster formats. Each image is normalised to RGB (transparency
 is composited onto a white background), then scaled to fit inside the printable
-area of a US-letter page (with margins) without upscaling, and centred on a
+area of the page (Letter by default, with margins) without upscaling, and centred on a
 white page. Multi-frame images (e.g. animated GIFs, multi-page TIFFs) produce
 one PDF page per frame.
 """
 from PIL import Image, ImageSequence
 
 from converters import ConversionError
+from converters.options import paper_size
 
 EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif']
 
-# US-letter page geometry, in pixels at the working resolution below.
+# Page geometry in pixels at the working resolution below.
 DPI = 150
-LETTER_W = int(8.5 * DPI)   # 1275 px
-LETTER_H = int(11 * DPI)    # 1650 px
 MARGIN = int(0.5 * DPI)     # 75 px margin on every side
-PRINTABLE_W = LETTER_W - 2 * MARGIN
-PRINTABLE_H = LETTER_H - 2 * MARGIN
+
+
+def page_pixels(opts=None):
+    """Page ``(width, height)`` in pixels at DPI: 1275 x 1650 for Letter."""
+    w_pt, h_pt = paper_size(opts)
+    return round(w_pt * DPI / 72), round(h_pt * DPI / 72)
 
 
 def _flatten_to_rgb(frame):
@@ -30,23 +33,24 @@ def _flatten_to_rgb(frame):
     return frame.convert('RGB')
 
 
-def _compose_page(frame):
-    """Fit a single frame onto a centred, white US-letter page (RGB)."""
+def _compose_page(frame, page_w, page_h):
+    """Fit a single frame onto a centred, white page of ``page_w`` x ``page_h`` px (RGB)."""
     img = _flatten_to_rgb(frame)
 
     # Scale down to fit the printable area; never upscale small images.
-    scale = min(PRINTABLE_W / img.width, PRINTABLE_H / img.height, 1.0)
+    scale = min((page_w - 2 * MARGIN) / img.width,
+                (page_h - 2 * MARGIN) / img.height, 1.0)
     if scale < 1.0:
         new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
         img = img.resize(new_size, Image.LANCZOS)
 
-    page = Image.new('RGB', (LETTER_W, LETTER_H), (255, 255, 255))
-    offset = ((LETTER_W - img.width) // 2, (LETTER_H - img.height) // 2)
+    page = Image.new('RGB', (page_w, page_h), (255, 255, 255))
+    offset = ((page_w - img.width) // 2, (page_h - img.height) // 2)
     page.paste(img, offset)
     return page
 
 
-def convert(input_path, output_path):
+def convert(input_path, output_path, opts=None):
     """Convert the image at input_path into a PDF written to output_path."""
     try:
         image = Image.open(input_path)
@@ -54,7 +58,9 @@ def convert(input_path, output_path):
         raise ConversionError(f"Could not open image '{input_path}': {exc}") from exc
 
     try:
-        pages = [_compose_page(frame) for frame in ImageSequence.Iterator(image)]
+        page_w, page_h = page_pixels(opts)
+        pages = [_compose_page(frame, page_w, page_h)
+                 for frame in ImageSequence.Iterator(image)]
     except Exception as exc:
         raise ConversionError(f"Could not process image '{input_path}': {exc}") from exc
 

@@ -13,7 +13,10 @@ from flask import Blueprint, current_app, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 
 from pdf_ops.export import pdf_to_images, pdf_to_text, pdf_to_text_report
+from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr import is_available as ocr_is_available
+from pdf_ops.ocr_langs import language_choices
+from utils.render_opts import from_form
 from utils.naming import result_name
 from pypdf import PdfReader
 
@@ -34,7 +37,8 @@ def _truthy(value):
 
 @bp.route('/export')
 def export_index():
-    return render_template('export.html', ocr_available=ocr_is_available())
+    return render_template('export.html', ocr_available=ocr_is_available(),
+                           ocr_languages=language_choices(installed_languages()))
 
 
 @bp.route('/export/run', methods=['POST'])
@@ -89,9 +93,13 @@ def run_export():
 
             else:  # text
                 ocr_fallback = _truthy(request.form.get('ocr_fallback'))
-                language = (request.form.get('language') or 'eng').strip() or 'eng'
                 if ocr_fallback and not ocr_is_available():
                     return jsonify({'error': _OCR_INSTALL_HINT}), 400
+                # Only the OCR fallback reads `language`; a bad one is a
+                # RenderOptionsError, a ValueError, so a 400 below.
+                language = 'eng'
+                if ocr_fallback:
+                    language = from_form(request.form, paper=False, ocr=True).ocr_language
 
                 out_name = result_name(f"{base}.txt")
                 out_path = os.path.join(output_folder, out_name)

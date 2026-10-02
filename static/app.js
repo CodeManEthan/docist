@@ -479,6 +479,8 @@ function initApp() {
         Object.keys(options).forEach(key => {
             formData.append(key, options[key]);
         });
+        const paperEl = document.getElementById('paperSelect');
+        if (paperEl) formData.append('paper', paperEl.value);
 
         mergeBtn.disabled = true;
         loading.style.display = 'block';

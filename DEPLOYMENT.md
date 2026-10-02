@@ -66,6 +66,8 @@ There is no shared password. Every tool page works without an account:
 | `DOCIST_HOST` | `127.0.0.1` | Dev-server bind address (`app.py` only; gunicorn takes `--bind`). |
 | `DOCIST_PORT` | `5010` | Port for both `run.sh` modes. |
 | `DOCIST_MAX_UPLOAD_MB` | `50` | Request-size cap; oversized uploads are rejected with 413. |
+| `DOCIST_OCR_MAX_LANGS` | `2` | How many OCR languages one request may name (`eng+spa` is two). Each extra language costs about 15 MB per Tesseract process; re-check the memory budget before raising it. |
+| `DOCIST_OCR_JOBS` | `2` | Tesseract processes OCRmyPDF runs at once for one Page Tools OCR request. `1` halves OCR's peak memory again on a small box. |
 | `DOCIST_RATE_LIMIT` | `30` | POST requests allowed per window, per client IP. |
 | `DOCIST_RATE_WINDOW` | `60` | Rate-limit window in seconds. |
 | `DOCIST_OUTPUT_MAX_AGE_MINUTES` | `1440` | Results in `output/` older than this are pruned automatically (check runs at most every 5 minutes, piggybacked on requests). |
