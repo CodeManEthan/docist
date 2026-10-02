@@ -230,3 +230,15 @@ def test_route_helpers():
     assert transforms.uses_ocr('.JPG', '.TXT')
     assert not transforms.uses_ocr('.pdf', '.txt')
     assert not transforms.uses_ocr('.md', '.txt')
+
+
+def test_keyword_only_opts_is_wrapped():
+    seen = []
+
+    def kw_only(i, o, *, opts=None):
+        seen.append(opts)
+
+    assert not converters.accepts_opts(kw_only)
+    opts = RenderOptions(paper='a4')
+    converters.with_opts(kw_only)('in', 'out', opts)
+    assert seen == [opts]

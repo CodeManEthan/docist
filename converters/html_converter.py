@@ -33,6 +33,9 @@ def _read_html(input_path):
 
 _STYLE_RE = re.compile(r'<style\b[^>]*>(.*?)</style\s*>', re.IGNORECASE | re.DOTALL)
 _COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
+# CSS ignores the SGML comment markers old HTML wraps a stylesheet in, and so
+# does pisa. Word's "Save as HTML" writes them.
+_CDO_CDC_RE = re.compile(r'<!--|-->')
 
 
 def _statements(css):
@@ -124,7 +127,8 @@ def css_sets_page_size(css):
 def document_sets_page_size(source):
     """True when any ``<style>`` block of the HTML sets its own page size."""
     for match in _STYLE_RE.finditer(source):
-        if css_sets_page_size(_COMMENT_RE.sub('', match.group(1))):
+        css = _CDO_CDC_RE.sub(' ', _COMMENT_RE.sub('', match.group(1)))
+        if css_sets_page_size(css):
             return True
     return False
 

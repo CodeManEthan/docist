@@ -62,19 +62,23 @@ def ocr_jobs():
 
 @functools.lru_cache(maxsize=1)
 def _probe_languages():
-    """Ask Tesseract for its language list. Cached: an image's packs don't change while it runs."""
+    """Ask Tesseract for its language list.
+
+    Cached: an image's packs don't change while it runs. A failed probe
+    raises, so it is not cached and the next call asks again.
+    """
     import pytesseract
-    try:
-        return tuple(pytesseract.get_languages())
-    except Exception:
-        return ()
+    return tuple(pytesseract.get_languages())
 
 
 def installed_languages():
     """List of Tesseract language codes installed, or [] when unavailable."""
     if not is_available():
         return []
-    return list(_probe_languages())
+    try:
+        return list(_probe_languages())
+    except Exception:
+        return []
 
 
 def validate_language(spec):

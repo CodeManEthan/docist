@@ -34,8 +34,9 @@ def accepts_opts(func):
         params = inspect.signature(func).parameters
     except (TypeError, ValueError):  # pragma: no cover - builtins
         return False
-    if 'opts' in params:
-        return True
+    opts = params.get('opts')
+    if opts is not None:
+        return opts.kind in (opts.POSITIONAL_ONLY, opts.POSITIONAL_OR_KEYWORD)
     return any(p.kind == p.VAR_POSITIONAL for p in params.values())
 
 
@@ -47,7 +48,11 @@ def with_opts(func):
     if accepts_opts(func):
         return func
 
+    takes_keyword = 'opts' in inspect.signature(func).parameters
+
     def call(input_path, output_path, opts=None):
+        if takes_keyword:
+            return func(input_path, output_path, opts=opts)
         return func(input_path, output_path)
     call.__name__ = getattr(func, '__name__', 'convert')
     call.__wrapped__ = func

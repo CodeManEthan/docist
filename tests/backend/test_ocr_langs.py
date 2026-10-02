@@ -210,3 +210,27 @@ def test_export_refuses_three_languages(client, builders, tmp_path, monkeypatch)
     }, content_type='multipart/form-data')
     assert resp.status_code == 400
     assert 'at most 2' in resp.get_json()['error']
+
+
+def test_failed_probe_is_not_cached(monkeypatch):
+    """A transient probe failure must not stick for the worker's life."""
+    import pytesseract
+    calls = []
+
+    def flaky(*_a, **_k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError('fork refused')
+        return ['eng', 'spa']
+
+    monkeypatch.setattr(ocr_ops, 'is_available', lambda: True)
+    monkeypatch.setattr(pytesseract, 'get_languages', flaky)
+    ocr_ops._probe_languages.cache_clear()
+    try:
+        assert ocr_ops.installed_languages() == []
+        assert ocr_ops.installed_languages() == ['eng', 'spa']
+        assert ocr_ops.installed_languages() == ['eng', 'spa']
+        assert len(calls) == 2
+        assert ocr_ops.validate_language('eng') == 'eng'
+    finally:
+        ocr_ops._probe_languages.cache_clear()

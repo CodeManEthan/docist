@@ -201,3 +201,18 @@ def test_css_detection(css, expected):
 def test_commented_rule_is_not_detected():
     assert not document_sets_page_size('<style>/* @page { size: A5 } */</style>')
     assert document_sets_page_size('<STYLE type="text/css">@page{size:a5}</STYLE>')
+
+
+@pytest.mark.parametrize('style', [
+    '<!-- @page { size: A5 } -->',
+    'p { color: red } <!-- --> @page { size: A5 }',
+    '<!--\n@page WordSection1 { size: 419.55pt 595.3pt; }\ndiv.WordSection1 { page: WordSection1; }\n-->',
+])
+@pytest.mark.parametrize('paper', ['letter', 'a4'])
+def test_html_sgml_comment_markers_dont_hide_page_size(tmp_path, style, paper):
+    """Old and exported HTML (Word's "Save as HTML") wraps CSS in <!-- -->."""
+    _assert_size(_render_html(tmp_path, style, paper), A5)
+
+
+def test_sgml_comment_markers_alone_follow_paper(tmp_path):
+    _assert_size(_render_html(tmp_path, '<!-- p { color: red } -->', 'a4'), A4)
