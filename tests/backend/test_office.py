@@ -208,15 +208,12 @@ def test_soffice_gets_the_word_infilter(tmp_path, fake_soffice, monkeypatch, doc
 # --------------------------------------------------------------------------
 # Step 2: the strip
 # --------------------------------------------------------------------------
-def _doc_root(body):
-    from xml.etree import ElementTree as ET
-    return ET.fromstring(wf.document(body, ''))
-
-
 def _strip(rel_items, body):
+    import io
     data = wf.rels(*rel_items).encode()
-    root = _doc_root(body)
-    new, removed = office.strip_rels(data, lambda: root)
+    doc = wf.document(body, '').encode()
+    new, removed = office.strip_rels(
+        data, lambda ids: office.scan_references(io.BytesIO(doc), ids))
     return new.decode(), removed
 
 
@@ -310,10 +307,203 @@ def test_strip_bounds_what_it_unpacks(tmp_path, monkeypatch, docx):
         office.strip_external(str(docx), str(tmp_path / 'x.docx'))
 
 
-def test_strip_bounds_xml_part_size(tmp_path, monkeypatch, docx):
-    monkeypatch.setattr(office, 'MAX_XML_PART_BYTES', 50)
+def test_strip_bounds_rels_part_size(tmp_path, monkeypatch, docx):
+    monkeypatch.setattr(office, 'MAX_RELS_PART_BYTES', 50)
     with pytest.raises(OfficeError, match='too large'):
         office.strip_external(str(docx), str(tmp_path / 'x.docx'))
+
+
+def test_strip_bounds_scanned_part_size(tmp_path, monkeypatch):
+    src = wf.network_guard(tmp_path / 'net.docx', 'http://127.0.0.1:9')
+    monkeypatch.setattr(office, 'MAX_XML_PART_BYTES', 100)
+    with pytest.raises(OfficeError, match='too large'):
+        office.strip_external(str(src), str(tmp_path / 'x.docx'))
+
+
+# --------------------------------------------------------------------------
+# The strip's cost stays linear and inside the deadline (verification-b2
+# MAJOR 1, MINOR 1)
+# --------------------------------------------------------------------------
+def _unreferenced_rels(n):
+    return ('<?xml version="1.0" encoding="UTF-8"?>'
+            f'<Relationships xmlns="{wf.PKG}">'
+            + ''.join(f'<Relationship Id="r{i}" Type="t" Target="http://x/" '
+                      'TargetMode="External"/>' for i in range(n))
+            + '</Relationships>')
+
+
+def test_rels_over_the_cap_is_refused_before_parsing(tmp_path):
+    """The verifier's 160,000-relationship part: 20 s of quadratic removal
+    before; now refused at the 1 MiB cap without being parsed."""
+    rels = _unreferenced_rels(160_000)
+    assert len(rels) > office.MAX_RELS_PART_BYTES
+    src = wf.write_docx(tmp_path / 'many.docx', {
+        'word/document.xml': wf.document(wf.para('x'), ''),
+        'word/_rels/document.xml.rels': rels,
+    })
+    t0 = time.monotonic()
+    with pytest.raises(OfficeError, match='too large'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+    assert time.monotonic() - t0 < 1
+
+
+def test_removal_is_linear_at_the_rels_cap(tmp_path):
+    """As many relationships as fit under the cap, all removed: one pass."""
+    n = 1
+    while len(_unreferenced_rels(n * 2)) <= office.MAX_RELS_PART_BYTES:
+        n *= 2
+    src = wf.write_docx(tmp_path / 'many.docx', {
+        'word/document.xml': wf.document(wf.para('x'), ''),
+        'word/_rels/document.xml.rels': _unreferenced_rels(n),
+    })
+    t0 = time.monotonic()
+    removed = office.strip_external(str(src), str(tmp_path / 'out.docx'))
+    assert len(removed) == n
+    assert time.monotonic() - t0 < 2
+
+
+def test_scanning_a_huge_part_keeps_memory_flat():
+    """The verifier's 33 KB upload of a 33.5 MB part of empty elements took
+    1.7 GB to parse into a tree. The scan builds no tree."""
+    import io
+    import tracemalloc
+
+    class Elements(io.RawIOBase):
+        def __init__(self, count):
+            self.head = f'<w:document xmlns:w="{wf.W}">'.encode()
+            self.left = count
+            self.done = False
+
+        def readable(self):
+            return True
+
+        def read(self, n=-1):
+            if self.head:
+                out, self.head = self.head, b''
+                return out
+            if self.left:
+                k = min(self.left, 1024 * 1024 // 4)
+                self.left -= k
+                return b'<a/>' * k
+            if not self.done:
+                self.done = True
+                return b'</w:document>'
+            return b''
+
+    tracemalloc.start()
+    try:
+        refs = office.scan_references(Elements(2_000_000), {'rId1'})
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert refs == {'rId1': []}
+    assert peak < 32 * 1024 * 1024
+
+
+def test_the_deadline_stops_the_strip(tmp_path, fake_soffice):
+    """The strip runs inside the request's deadline: a check that says time is
+    up stops it, and soffice never starts."""
+    log = fake_soffice('pdf')
+    src = wf.network_guard(tmp_path / 'net.docx', 'http://127.0.0.1:9')
+    calls = []
+
+    def check():
+        calls.append(1)
+        if len(calls) > 3:
+            raise OfficeError('out of time')
+
+    with pytest.raises(OfficeError, match='out of time'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'), check=check)
+    with pytest.raises(OfficeError, match='out of time'):
+        office.docx_to_pdf(str(src), str(tmp_path / 'out.pdf'),
+                           deadline=time.monotonic() + office.RESERVE_SECONDS + 5)
+    assert not (log / 'started').exists()
+
+
+# --------------------------------------------------------------------------
+# Shapes the strip can't vouch for are refused (verification-b2 MINOR 2)
+# --------------------------------------------------------------------------
+def _docx_with(tmp_path, name, parts):
+    base = {'word/document.xml': wf.document(wf.para('x'), '')}
+    base.update(parts)
+    return wf.write_docx(tmp_path / name, base)
+
+
+def test_nested_relationships_are_refused(tmp_path):
+    nested = (f'<?xml version="1.0"?><Relationships xmlns="{wf.PKG}">'
+              f'<Relationships><Relationship Id="rId5" Type="t" Target="http://x/i.png" '
+              'TargetMode="External"/></Relationships></Relationships>')
+    src = _docx_with(tmp_path, 'nested.docx', {'word/_rels/document.xml.rels': nested})
+    with pytest.raises(OfficeError, match='unexpected element'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
+def test_a_rels_with_another_root_is_refused(tmp_path):
+    src = _docx_with(tmp_path, 'root.docx', {
+        'word/_rels/document.xml.rels': '<?xml version="1.0"?><Other/>'})
+    with pytest.raises(OfficeError, match='unexpected root'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
+def test_a_relationship_with_children_is_refused(tmp_path):
+    rels = (f'<?xml version="1.0"?><Relationships xmlns="{wf.PKG}">'
+            '<Relationship Id="rId1" Type="t" Target="a.xml"><x/></Relationship>'
+            '</Relationships>')
+    src = _docx_with(tmp_path, 'kids.docx', {'word/_rels/document.xml.rels': rels})
+    with pytest.raises(OfficeError, match='unexpected element'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
+@pytest.mark.parametrize('part', ['word/document.xml', 'word/styles.xml',
+                                  'word/_rels/document.xml.rels', 'customXml/item1.xml'])
+def test_a_doctype_in_any_part_is_refused(tmp_path, part):
+    xml = (f'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e SYSTEM "http://127.0.0.1:9/e">]>'
+           f'<w:document xmlns:w="{wf.W}"><w:body/></w:document>')
+    src = _docx_with(tmp_path, 'dtd.docx', {part: xml})
+    with pytest.raises(OfficeError, match='DOCTYPE'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
+def test_a_doctype_split_across_chunks_is_found(tmp_path):
+    filler = b' ' * (1024 * 1024 - 4)
+    src = tmp_path / 'split.docx'
+    wf.write_docx(src, {'word/document.xml': wf.document('', '')})
+    with zipfile.ZipFile(src, 'a') as zf:
+        zf.writestr('word/media/note.txt', filler + b'<!DOCTYPE x>')
+    with pytest.raises(OfficeError, match='DOCTYPE'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
+@pytest.mark.parametrize('magic', [b'PK\x03\x04', b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'])
+def test_an_embedded_package_is_refused(tmp_path, magic):
+    src = tmp_path / 'embed.docx'
+    wf.write_docx(src, {'word/document.xml': wf.document('', '')})
+    with zipfile.ZipFile(src, 'a') as zf:
+        zf.writestr('word/embeddings/inner.bin', magic + b'rest of a package')
+    with pytest.raises(OfficeError, match='embedded package'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
+def test_utf16_xml_is_refused(tmp_path):
+    xml = wf.document(wf.para('x'), '').replace('encoding="UTF-8"', 'encoding="UTF-16"')
+    src = tmp_path / 'u16.docx'
+    wf.write_docx(src, {'word/document.xml': wf.document('', '')})
+    with zipfile.ZipFile(src, 'a') as zf:
+        zf.writestr('word/styles.xml', xml.encode('utf-16'))
+    with pytest.raises(OfficeError, match='not UTF-8'):
+        office.strip_external(str(src), str(tmp_path / 'out.docx'))
+
+
+def test_any_error_in_the_strip_becomes_office_error(tmp_path, fake_soffice, monkeypatch, docx):
+    """verification-b2 NIT 2: whatever a malformed package raises, the caller
+    gets OfficeError and so the reflow and its note."""
+    fake_soffice('pdf')
+
+    def boom(*_a, **_k):
+        raise ValueError('damaged header')
+    monkeypatch.setattr(office, 'strip_external', boom)
+    with pytest.raises(OfficeError, match='unreadable Word package'):
+        office.docx_to_pdf(str(docx), str(tmp_path / 'out.pdf'))
 
 
 def test_strip_cost_is_one_walk_however_many_externals(tmp_path):

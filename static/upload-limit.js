@@ -21,10 +21,13 @@ const MIB = 1024 * 1024;
 
 // ============================ Pure functions ==============================
 
+// UTF-8 bytes of a text value as the multipart encoder sends it: it turns
+// every lone CR or LF into CRLF, so each of those counts as two bytes.
 function utf8Length(text) {
     const s = String(text);
-    if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(s).length;
-    return unescape(encodeURIComponent(s)).length;
+    const breaks = (s.match(/[\r\n]/g) || []).length;
+    if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(s).length + breaks;
+    return unescape(encodeURIComponent(s)).length + breaks;
 }
 
 function isBlob(value) {
@@ -33,8 +36,8 @@ function isBlob(value) {
 }
 
 // An upper bound on the multipart body fetch() sends for `formData`: every
-// file's size, the UTF-8 length of every text value, field name and file name,
-// plus PART_ALLOWANCE per part.
+// file's size, the UTF-8 length of every text value, field name and file name
+// (line breaks counted twice), plus PART_ALLOWANCE per part.
 function formDataBytes(formData) {
     let total = 0;
     for (const [name, value] of formData.entries()) {

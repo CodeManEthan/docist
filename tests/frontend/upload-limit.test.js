@@ -44,11 +44,20 @@ test('text is counted in UTF-8 bytes', () => {
     assert.equal(formDataBytes(fd), PART_ALLOWANCE + 4 + 5);
 });
 
+test('line breaks count twice', () => {
+    const fd = new FormData();
+    fd.append('note', 'a\nb\rc');
+    assert.equal(formDataBytes(fd), PART_ALLOWANCE + 4 + 5 + 2);
+});
+
 test('the bound is never smaller than the body fetch sends', async () => {
     const cases = [
         [['files[]', file(0, 'x')]],
         [['files[]', file(12345, 'résumé.docx')], ['paper', 'letter']],
         [['a', ''], ['b', 'ü'.repeat(300)], ['files[]', file(1, 'n'.repeat(200))]],
+        // verification-b2 NIT 1: each lone LF or CR goes out as CRLF.
+        [['note', '\n'.repeat(5000)]],
+        [['note', '\r'.repeat(3000) + 'x\r\ny']],
     ];
     for (const entries of cases) {
         const fd = new FormData();
