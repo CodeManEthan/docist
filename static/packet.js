@@ -455,6 +455,17 @@ function initPacket() {
         scheduleDraft();
         render();
     }
+    // An update that may turn rows expired (a hold answer, a render's 404):
+    // the cards change, so say which (§2.2).
+    function updateExpiring(fn) {
+        const before = S.table;
+        update(fn);
+        const named = PM.packetHashes(S.packet);
+        const names = Object.keys(S.table).filter(h => named.has(h) && S.table[h].status === 'expired'
+            && (!before[h] || before[h].status !== 'expired')).map(h => S.table[h].name || 'A file');
+        if (names.length === 1) say(names[0] + ' expired. Re-add it to use it.');
+        else if (names.length) say(plural(names.length, 'file') + ' expired. Re-add them to use them.');
+    }
     function doUndo() {
         if (ui.grab || !S.past.length) return;
         S = PM.undo(S);
@@ -478,7 +489,7 @@ function initPacket() {
         const keep = PM.keepIds(S);
         if (!keep.length) return;
         const answer = await postHold(fetch, tabId, keep, []);
-        if (answer && answer.gone.length) update(s => PM.applyHold(s, answer));
+        if (answer && answer.gone.length) updateExpiring(s => PM.applyHold(s, answer));
     }
     let lastRenew = Date.now();
     setInterval(() => {
@@ -503,7 +514,7 @@ function initPacket() {
         render();
         if (r.keep.length || r.release.length) {
             const answer = await postHold(fetch, tabId, r.keep, r.release);
-            if (answer) update(s => PM.applyHold(s, answer));
+            if (answer) updateExpiring(s => PM.applyHold(s, answer));
         }
         scheduleDraft();
     }
@@ -672,6 +683,13 @@ function initPacket() {
 
     // ---- Thumbnails: lazy, one render request in flight, retry on busy ----
     const thumbUrls = new Map();        // url -> object URL
+    const thumbSizes = new Map();       // url -> [width, height] once an image loaded
+    document.addEventListener('load', e => {
+        const img = e.target;
+        if (img.tagName === 'IMG' && img.dataset.src && img.naturalWidth) {
+            thumbSizes.set(img.dataset.src, [img.naturalWidth, img.naturalHeight]);
+        }
+    }, true);
     const thumbQueue = [];
     let thumbBusy = false;
     const observer = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
@@ -702,7 +720,7 @@ function initPacket() {
                 document.querySelectorAll('img[data-src="' + url + '"]').forEach(img => { img.src = thumbUrls.get(url); });
             } else if (c.kind === 'expired') {
                 const sid = url.split('/')[3];
-                update(s => PM.expireStages(s, [sid]));
+                updateExpiring(s => PM.expireStages(s, [sid]));
             } else if (c.kind === 'busy') {
                 thumbQueue.unshift(url);
                 wait = retryAfterMs(response.headers.get('Retry-After'), 2000);
@@ -1394,6 +1412,10 @@ function initPacket() {
     // ---- Touch: long press enters selection mode (§2.3) ----
     let press = null;
     list.addEventListener('pointerdown', e => {
+        // A long press swallows the click that follows it. Some platforms
+        // send none, so a new press clears the flag rather than eating the
+        // next tap.
+        suppressClick = false;
         if (e.pointerType !== 'touch') return;
         const opener = e.target.closest('.pk-open, .pk-tile-open');
         if (!opener || e.target.closest('.pk-handle')) return;
@@ -1602,6 +1624,8 @@ function initPacket() {
         } else {
             what = { blank: 'Blank page', pad: 'Blank page added for double-sided printing', cover: 'Cover page', contents: 'Contents page', divider: 'Divider page' }[p.kind];
             page.innerHTML = sheet(0, '<span class="pk-sheet-note">' + escapeHtml(what) + '</span>', 'pk-sheet-large pk-sheet-blank');
+            const shape = (p.kind === 'blank' || p.kind === 'pad') && shapeBefore(seq, pv.pos);
+            if (shape) page.firstElementChild.style.aspectRatio = shape;
         }
         title.textContent = 'Page ' + (pv.pos + 1) + ' of ' + seq.length + ' · ' + what;
         sub.textContent = (p.label != null ? 'Numbered ' + p.label : 'Not numbered') + (p.rot ? ' · rotated ' + p.rot + '°' : '');
@@ -1612,6 +1636,24 @@ function initPacket() {
         $('#pkPvMove').disabled = !movable;
         $('#pkPvPrev').disabled = pv.pos === 0;
         $('#pkPvNext').disabled = pv.pos === seq.length - 1;
+    }
+    // A blank or padding page is sized like the nearest body page before it
+    // (§2.1, pdf_ops/merge.py _add_padding_blank). The client knows a staged
+    // page's shape only from a render that has loaded; without one, the
+    // packet's paper stands in.
+    function shapeBefore(seq, pos) {
+        for (let k = pos - 1; k >= 0; k--) {
+            const q = seq[k];
+            if (q.kind !== 'file') continue;
+            const found = PM.findItem(S.packet, q.item);
+            const row = found && S.table[found.item.hash];
+            if (!row) return null;
+            const size = thumbSizes.get(thumbUrl(row, q.src, 1200)) || thumbSizes.get(thumbUrl(row, q.src, 160));
+            if (!size) return null;
+            const [w, h] = (q.rot || 0) % 180 ? [size[1], size[0]] : size;
+            return w + ' / ' + h;
+        }
+        return null;
     }
     function pvStep(d) {
         const pv = ui.preview;

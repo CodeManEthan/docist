@@ -881,6 +881,23 @@ test('drafts older than the maximum age are pruned even when fewer than 10 are k
     assert.deepEqual(M.listDrafts(store).map(d => d.tabId), ['fresh', 'edge']);
 });
 
+test('a draft whose ids, rotations or stage ids are malformed is not used as given', () => {
+    const s = twoFiles();
+    const good = JSON.parse(M.serializeDraft(s.packet, s.table, 5));
+    assert.ok(M.parseDraft(JSON.stringify(good)));
+    const bad = (fn) => { const d = JSON.parse(JSON.stringify(good)); fn(d); return M.parseDraft(JSON.stringify(d)); };
+    assert.equal(bad(d => { d.packet.sections[0].items[0].id = 'i1" onfocus="x'; }), null);
+    assert.equal(bad(d => { d.packet.sections[0].id = '<s>'; }), null);
+    assert.equal(bad(d => { d.packet.sections[0].items[0].kind = 'later-kind'; }), null);
+    assert.equal(bad(d => { d.packet.options.paper = 'legal'; }), null);
+    assert.equal(bad(d => {
+        Object.assign(d.packet.sections[0].items[0], { key: HA + '::', src_pages: 3, pages: [{ src: 0, rot: 45 }] });
+    }), null);
+    const odd = bad(d => { d.table[HA].stage_id = '../../etc'; });
+    assert.equal(odd.table[HA].stage_id, null);
+    assert.equal(odd.table[HA].status, 'expired', 'a row with a malformed stage id comes back expired');
+});
+
 test('storage that throws is survived', () => {
     const bad = new ThrowingStorage();
     assert.equal(M.saveDraft(bad, 't', M.emptyPacket(), {}, 1), false);

@@ -1072,11 +1072,38 @@ function serializeDraft(packet, table, now) {
     return JSON.stringify({ v: 1, saved: now, packet, table: draftTable(table) });
 }
 
+// A draft comes from storage, and its ids and rotations reach HTML
+// attributes, so its shape is checked before use: section and item ids,
+// item kinds, hashes, refs and the table's stage ids. A draft that fails
+// (a later version's, or a damaged one) is not restored.
+const HASH_RE = /^[0-9a-f]{64}$/;
+const STAGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+function draftPacketOk(packet) {
+    if (!packet || typeof packet !== 'object' || !Array.isArray(packet.sections)) return false;
+    if (!packet.options || !PAPERS.includes(packet.options.paper)) return false;
+    const isCount = n => Number.isInteger(n) && n >= 0;
+    return packet.sections.every(sec => sec && /^s\d+$/.test(sec.id) && Array.isArray(sec.items)
+        && sec.items.every(item => {
+            if (!item || !/^i\d+$/.test(item.id)) return false;
+            if (item.kind === 'blank') return true;
+            if (item.kind !== 'file' || !HASH_RE.test(item.hash) || typeof item.label !== 'string') return false;
+            if (item.pages == null) return true;
+            return Array.isArray(item.pages) && isCount(item.src_pages) && typeof item.key === 'string'
+                && item.pages.every(r => r && isCount(r.src) && ROTATIONS.includes(r.rot));
+        }));
+}
+
 function parseDraft(text) {
     try {
         const d = JSON.parse(text);
-        if (!d || d.v !== 1 || !d.packet || !Array.isArray(d.packet.sections) || typeof d.saved !== 'number') return null;
-        return { saved: d.saved, packet: d.packet, table: draftTable(d.table || {}) };
+        if (!d || d.v !== 1 || typeof d.saved !== 'number' || !draftPacketOk(d.packet)) return null;
+        const rows = {};
+        Object.keys(d.table || {}).forEach(hash => {
+            const row = d.table[hash];
+            if (!HASH_RE.test(hash) || !row || typeof row !== 'object') return;
+            rows[hash] = STAGE_ID_RE.test(row.stage_id || '') ? row : Object.assign({}, row, { stage_id: null });
+        });
+        return { saved: d.saved, packet: d.packet, table: draftTable(rows) };
     } catch (e) {
         return null;
     }
