@@ -84,7 +84,10 @@ def _pdf_to_image(input_path, output_path, fmt, opts=None):
     try:
         with tempfile.TemporaryDirectory() as tmp:
             try:
-                images = pdf_to_images(input_path, tmp, fmt=fmt, dpi=IMAGE_DPI, opts=opts)
+                # Convert has no DPI control: the fixed-resolution
+                # refusal, without DPI advice (design §7, ruled wording).
+                images = pdf_to_images(input_path, tmp, fmt=fmt, dpi=IMAGE_DPI, opts=opts,
+                                       dpi_chosen=False)
             except ValueError:
                 # A limit (pdf_ops.limits.LimitError), or a programming error
                 # (bad fmt/dpi) -- passed through either way.

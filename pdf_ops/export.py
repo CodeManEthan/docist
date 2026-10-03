@@ -37,7 +37,7 @@ MAX_DPI = 600
 OCR_DPI = 300
 
 
-def pdf_to_images(input_path, output_dir, fmt="png", dpi=150, opts=None):
+def pdf_to_images(input_path, output_dir, fmt="png", dpi=150, opts=None, dpi_chosen=True):
     """Render every page of a PDF to an image file in ``output_dir``.
 
     Files are named ``page_001.<ext>``, ``page_002.<ext>``, ... (1-based,
@@ -50,7 +50,9 @@ def pdf_to_images(input_path, output_dir, fmt="png", dpi=150, opts=None):
 
     Limits (design launch-hardening §7, §10.2): a page over ``FRAME_PIXELS``
     at this DPI is refused before it is rendered, with a message that says to
-    lower the DPI; each image's bytes count against ``RESULT_BYTES`` across
+    lower the DPI when the user chose it (``dpi_chosen``; False for a fixed
+    resolution such as Convert's, which gets the message without DPI advice);
+    each image's bytes count against ``RESULT_BYTES`` across
     the request (``opts.written``, a RenderOptions; a running total of this
     call when ``opts`` is None). Both raise :class:`limits.LimitError`.
     """
@@ -79,7 +81,8 @@ def pdf_to_images(input_path, output_dir, fmt="png", dpi=150, opts=None):
             page_count = len(doc)
             for i in range(page_count):
                 page = doc[i]
-                bitmap = limits.render_page(page, scale, page_number=i + 1, dpi=dpi)
+                bitmap = limits.render_page(page, scale, page_number=i + 1,
+                                            dpi=dpi if dpi_chosen else None)
                 image = bitmap.to_pil()
                 out_path = os.path.join(output_dir, f"page_{i + 1:03d}{ext}")
                 if pil_format == "JPEG":

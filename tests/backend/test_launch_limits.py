@@ -325,6 +325,18 @@ def test_export_refuses_a_tall_page_with_the_dpi_message(client):
     assert outputs(client) == []
 
 
+@pytest.mark.parametrize('path', ['/convert/run', '/api/v1/convert'])
+@pytest.mark.parametrize('target', ['.png', '.jpg'])
+def test_convert_pdf_to_image_refuses_a_huge_page_without_dpi(api, path, target):
+    src = pdf_bytes(1, (14400, 14400))     # 30,000 x 30,000 px at Convert's fixed 150 DPI
+    response = post(api, path, {'file': (src, 'huge.pdf')}, target=target)
+    assert response.status_code == 400
+    assert error(response) == limits.page_fixed_message(1)
+    assert error(response) == ('Page 1 is too large to render. Docist can render pages '
+                               'up to 36 megapixels.')
+    assert outputs(api) == []
+
+
 def test_ocr_fallback_refuses_a_tall_page_without_dpi(client, monkeypatch):
     from pdf_ops import export as export_ops
     from routes import export as export_routes
