@@ -766,7 +766,8 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
     the request's temp directory, outside the job directory.
 
     Also reads each page's size (:func:`page_sizes`) from the reader it
-    already opened. Returns ``{'pages', 'pdf_bytes', 'sizes'}``. Raises
+    already opened; ``sizes`` is None when a page's boxes can't be read.
+    Returns ``{'pages', 'pdf_bytes', 'sizes'}``. Raises
     :class:`StageRefusal`
     (``rejected``, ``unreadable``, ``encrypted``); a limit reaches the parent
     as ``LimitError`` through the job's cause-chain walk.
@@ -797,11 +798,20 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
             raise StageRefusal('encrypted',
                                'This PDF needs a password. Remove the password and add it again.')
         pages = len(reader.pages)
-        sizes = page_sizes(reader) if pages else []
     except StageRefusal:
         raise
     except Exception as exc:
         raise StageRefusal('unreadable', "This PDF is damaged and can't be read.") from exc
+    # The pages' sizes for their numbers ([B7]). A page whose boxes or
+    # /Rotate can't be read doesn't fail the stage (§4.2: one damaged page
+    # never fails a stage); the file then has no sizes, and its pages show no
+    # number (§2.1). Memory and launch-hardening's limits still pass through.
+    try:
+        sizes = page_sizes(reader) if pages else None
+    except (MemoryError, LimitError):
+        raise
+    except Exception:   # noqa: BLE001 - a damaged page's boxes
+        sizes = None
     del reader
     if pages < 1:
         raise StageRefusal('unreadable', 'This PDF has no pages.')

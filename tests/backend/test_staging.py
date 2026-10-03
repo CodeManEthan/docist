@@ -211,6 +211,37 @@ def test_an_entry_staged_before_b7_answers_without_sizes(client, job_calls):
     assert set(again) == {"stage_id", "pages", "name", "type", "key", "bytes"}
 
 
+def _damaged_page_pdf(damage):
+    """Two pages; the second has no /MediaBox or a /Rotate that isn't a number."""
+    from pypdf.generic import NameObject
+    reader = PdfReader(io.BytesIO(ph.pdf_bytes(2)))
+    writer = PdfWriter()
+    for index, page in enumerate(reader.pages):
+        page = writer.add_page(page)
+        if index == 1 and damage == "no-mediabox":
+            del page[NameObject("/MediaBox")]
+        elif index == 1:
+            page[NameObject("/Rotate")] = NameObject("/Bad")
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+@pytest.mark.parametrize("damage", ["no-mediabox", "bad-rotate"])
+def test_a_page_whose_boxes_cant_be_read_stages_without_sizes(client, damage):
+    """Design §4.2: one damaged page never fails a stage. The file has no
+    sizes, so its pages show no number (§2.1), and it builds with numbers off."""
+    data = _damaged_page_pdf(damage)
+    with pytest.raises(Exception):
+        staging.page_sizes(PdfReader(io.BytesIO(data)))   # the case is real
+    body = ph.staged(client, data, "damaged.pdf")
+    assert body["pages"] == 2
+    assert "sizes" not in body
+    assert "sizes" not in store().read_meta(body["stage_id"])
+    response = ph.build(client, ph.packet(ph.file_item("i1", body), page_numbers=False), [body])
+    assert ph.assert_shape(response, "build", "ok")["pages"] == 2
+
+
 def test_the_too_large_tile_is_marked_for_the_page_script(tmp_path):
     from PIL import Image
     out = str(tmp_path / "ph.png")
