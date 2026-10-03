@@ -92,7 +92,8 @@ def stage():
             if entry['key'] == key and entry['owner'] == owner:
                 entry['holders'][holder] = time.time()
                 return jsonify({'stage_id': stage_id, 'pages': entry['pages'], 'name': name,
-                                'type': kind, 'key': key, 'bytes': entry['bytes']})
+                                'type': kind, 'key': key, 'bytes': entry['bytes'],
+                                'sizes': entry['sizes']})
 
     stage_id = secrets.token_urlsafe(16)
     folder = os.path.join(TMP, stage_id)
@@ -117,6 +118,8 @@ def stage():
             shutil.rmtree(folder, ignore_errors=True)
             return jsonify(_body('stage', 'encrypted')), 400
         pages = len(reader.pages)
+        from utils.staging import page_sizes
+        sizes = page_sizes(reader)   # B7: each page's size for its number
     except Exception as exc:  # the fake reports any failure as the card's reason
         shutil.rmtree(folder, ignore_errors=True)
         return jsonify({'error': str(exc) or 'Could not read this file.', 'code': 'rejected'}), 400
@@ -124,9 +127,10 @@ def stage():
     size = os.path.getsize(pdf_path)
     with LOCK:
         STORE[stage_id] = {'path': pdf_path, 'key': key, 'pages': pages, 'bytes': size,
-                           'name': name, 'type': kind, 'owner': owner, 'holders': {holder: time.time()}}
+                           'name': name, 'type': kind, 'owner': owner, 'holders': {holder: time.time()},
+                           'sizes': sizes}
     return jsonify({'stage_id': stage_id, 'pages': pages, 'name': name, 'type': kind,
-                    'key': key, 'bytes': size})
+                    'key': key, 'bytes': size, 'sizes': sizes})
 
 
 @bp.route('/packet/hold', methods=['POST'])

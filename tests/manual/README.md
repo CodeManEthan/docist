@@ -50,7 +50,7 @@ fires without 30 rapid submits.
 5. `05-security.md` — Watermark & Security (10 checks)
 6. `06-api.md` — REST API via curl (8 checks)
 7. `07-auth-hardening.md` — accounts, daily limits, API keys, owner-bound downloads, CSRF, throttles (16 checks)
-8. `08-packet.md` — Packet Builder at /packet: drag, touch, keyboard, screen reader, card states, drafts, sections, contents (14 checks; runs against `packet_fake_server.py` until the packet endpoints land)
+8. `08-packet.md` — Packet Builder at /packet: drag, touch, keyboard, screen reader, card states, drafts, sections, contents, page numbers (15 checks; runs against `packet_fake_server.py` until the packet endpoints land)
 
 Roughly 2–2.5 hours for a full pass.
 

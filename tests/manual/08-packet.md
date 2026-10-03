@@ -1,7 +1,7 @@
 ---
 type: repo-doc
 project: docist
-description: "Manual hand-test checklist 08 — fourteen checks of the Packet Builder page at /packet: mouse drag, touch drag from the handle and long-press selection on iOS and Android, keyboard-only arranging and build, a screen reader pass on moves, selection and the preview, card states, drafts, a 40-file drop against the rate limit, sections with a cover and dividers, and the contents page."
+description: "Manual hand-test checklist 08 — fifteen checks of the Packet Builder page at /packet: mouse drag, touch drag from the handle and long-press selection on iOS and Android, keyboard-only arranging and build, a screen reader pass on moves, selection and the preview, card states, drafts, a 40-file drop against the rate limit, sections with a cover and dividers, the contents page, and the page numbers on the page images."
 tags: [checklist, testing, packet-builder, accessibility]
 updated: 2026-10-03
 ---
@@ -205,4 +205,29 @@ for row, and clicking each row in a PDF viewer jumps to the page it names.
 The bookmarks still nest files under their sections. Turn the cover and
 the right-hand pages off and build again: the contents is page 1 and the
 links still land.
+- [ ] Pass
+
+## K15 Page numbers on the page images (B7)
+Run against the real server. Add a Letter PDF of three pages, a landscape
+PDF, and an A4 PDF whose first page carries its own rotation (it shows
+sideways in its file). Insert a blank page after the Letter file and another
+after the landscape file, add a cover, add a second section holding a blank
+page, turn on "Start each section on a right-hand page", set "Start
+numbering at" to 7, and turn the Letter file's second page right once in the
+pop-up. Show "All pages".
+**Expect:** every file tile, every file and blank card thumbnail, and the
+pop-up page show the page's number exactly where the tile caption says
+"p. N": the cover, the blank pages added for double-sided printing and
+anything before the first section show none. In the pop-up the number is
+small, as printed, upright at the bottom of the page as it is shown, the
+turned page included. On tiles and thumbnails it is larger (9 px) at the
+same spot, and a bottom-right number never runs off the image's right edge.
+A blank after the landscape file is landscape, in its card and in the
+pop-up, and its number sits by its own shape. Build with each number
+position (Bottom right, Bottom center, Bottom left) and open the PDF: on
+every page the number sits where the pop-up showed it, with the same label,
+upright; bottom center is centred under the page's middle. Turn "Number the
+pages" off: every number disappears at once. Change the position, change
+the start, and move a page by its handle: the numbers move and relabel at
+once, with no wait. Reload: the numbers come back with the draft.
 - [ ] Pass
