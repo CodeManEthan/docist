@@ -166,6 +166,11 @@ def classify(exc):
         text = f'{type(exc).__name__}: {exc}'
     except Exception:   # noqa: BLE001 - a __str__ that raises
         text = type(exc).__name__
+    if not isinstance(exc, Exception):
+        # SystemExit, KeyboardInterrupt, GeneratorExit from the work must not
+        # be re-raised in the worker, where SystemExit would end it mid-request:
+        # the parent raises RuntimeError(text) instead.
+        return ('error', None, text)
     try:
         data = pickle.dumps(exc)
     except Exception:   # noqa: BLE001 - an exception that won't pickle
@@ -260,8 +265,11 @@ def _read_outcome(fd, pid, deadline):
             return 'ok', bytes(buf[_LENGTH.size:_LENGTH.size + length]), status
 
 
-def _kill_group(pid):
-    for kill in (os.killpg, os.kill):
+def _kill_group(pid, reaped=False):
+    """SIGKILL the job's process group; the child itself too unless it has
+    already been reaped (its pid could then belong to someone else)."""
+    kills = (os.killpg,) if reaped else (os.killpg, os.kill)
+    for kill in kills:
         try:
             kill(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
@@ -361,7 +369,7 @@ def run_job(work, *, deadline=None, job_dir, budget=None, mem_bytes=None):
         if pid:
             # After a normal outcome this is harmless, and it catches a
             # descendant the work left behind.
-            _kill_group(pid)
+            _kill_group(pid, reaped)
             if not reaped:
                 _reap(pid)
         shutil.rmtree(job_dir, ignore_errors=True)

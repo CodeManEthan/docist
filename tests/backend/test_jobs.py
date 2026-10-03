@@ -450,3 +450,39 @@ def test_no_deadline_uses_the_default_budget(tmp_path, monkeypatch, worker_uncha
         jobs.run_job(lambda: time.sleep(600), deadline=None,
                      job_dir=str(tmp_path / 'job'))
     assert info.value.kind == 'time'
+
+
+@pytest.mark.parametrize('exc', [SystemExit(3), KeyboardInterrupt(), GeneratorExit()])
+def test_j2_a_base_exception_from_the_work_is_a_runtime_error(tmp_path, worker_unchanged, exc):
+    """Build verification MINOR-3: never re-raise SystemExit and friends in
+    the worker."""
+    def work():
+        raise exc
+
+    with pytest.raises(RuntimeError, match=type(exc).__name__):
+        _run(tmp_path, work)
+
+
+def test_a_reaped_child_is_not_signalled_by_pid(tmp_path, monkeypatch, worker_unchanged):
+    """Build verification NIT-2: after the child is reaped only its group is
+    killed, never its (possibly reused) pid."""
+    calls = []
+    real_kill, real_killpg = os.kill, os.killpg
+    monkeypatch.setattr(os, 'kill', lambda pid, sig: calls.append(('kill', pid)) or real_kill(pid, sig))
+    monkeypatch.setattr(os, 'killpg',
+                        lambda pid, sig: calls.append(('killpg', pid)) or real_killpg(pid, sig))
+
+    def work():
+        # A grandchild holds the pipe open, so the parent sees no EOF and
+        # reaps the child while polling; the child leaves with no outcome.
+        if os.fork() == 0:
+            time.sleep(600)
+            os._exit(0)
+        os._exit(0)
+
+    with pytest.raises(LimitError):
+        _run(tmp_path, work)
+    assert [c[0] for c in calls] == ['killpg']
+    calls.clear()
+    jobs._kill_group(999_999_999, reaped=False)
+    assert [c[0] for c in calls] == ['killpg', 'kill']
