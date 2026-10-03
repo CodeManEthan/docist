@@ -76,3 +76,36 @@ def test_static_csrf_js_served(client):
     body = resp.get_data(as_text=True)
     assert "withCsrf" in body
     assert "X-CSRF-Token" in body
+
+
+def test_packet_page_serves_with_its_assets(client):
+    resp = client.get("/packet")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    for asset in ("/static/packet-model.js", "/static/packet.js", "/static/packet.css"):
+        assert asset in body
+    assert '<meta name="csrf-token"' in body
+    assert "/static/csrf.js" in body
+    assert 'href="/login"' in body          # the account nav
+    # SortableJS is pinned with SRI (design §3.4).
+    assert "sortablejs@1.15.7/Sortable.min.js" in body
+    assert 'integrity="sha384-' in body
+    # Anonymous visitors have a daily limit, so the page knows what is left.
+    assert 'data-ops-left="' in body
+    assert 'data-ttl-minutes="' in body
+
+
+def test_packet_static_assets_served(client):
+    for path, needle in (("/static/packet-model.js", "pagePlan"),
+                         ("/static/packet.js", "stageWithRelief"),
+                         ("/static/packet.css", ".pk-card")):
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        assert needle in resp.get_data(as_text=True), path
+
+
+def test_packet_page_is_not_linked_yet(client):
+    # [B4] adds the nav link and the merge-page link; until then /packet is
+    # reachable by URL only.
+    for path in ("/", "/convert", "/pages", "/print", "/export", "/security", "/api"):
+        assert 'href="/packet"' not in client.get(path).get_data(as_text=True), path

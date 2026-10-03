@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docist &mdash; Packet Builder</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/packet.css">
+    {% include "_csrf_head.html" %}
+</head>
+<body class="pk-body">
+    {#- No nav link to /packet yet: [B4] adds one to every template at once. -#}
+    <nav class="tool-nav">
+        <span class="nav-brand">Docist</span>
+        <a href="/">Merge</a>
+        <a href="/convert">Convert Files</a>
+        <a href="/pages">Page Tools</a>
+        <a href="/print">Print Prep</a>
+        <a href="/export">Export</a>
+        <a href="/security">Watermark &amp; Security</a>
+        <a href="/api">API</a>
+        {% include "_account_nav.html" %}
+    </nav>
+    <main class="pk-wrap" id="pkApp"
+          {% if usage_today and usage_today.limit is not none %}data-ops-left="{{ usage_today.remaining }}"{% endif %}
+          data-signed-in="{{ '1' if current_user else '0' }}"
+          data-file-limit-mb="{{ upload_limit_mb }}"
+          data-packet-limit-mb="{{ packet_limit_mb }}"
+          data-ttl-minutes="{{ staging_ttl_minutes }}"
+          data-max-hours="{{ staging_max_hours }}">
+        <header class="pk-head">
+            <h1><span class="h1-icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><defs><linearGradient id="h1-grad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#ff8a3d"/><stop offset="0.5" stop-color="#ff4d5e"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient></defs><g fill="none" stroke="url(#h1-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="12" height="14" rx="2"/><path d="M8 3h10a2 2 0 0 1 2 2v12"/><path d="M7.5 11.5h5M7.5 15h5"/></g></svg></span>Packet Builder</h1>
+            <p class="subtitle">Drop files of any kind, arrange their pages, and build one PDF.</p>
+        </header>
+
+        <div class="pk-banner" id="pkRestore" role="region" aria-label="Restore" hidden>
+            <span id="pkRestoreText"></span>
+            <button type="button" class="pk-btn pk-small" id="pkRestoreYes">Restore</button>
+            <button type="button" class="pk-btn pk-small pk-quiet" id="pkRestoreNo">Start fresh</button>
+        </div>
+        <div class="pk-banner pk-bad" id="pkSession" role="alert" hidden></div>
+
+        <input type="file" id="pkFileInput" multiple hidden>
+
+        <section class="pk-empty" id="pkEmpty" aria-labelledby="pkEmptyTitle">
+            <div class="upload-icon"><svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true" focusable="false"><defs><linearGradient id="upload-grad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#ff8a3d"/><stop offset="0.5" stop-color="#ff4d5e"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient></defs><g fill="none" stroke="url(#upload-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 18v-6"/><path d="m9 14.5 3-3 3 3"/></g></svg></div>
+            <h2 class="pk-empty-title" id="pkEmptyTitle">Drop files here to start a packet</h2>
+            <button type="button" class="pk-btn pk-primary" id="pkEmptyAdd">Add files</button>
+            <p class="pk-hint" id="pkFormats">Loading supported formats…</p>
+            <p class="pk-hint">Up to {{ upload_limit_mb }} MB per file and {{ packet_limit_mb }} MB of files per packet.</p>
+            <p class="pk-hint" id="pkEmptyOps"></p>
+            <p class="pk-hint" id="pkRetention"></p>
+        </section>
+
+        <div class="pk-work" id="pkWork" hidden>
+            <div class="pk-toolbar" role="toolbar" aria-label="Packet tools">
+                <button type="button" class="pk-btn pk-quiet" id="pkUndo" title="Ctrl+Z" disabled>Undo</button>
+                <button type="button" class="pk-btn pk-quiet" id="pkRedo" title="Ctrl+Shift+Z" disabled>Redo</button>
+                <button type="button" class="pk-btn pk-quiet" id="pkAddFiles">Add files</button>
+                <button type="button" class="pk-btn pk-quiet" id="pkAllPages" aria-pressed="false">All pages</button>
+                <button type="button" class="pk-btn pk-quiet" id="pkClear">Clear packet</button>
+            </div>
+            <div class="pk-layout">
+                <section class="pk-main" id="pkMain" aria-label="Packet contents">
+                    <p class="pk-hint pk-howto">Click a card or page to preview it. Drag by the grip, or use the &hellip; menu to move things. Ctrl- or Shift-click, or tick the boxes, to select several.</p>
+                    <div id="pkList"></div>
+                    <div class="pk-dropline" id="pkDropline" hidden><span>Drop to add here</span></div>
+                </section>
+                <aside class="pk-aside" aria-label="Packet summary">
+                    <h2>Outline</h2>
+                    <ol class="pk-outline" id="pkOutline"></ol>
+                    <fieldset class="pk-options">
+                        <legend>Options</legend>
+                        <label class="pk-opt">Paper
+                            <select id="pkPaper">
+                                <option value="letter">Letter</option>
+                                <option value="a4">A4</option>
+                            </select>
+                        </label>
+                        <p class="pk-hint" id="pkPaperNote"></p>
+                        <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptNumbers"> <span>Number the pages</span></label>
+                        <label class="pk-opt">Number position
+                            <select id="pkOptPosition">
+                                <option value="bottom-right">Bottom right</option>
+                                <option value="bottom-center">Bottom center</option>
+                                <option value="bottom-left">Bottom left</option>
+                            </select>
+                        </label>
+                        <label class="pk-opt">Start numbering at
+                            <input type="number" id="pkOptStart" min="1" step="1" value="1">
+                        </label>
+                        <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptBookmarks"> <span>Add bookmarks (one per file)</span></label>
+                        <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptRecto"> <span>Start each section on a right-hand page <small>Adds a blank page where needed, for double-sided printing</small></span></label>
+                    </fieldset>
+                </aside>
+            </div>
+        </div>
+
+        <footer class="pk-footer" aria-label="Build">
+            <div class="pk-footer-count"><span class="pk-total" id="pkTotal">0 pages</span> <span class="pk-ops" id="pkOps"></span></div>
+            <p class="pk-build-msg" id="pkBuildMsg" role="status"></p>
+            <div class="pk-result" id="pkResult" hidden>
+                <span id="pkResultText"></span>
+                <a class="pk-btn pk-primary" id="pkDownload" href="#">Download</a>
+                <button type="button" class="pk-btn pk-quiet" id="pkKeepEditing">Keep editing</button>
+            </div>
+            <button type="button" class="pk-btn pk-primary pk-build" id="pkBuild" disabled>Build packet</button>
+        </footer>
+    </main>
+
+    <div class="pk-bulk" id="pkBulk" role="region" aria-label="Selected items" hidden>
+        <span id="pkBulkCount"></span>
+        <button type="button" class="pk-btn pk-small" data-bulk="rotl">Rotate left</button>
+        <button type="button" class="pk-btn pk-small" data-bulk="rotr">Rotate right</button>
+        <button type="button" class="pk-btn pk-small" data-bulk="delete">Delete</button>
+        <button type="button" class="pk-btn pk-small" data-bulk="move">Move to position&hellip;</button>
+        <button type="button" class="pk-btn pk-small" data-bulk="duplicate">Duplicate</button>
+        <button type="button" class="pk-btn pk-small pk-quiet" data-bulk="done">Done</button>
+    </div>
+
+    <div class="pk-menu" id="pkMenu" role="menu" hidden></div>
+
+    <dialog class="pk-preview" id="pkPreview" aria-labelledby="pkPvTitle">
+        <div class="pk-pv-head">
+            <div><h2 id="pkPvTitle"></h2><p id="pkPvSub"></p></div>
+            <button type="button" class="pk-ibtn" id="pkPvClose" aria-label="Close preview"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+        </div>
+        <div class="pk-pv-stage">
+            <button type="button" class="pk-ibtn pk-pv-nav" id="pkPvPrev" aria-label="Previous page">&lsaquo;</button>
+            <div class="pk-pv-page" id="pkPvPage"></div>
+            <button type="button" class="pk-ibtn pk-pv-nav" id="pkPvNext" aria-label="Next page">&rsaquo;</button>
+        </div>
+        <div class="pk-pv-foot">
+            <button type="button" class="pk-btn pk-small" id="pkPvRotL">Rotate left</button>
+            <button type="button" class="pk-btn pk-small" id="pkPvRotR">Rotate right</button>
+            <button type="button" class="pk-btn pk-small" id="pkPvDel">Delete page</button>
+            <button type="button" class="pk-btn pk-small" id="pkPvMove">Move to&hellip;</button>
+            <span class="pk-pv-keys">&larr; &rarr; step through the packet &middot; Esc closes</span>
+        </div>
+    </dialog>
+
+    <dialog class="pk-movedlg" id="pkMoveDialog" aria-labelledby="pkMoveTitle">
+        <form id="pkMoveForm">
+            <h2 id="pkMoveTitle">Move</h2>
+            <label class="pk-opt">Place it
+                <select id="pkMoveWhere">
+                    <option value="before">Before</option>
+                    <option value="after">After</option>
+                </select>
+            </label>
+            <label class="pk-opt">Target
+                <select id="pkMoveTarget"></select>
+            </label>
+            <div class="pk-movedlg-foot">
+                <button type="submit" class="pk-btn pk-primary pk-small">Move</button>
+                <button type="button" class="pk-btn pk-small pk-quiet" id="pkMoveCancel">Cancel</button>
+            </div>
+        </form>
+    </dialog>
+
+    <div class="pk-toast" id="pkToast" hidden>
+        <span id="pkToastText"></span>
+        <button type="button" class="pk-btn pk-small" id="pkToastUndo">Undo</button>
+    </div>
+    <div class="pk-sr" id="pkLive" aria-live="polite"></div>
+    <div class="pk-sr" id="pkLiveAssertive" aria-live="assertive"></div>
+
+    {#- SortableJS 1.15.7 (MIT), pinned with SRI. If the CDN is blocked the
+        page still works: the Move menus and grab mode do everything. -#}
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/Sortable.min.js"
+            integrity="sha384-DgmC6Xe2bSN2WjTDXzWYbUbxyhNP+NNkGDR/g78pCXV7E7rcVTGxVg0uIVCUUcBc"
+            crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+    <script src="/static/packet-model.js" defer></script>
+    <script src="/static/packet.js" defer></script>
+</body>
+</html>
