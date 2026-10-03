@@ -12,9 +12,10 @@ const C = require(path.join(__dirname, '..', '..', 'static', 'packet.js'));
 const { createFakeServer, API } = require(path.join(__dirname, 'fake-packet-server.js'));
 const PLAN = require(path.join(__dirname, '..', 'fixtures', 'packet-plan.json'));
 
-// This file's stage: it runs page-plan vectors whose model tag is at or
-// before B5 in the fixture's stage order, and skips later ones by name.
-const STAGE = 'B5';
+// This file's stage: it runs page-plan and placement vectors whose model tag
+// is at or before B7 in the fixture's stage order, and skips later ones by
+// name.
+const STAGE = 'B7';
 
 const HA = 'a'.repeat(64);
 const HB = 'b'.repeat(64);
@@ -1282,4 +1283,188 @@ test('renaming a file card cleans and caps its label, and empty keeps the old on
     const plan = M.pagePlan(Object.assign({}, p, { options: Object.assign({}, p.options, { contents: true }) }),
         M.readyCounts(s.table, p));
     assert.equal(M.contentsRows(p, plan)[0].title, 'Exhibit A resume.pdf');
+});
+
+
+// ---------------------------------------------------------------------------
+// Page numbers on the page images ([B7], design §2.1, §3.3 rule 7)
+// ---------------------------------------------------------------------------
+PLAN.placement_vectors.forEach(v => {
+    const name = 'placement vector ' + v.name + ' (model ' + v.stage.model + ')';
+    if (!atOrBefore(v.stage.model)) {
+        test(name, { skip: 'model tag ' + v.stage.model + ' is after ' + STAGE }, () => {});
+        return;
+    }
+    test(name, () => {
+        const got = M.numberPlacement(v.number_position, v.width);
+        assert.ok(Math.abs(got.x - v.expect.x) < 1e-6, got.x + ' vs ' + v.expect.x);
+        assert.equal(got.y, v.expect.y);
+        assert.equal(got.align, v.expect.align);
+    });
+});
+
+const LETTER_RUN = [1, 612, 792, 0, 612, 792];
+// A state with file a (sizes given as runs) bound, plus optional items.
+function sized(sizes, pages, items) {
+    let s = M.emptyState('letter');
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: HA, label: 'a.pdf' }]));
+    s = M.bindStage(s, HA, stage(HA, pages, sizes ? { sizes } : {})).state;
+    (items || []).forEach(kind => {
+        const sec = s.packet.sections[0];
+        s = M.commit(s, M.insertGenerated(s.packet, kind, { section: sec.id, index: sec.items.length }));
+    });
+    return s;
+}
+function geometry(s, packet) {
+    const p = packet || s.packet;
+    const plan = M.pagePlan(p, M.readyCounts(s.table, p));
+    return { plan, geo: M.pageGeometry(p, s.table, plan) };
+}
+
+test('binding keeps a stage answer\'s sizes, checked, and drops bad ones', () => {
+    let s = sized([[2, 612, 792, 0, 612, 792], [1, 792, 612, 90, 792, 612]], 3);
+    assert.deepEqual(s.table[HA].sizes, [[2, 612, 792, 0, 612, 792], [1, 792, 612, 90, 792, 612]]);
+    const bad = [
+        [[2, 612, 792, 0, 612, 792]],                 // counts short of pages
+        [[3, 612, 792, 45.5, 612, 792]],              // rotate not an integer
+        [[3, 612, 792, 360, 612, 792]],               // rotate not reduced
+        [[3, 0, 792, 0, 612, 792]],                   // no width
+        [[3, 612, 792, 0, 612]],                      // short run
+        [[3, '612', 792, 0, 612, 792]],               // not a number
+        'runs',
+    ];
+    bad.forEach(sizes => {
+        s = M.bindStage(s, HA, stage(HA, 3, { sizes, stage_id: 'z'.repeat(22) })).state;
+        assert.equal(s.table[HA].sizes, undefined, JSON.stringify(sizes));
+    });
+    // A good answer, then one without sizes (staged before B7): none kept.
+    s = M.bindStage(s, HA, stage(HA, 3, { sizes: [[3, 612, 792, 0, 612, 792]] })).state;
+    assert.ok(s.table[HA].sizes);
+    s = M.bindStage(s, HA, stage(HA, 3)).state;
+    assert.equal(s.table[HA].sizes, undefined);
+    assert.equal(M.cleanSizes([[1, 612, 792, 0, 612, 792]], 1)[0].length, 6);
+});
+
+test('a file page\'s displayed size follows its own /Rotate and each user turn', () => {
+    // Page 0 portrait, page 1 a crop of a landscape page that carries /Rotate 90.
+    let s = sized([[1, 612, 792, 0, 612, 792], [1, 700, 500, 90, 792, 612]], 2);
+    [0, 90, 180, 270].forEach(turn => {
+        const t = s.table;
+        let st = s;
+        if (turn) st = Object.assign({}, s, { packet: M.rotatePages(s.packet, t, [{ item: s.packet.sections[0].items[0].id, index: 0 }, { item: s.packet.sections[0].items[0].id, index: 1 }], turn) });
+        const { geo } = geometry(st);
+        const q = turn % 180 !== 0;
+        assert.deepEqual([geo[0].w, geo[0].h], q ? [792, 612] : [612, 792], 'portrait page at ' + turn);
+        assert.deepEqual(geo[0].image, [612, 792]);
+        assert.equal(geo[0].turn, turn);
+        // Own /Rotate 90 shows the 700 x 500 crop as 500 x 700; a quarter user turn takes it back.
+        assert.deepEqual(geo[1].image, [500, 700]);
+        assert.deepEqual([geo[1].w, geo[1].h], q ? [700, 500] : [500, 700], 'rotated page at ' + turn);
+    });
+});
+
+test('the stamp\'s quarter-turn test applies to the total rotation', () => {
+    // /Rotate 45 is not a quarter turn, and neither is 45 + 90.
+    let s = sized([[1, 612, 792, 45, 612, 792]], 1);
+    const id = s.packet.sections[0].items[0].id;
+    let { geo } = geometry(s);
+    assert.deepEqual([geo[0].w, geo[0].h], [612, 792]);
+    s = Object.assign({}, s, { packet: M.rotatePages(s.packet, s.table, [{ item: id, index: 0 }], 90) });
+    ({ geo } = geometry(s));
+    assert.deepEqual([geo[0].w, geo[0].h], [612, 792]);
+    // 270 + 90 is a whole turn.
+    s = sized([[1, 612, 792, 270, 612, 792]], 1);
+    s = Object.assign({}, s, { packet: M.rotatePages(s.packet, s.table, [{ item: s.packet.sections[0].items[0].id, index: 0 }], 90) });
+    ({ geo } = geometry(s));
+    assert.deepEqual([geo[0].w, geo[0].h], [612, 792]);
+    assert.equal(M.quarterTurn(-90), true);
+    assert.equal(M.quarterTurn(450), true);
+    assert.equal(M.quarterTurn(135), false);
+});
+
+test('a blank copies the media box and total rotation of the body page before it', () => {
+    // A crop smaller than its media box: the blank takes the media box.
+    let s = sized([[1, 400, 550, 0, 612, 792]], 1, ['blank']);
+    let { plan, geo } = geometry(s);
+    assert.deepEqual(plan.pages.map(p => p.kind), ['file', 'blank']);
+    assert.deepEqual([geo[0].w, geo[0].h], [400, 550]);
+    assert.deepEqual([geo[1].w, geo[1].h], [612, 792]);
+    assert.equal(geo[1].image, undefined);
+    // Turned 90 by the user: the blank is turned too, so it shows landscape.
+    const id = s.packet.sections[0].items[0].id;
+    s = Object.assign({}, s, { packet: M.rotatePages(s.packet, s.table, [{ item: id, index: 0 }], 90) });
+    ({ geo } = geometry(s));
+    assert.deepEqual([geo[1].w, geo[1].h], [792, 612]);
+    assert.equal(geo[1].rotation % 360, 90);
+});
+
+test('a blank with no page before it takes the packet paper, portrait', () => {
+    let s = M.emptyState('a4');
+    s = M.commit(s, M.insertGenerated(s.packet, 'blank', { section: s.packet.sections[0].id, index: 0 }));
+    s = M.commit(s, M.setCover(s.packet, { title: 'T' }));
+    const { plan, geo } = geometry(s);
+    assert.deepEqual(plan.pages.map(p => p.kind), ['cover', 'blank']);
+    assert.deepEqual([geo[1].w, geo[1].h], M.PAPER_POINTS.a4);
+    assert.deepEqual([geo[0].w, geo[0].h], M.PAPER_POINTS.a4);
+});
+
+test('a pad copies the page just before it, whatever its kind', () => {
+    // a (landscape, 1 page) in section 1, recto starts: section 2 starts after a pad.
+    let s = sized([[1, 792, 612, 0, 792, 612]], 1);
+    s = M.commit(s, M.addSection(s.packet, 'Two'));
+    s = M.commit(s, M.insertGenerated(s.packet, 'blank', { section: s.packet.sections[1].id, index: 0 }));
+    s = M.commit(s, M.setOption(s.packet, 'recto_starts', true));
+    let { plan, geo } = geometry(s);
+    assert.deepEqual(plan.pages.map(p => p.kind), ['file', 'pad', 'blank']);
+    assert.deepEqual([geo[1].w, geo[1].h], [792, 612]);
+    // After a cover, a pad is the paper.
+    s = M.commit(s, M.setCover(s.packet, { title: 'T' }));
+    ({ plan, geo } = geometry(s));
+    assert.deepEqual(plan.pages.map(p => p.kind), ['cover', 'pad', 'file', 'pad', 'blank']);
+    assert.deepEqual([geo[1].w, geo[1].h], [612, 792]);
+});
+
+test('a row without sizes shows no number, nor does a blank that copies it', () => {
+    const s = sized(null, 2, ['blank']);
+    const { plan, geo } = geometry(s);
+    assert.deepEqual(plan.pages.map(p => p.kind), ['file', 'file', 'blank']);
+    assert.deepEqual(geo, [null, null, null]);
+    assert.deepEqual(M.shownNumbers(plan, geo), [null, null, null]);
+    assert.deepEqual(plan.pages.map(p => p.print), [true, true, true]);
+});
+
+test('which pages show a number for each option set', () => {
+    let s = sized([[3, 612, 792, 0, 612, 792]], 3, ['blank']);
+    const shown = st => { const { plan, geo } = geometry(st); return M.shownNumbers(plan, geo); };
+    assert.deepEqual(shown(s), [1, 2, 3, 4]);
+    s = M.commit(s, M.setOption(s.packet, 'start_number', 7));
+    assert.deepEqual(shown(s), [7, 8, 9, 10]);
+    s = M.commit(s, M.setCover(s.packet, { title: 'T' }));
+    s = M.commit(s, M.setOption(s.packet, 'contents', true));
+    assert.deepEqual(shown(s), [null, null, 7, 8, 9, 10], 'front matter shows none');
+    // Two sections with dividers and recto starts: dividers and pads count
+    // but print only with number_generated.
+    s = M.commit(s, M.addSection(s.packet, 'Two'));
+    const two = s.packet.sections[1].id;
+    s = M.commit(s, M.insertGenerated(s.packet, 'blank', { section: two, index: 0 }));
+    s = M.commit(s, M.addDividers(s.packet));
+    s = M.commit(s, M.setOption(s.packet, 'recto_starts', true));
+    const kinds = st => geometry(st).plan.pages.map(p => p.kind).join(' ');
+    assert.equal(kinds(s), 'cover pad contents pad divider file file file blank pad divider blank');
+    assert.deepEqual(shown(s), [null, null, null, null, null, 8, 9, 10, 11, null, null, 14]);
+    s = M.commit(s, M.setOption(s.packet, 'number_generated', true));
+    assert.deepEqual(shown(s), [null, null, null, null, 7, 8, 9, 10, 11, 12, 13, 14]);
+    s = M.commit(s, M.setOption(s.packet, 'page_numbers', false));
+    assert.ok(shown(s).every(n => n === null), 'numbers off shows none');
+});
+
+test('a draft keeps a bound row\'s sizes and drops bad ones', () => {
+    const s = sized([[2, 612, 792, 0, 612, 792]], 2);
+    const text = M.serializeDraft(s.packet, s.table, 5);
+    assert.deepEqual(M.parseDraft(text).table[HA].sizes, [[2, 612, 792, 0, 612, 792]]);
+    const d = JSON.parse(text);
+    d.table[HA].sizes = [[9, 612, 792, 0, 612, 792]];
+    assert.equal(M.parseDraft(JSON.stringify(d)).table[HA].sizes, undefined);
+    d.table[HA].sizes = '<img>';
+    assert.equal(M.parseDraft(JSON.stringify(d)).table[HA].sizes, undefined);
 });

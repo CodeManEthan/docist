@@ -10,7 +10,8 @@
 //   their file by the SHA-256 of its bytes, never by stage id.
 // - past / future: snapshot undo stacks of earlier packets, capped at 100.
 // - table: the binding table, one row per hash: the bound stage (stage_id,
-//   key, page count, bytes), the file's name and type, and a status. Rows
+//   key, page count, bytes, and from [B7] its pages' sizes), the file's
+//   name and type, and a status. Rows
 //   change outside the undo history and never change the packet, except
 //   that binding a new stage resets page edits that no longer fit (§3.1).
 //
@@ -882,7 +883,7 @@ function fitPacket(packet, hash, stage) {
 }
 
 // Bind `hash` to a stage the server returned ({stage_id, pages, key, bytes,
-// name, type}). Applies the fit rule to the packet and to every snapshot in
+// name, type, sizes}). Applies the fit rule to the packet and to every snapshot in
 // past and future, so no reachable state holds refs that don't fit. Not an
 // undo step. Returns {state, release, reset}: release is the old stage id
 // if the hash was bound to another stage, reset the labels whose edits were
@@ -895,6 +896,12 @@ function bindStage(state, hash, stage) {
         name: stage.name || (old && old.name) || '', type: stage.type || (old && old.type) || '',
         status: 'ready', reason: '',
     });
+    // Each page's size for its number ([B7]); an answer without them (an
+    // entry staged before [B7]) leaves the row without, and its pages show
+    // no number.
+    const sizes = cleanSizes(stage.sizes, stage.pages);
+    if (sizes) table[hash].sizes = sizes;
+    else delete table[hash].sizes;
     const now = fitPacket(state.packet, hash, stage);
     const reset = now.reset.slice();
     const fitAll = list => list.map(p => {
@@ -1189,6 +1196,117 @@ function planPages(packet, counts, contentsPages, o) {
     return { pages, entries: outEntries, total: pages.length, sections, items };
 }
 
+// ======================= Page numbers on the images ([B7]) ================
+// Design §2.1 "Page numbers on the page images" and §3.3 rule 7. Every
+// image of a packet page shows its number exactly when the build stamps
+// one, with the plan's label, where the stamp puts it. The place is in PDF
+// points of the page as displayed; its size comes from the stage answer's
+// `sizes` (§4.2 Convert), never from an image.
+
+const NUMBER_BASELINE = 30;   // pt above the bottom edge
+const NUMBER_INSET = 50;      // pt in from the left or right edge
+const NUMBER_SIZE = 10;       // Helvetica, pt
+const PAPER_POINTS = { letter: [612, 792], a4: [595.276, 841.89] };
+
+// Where a page number goes on a page shown `width` points wide (§3.3 rule
+// 7): {x, y, align}. pdf_ops/merge.py _number_xy is the same rule, and both
+// run the placement vectors in tests/fixtures/packet-plan.json.
+function numberPlacement(position, width) {
+    if (position === 'bottom-left') return { x: NUMBER_INSET, y: NUMBER_BASELINE, align: 'left' };
+    if (position === 'bottom-center') return { x: width / 2, y: NUMBER_BASELINE, align: 'center' };
+    return { x: width - NUMBER_INSET, y: NUMBER_BASELINE, align: 'left' };
+}
+
+// A stage answer's `sizes`, checked: runs [count, crop_w, crop_h, rotate,
+// media_w, media_h] whose counts add up to `pages`. Anything else is null,
+// and its pages show no number.
+function cleanSizes(sizes, pages) {
+    if (!Array.isArray(sizes) || !Number.isInteger(pages) || pages < 1 || sizes.length > pages) return null;
+    let total = 0;
+    for (const run of sizes) {
+        if (!Array.isArray(run) || run.length !== 6
+            || !run.every(n => typeof n === 'number' && Number.isFinite(n))) return null;
+        const [count, cw, ch, rot, mw, mh] = run;
+        if (!Number.isInteger(count) || count < 1 || !Number.isInteger(rot) || rot < 0 || rot >= 360) return null;
+        if (!(cw > 0 && ch > 0 && mw > 0 && mh > 0)) return null;
+        total += count;
+    }
+    return total === pages ? sizes.map(run => run.slice()) : null;
+}
+
+// Source page `src` of a row: {cw, ch, rot, mw, mh}, or null when the row
+// has no sizes (staged before [B7]) or the page is past them.
+function sourceSize(row, src) {
+    if (!row || !Array.isArray(row.sizes)) return null;
+    let at = 0;
+    for (const [count, cw, ch, rot, mw, mh] of row.sizes) {
+        if (src < at + count) return { cw, ch, rot, mw, mh };
+        at += count;
+    }
+    return null;
+}
+
+// The stamp's quarter-turn test (pdf_ops/packet.py _stamp_upright): the
+// total rotation modulo 360, and only 90 or 270 swap width and height.
+function quarterTurn(rotation) {
+    const r = ((rotation % 360) + 360) % 360;
+    return r === 90 || r === 270;
+}
+
+// Every planned page's size as displayed, in points, as the build makes it
+// (§3.3 rule 7, §2.1 Insert pages). One entry per plan page:
+//   file:  {w, h, image: [w, h], turn} or null. `image` is the size the
+//          server's render shows (the visible box with the page's own
+//          /Rotate); `turn` is the user's rotation, applied in the browser;
+//          w and h are after both.
+//   blank: the mediabox and total rotation of the nearest earlier file or
+//          blank page, or the packet's paper, portrait, with none before it.
+//   pad:   the page just before it, whatever its kind.
+//   cover, contents, divider: the packet's paper, portrait.
+// Null when the size isn't known: a row without sizes, or a blank or pad
+// copying such a page.
+function pageGeometry(packet, table, plan) {
+    const paper = PAPER_POINTS[(packet.options && packet.options.paper)] || PAPER_POINTS.letter;
+    const sheet = (media, rotation) => {
+        const [w, h] = quarterTurn(rotation) ? [media[1], media[0]] : media;
+        return { w, h, media, rotation };
+    };
+    const out = [];
+    let body;   // undefined: no body page yet; null: one of unknown size
+    plan.pages.forEach((p, i) => {
+        let geo = null;
+        if (p.kind === 'file') {
+            const s = sourceSize(table && table[p.hash], p.src);
+            if (s) {
+                const rotation = s.rot + (p.rot || 0);
+                const crop = quarterTurn(rotation) ? [s.ch, s.cw] : [s.cw, s.ch];
+                geo = {
+                    w: crop[0], h: crop[1], media: [s.mw, s.mh], rotation,
+                    image: quarterTurn(s.rot) ? [s.ch, s.cw] : [s.cw, s.ch], turn: p.rot || 0,
+                };
+            }
+            body = geo;
+        } else if (p.kind === 'blank') {
+            if (body === undefined) geo = sheet(paper, 0);
+            else if (body) geo = sheet(body.media, body.rotation);
+            body = geo;
+        } else if (p.kind === 'pad') {
+            const before = i > 0 ? out[i - 1] : sheet(paper, 0);
+            geo = before ? sheet(before.media, before.rotation) : null;
+        } else {
+            geo = sheet(paper, 0);
+        }
+        out.push(geo);
+    });
+    return out;
+}
+
+// The number each planned page shows on its images: its label when the
+// build stamps one (`print`) and its size is known, else null.
+function shownNumbers(plan, geometry) {
+    return plan.pages.map((p, i) => (p.print && geometry[i] ? p.label : null));
+}
+
 // ============================ Selection ===================================
 
 // Shift-click: every key from the anchor to the target in view order,
@@ -1216,7 +1334,8 @@ function draftKey(tabId) {
     return DRAFT_PREFIX + tabId;
 }
 
-// What a draft keeps of the table: bound rows as they are; rows with no
+// What a draft keeps of the table: bound rows as they are, with their
+// pages' sizes when they are whole; rows with no
 // stage (waiting, uploading, failed) have lost their file with the page, so
 // they come back expired and restore by hash.
 function draftTable(table) {
@@ -1226,6 +1345,10 @@ function draftTable(table) {
         out[hash] = row.stage_id
             ? { stage_id: row.stage_id, key: row.key, pages: row.pages, bytes: row.bytes, name: row.name, type: row.type, status: 'ready' }
             : { stage_id: null, key: row.key || '', pages: row.pages == null ? null : row.pages, bytes: row.bytes || 0, name: row.name || '', type: row.type || '', status: 'expired' };
+        // The pages' sizes ([B7]) go with a bound row, checked again, since
+        // a draft comes from storage.
+        const sizes = row.stage_id ? cleanSizes(row.sizes, row.pages) : null;
+        if (sizes) out[hash].sizes = sizes;
     });
     return out;
 }
@@ -1403,6 +1526,8 @@ const PacketModelApi = {
     releaseUnnamed, keepIds, releaseUndoOnly, heldBytes, applyHold,
     staleHashes, paperImpact,
     CONTENTS_ROWS, CONTENTS_HEADING, CONTENTS_HEADING_MORE, contentsPageCount, contentsRows,
+    NUMBER_BASELINE, NUMBER_INSET, NUMBER_SIZE, PAPER_POINTS,
+    numberPlacement, cleanSizes, sourceSize, quarterTurn, pageGeometry, shownNumbers,
     pagePlan, rangeKeys, sha256Hex,
     draftKey, serializeDraft, parseDraft, saveDraft, loadDraft, listDrafts, pruneDrafts,
     latestDraft, restoreDraft, makeTabId, isTabId,
