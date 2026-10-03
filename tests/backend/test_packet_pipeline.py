@@ -24,8 +24,10 @@ from pdf_ops.packet import (
     DEFAULT_OPTIONS, MAX_OUTPUT_PAGES, PHASE1_NAME, PacketError, packet_pipeline, page_plan,
 )
 
-# This file's stage. The fixture's stage order decides which vectors are later.
-STAGE = "B6"
+# This file's stage: B6 wrote it, B1 adds the build route's byte-cap and
+# stale cases at the end. The fixture's stage order decides which vectors are
+# later; every vector is tagged B6 for this consumer, so B1 runs them all.
+STAGE = "B1"
 CONSUMER = "pipeline"
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "packet-plan.json"
@@ -799,3 +801,42 @@ def test_copies_of_one_source_page_are_stamped_and_turned_apart(tmp_path):
         [(_n, nm)] = _numbers(page)
         assert _shown(page, nm)[:4] == pytest.approx((1, 0, 0, 1))
     assert directions == [(1, 0), (0, -1), (1, 0), (-1, 0), (1, 0)]
+
+
+# ---------------------------------------------------------------------------
+# Stage B1: the build route's byte cap and fit check (design sections 4.3, 4.6)
+# ---------------------------------------------------------------------------
+def test_build_route_refuses_a_packet_over_the_byte_cap(client, monkeypatch):
+    """A build reads no more staged PDF bytes than one Merge request may carry:
+    the tier's request limit, refused up front with too_large and the number."""
+    import packet_helpers as ph
+    from routes import packet_build
+    a = ph.staged(client, ph.pdf_bytes(2, marker="A"))
+    b = ph.staged(client, ph.pdf_bytes(3, marker="B"))
+    cap = a["bytes"] + 10   # less than both staged PDFs together
+    monkeypatch.setattr(packet_build, "packet_limit_bytes", lambda user: cap)
+    response = ph.build(client, ph.packet(ph.file_item("i1", a), ph.file_item("i2", b)), [a, b])
+    body = ph.assert_shape(response, "build", "too_large")
+    assert body["limit_bytes"] == cap and body["items"] == []
+    assert os.listdir(client.output_dir) == []
+
+
+def test_build_route_refuses_refs_that_dont_fit_their_stage_as_stale(client):
+    """Refs made on one conversion don't fit another: the paper changed (a new
+    key for the same hash) or the page count did. Both are stale; all pages is
+    never stale."""
+    import packet_helpers as ph
+    md = b"# Notes\n\n" + b"Some packet notes.\n\n" * 5
+    letter = ph.staged(client, md, "notes.md", paper="letter")
+    a4 = ph.staged(client, md, "notes.md", paper="a4")
+    assert letter["key"] != a4["key"]
+    edited = ph.file_item("i1", letter, pages=[{"src": 0, "rot": 90}])
+    response = ph.build(client, ph.packet(edited), [a4])
+    body = ph.assert_shape(response, "build", "bad_items", code="stale")
+    assert body["items"] == [{"id": "i1", "code": "stale"}]
+    miscounted = dict(ph.file_item("i1", a4, pages=[{"src": 0, "rot": 0}]),
+                      src_pages=a4["pages"] + 1)
+    body = ph.build(client, ph.packet(miscounted), [a4]).get_json()
+    assert body["items"] == [{"id": "i1", "code": "stale"}]
+    whole = ph.file_item("i1", letter)
+    assert ph.build(client, ph.packet(whole), [a4]).status_code == 200

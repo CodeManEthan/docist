@@ -27,7 +27,8 @@ from utils.identity import anon_subject, current_user
 
 log = logging.getLogger(__name__)
 
-METERED_BLUEPRINTS = {'merge', 'convert', 'pages', 'print', 'export', 'security', 'api'}
+METERED_BLUEPRINTS = {'merge', 'convert', 'pages', 'print', 'export', 'security', 'api',
+                      'packet_build'}
 
 
 def today():
