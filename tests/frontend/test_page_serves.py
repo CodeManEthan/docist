@@ -6,6 +6,7 @@ and that /formats still advertises PDF support.
 """
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -109,11 +110,55 @@ def test_packet_static_assets_served(client):
         assert needle in resp.get_data(as_text=True), path
 
 
-def test_packet_page_is_not_linked_yet(client):
-    # [B4] adds the nav link and the merge-page link; until then /packet is
-    # reachable by URL only.
-    for path in ("/", "/convert", "/pages", "/print", "/export", "/security", "/api"):
-        assert 'href="/packet"' not in client.get(path).get_data(as_text=True), path
+TEMPLATES = os.path.join(PROJECT_ROOT, "templates")
+NAV_RE = re.compile(r'<nav class="tool-nav">(.*?)</nav>', re.S)
+
+
+def _tool_navs():
+    """Each template with a tool nav, and that nav's markup."""
+    navs = {}
+    for name in sorted(os.listdir(TEMPLATES)):
+        if not name.endswith(".html"):
+            continue
+        with open(os.path.join(TEMPLATES, name), encoding="utf-8") as fh:
+            src = fh.read()
+        found = NAV_RE.findall(src)
+        if found or "tool-nav" in src:
+            assert len(found) == 1, name
+            navs[name] = found[0]
+    return navs
+
+
+def test_every_tool_nav_links_to_the_packet_builder():
+    # The nav has no shared partial: each template carries its own. A new
+    # template with a tool nav fails here until it links to /packet.
+    navs = _tool_navs()
+    assert "packet.html" in navs and "index.html" in navs
+    for name, nav in navs.items():
+        links = re.findall(r'<a href="(/[^"]*)"([^>]*)>([^<]*)</a>', nav)
+        tools = [href for href, _, _ in links]
+        assert tools.count("/packet") == 1, name
+        # Beside Merge, as the packet builder sits beside the merge page.
+        assert tools.index("/packet") == tools.index("/") + 1, name
+        attrs = dict((href, (a, text)) for href, a, text in links)
+        assert attrs["/packet"][1] == "Packet Builder", name
+        active = [href for href, a, _ in links if 'class="active"' in a]
+        if name == "packet.html":
+            assert active == ["/packet"], name
+        else:
+            assert "/packet" not in active, name
+
+
+def test_served_pages_link_to_the_packet_builder(client):
+    for path in ("/", "/packet", "/convert", "/pages", "/print", "/export",
+                 "/security", "/api", "/login", "/signup", "/forgot"):
+        body = client.get(path).get_data(as_text=True)
+        nav = NAV_RE.search(body)
+        assert nav, path
+        assert 'href="/packet"' in nav.group(1), path
+    packet_nav = NAV_RE.search(client.get("/packet").get_data(as_text=True)).group(1)
+    assert '<a href="/packet" class="active">Packet Builder</a>' in packet_nav
+    assert packet_nav.count('class="active"') == 1
 
 
 def test_packet_fixture_csrf_text_matches_the_server():
