@@ -71,7 +71,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import routes
 from models import User, database_url, db, utcnow
-from pdf_ops import office
+from pdf_ops import jobs, office
+from pdf_ops.limits import LimitError
 from utils import csrf, identity, metering, uploads
 from utils.cleanup import OutputJanitor
 from utils.ratelimit import RateLimiter
@@ -203,6 +204,20 @@ if (os.environ.get('DATABASE_URL')
             'allowance. Set it to the number of proxy hops (Railway: 1).'
         )
 
+# Every upload's work runs in a forked job (pdf_ops/jobs.py). Modules a job
+# would otherwise import on first use are imported here, so --preload loads
+# them once in the master and no job pays for them or counts them against
+# its memory cap (design launch-hardening §3.3).
+try:
+    import ocrmypdf  # noqa: F401
+    import pytesseract  # noqa: F401
+except ImportError:  # pragma: no cover - optional OCR stack
+    pass
+
+# J7: one canary job at start checks that the per-job memory cap bites on
+# this platform; if it doesn't, it logs an error and /healthz says so.
+jobs.canary()
+
 # Heavy work happens on POST, so that's what gets rate-limited (per client IP).
 # Swappable via app.limiter so tests can install a fresh, tiny-window instance.
 app.limiter = RateLimiter(
@@ -263,8 +278,16 @@ def _after_request(response):
 
 @app.route('/healthz')
 def healthz():
-    """Unauthenticated liveness probe for reverse proxies / uptime checks."""
-    return jsonify({'status': 'ok'})
+    """Unauthenticated liveness probe for reverse proxies / uptime checks.
+    ``job_limits`` is false when the start-time canary found the per-job
+    memory cap doesn't work on this platform (pdf_ops/jobs.py, J7)."""
+    return jsonify({'status': 'ok', 'job_limits': bool(jobs.limits_enforced)})
+
+
+@app.errorhandler(LimitError)
+def _limit_refused(exc):
+    # Any route that doesn't answer a LimitError itself: the same JSON 400.
+    return jsonify({'error': str(exc)}), 400
 
 
 def _user_by_email(email):
