@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
+from pypdf.annotations import Link
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -129,6 +130,27 @@ def _texts(page):
 
 def _numbers(page):
     return [(int(t), m) for t, m in _texts(page) if _DIGITS.match(t)]
+
+
+def _shown_size(page):
+    """The visible box's width and height as the page is displayed."""
+    w, h = round(float(page.cropbox.width), 2), round(float(page.cropbox.height), 2)
+    return (h, w) if page.rotation % 180 else (w, h)
+
+
+def _shown(page, m):
+    """A user-space matrix as displayed: /Rotate applied, from the crop box's
+    lower left, so (1, 0, 0, 1) is upright text at the matrix's x, y."""
+    box = page.cropbox
+    l, b = float(box.left), float(box.bottom)
+    w, h = float(box.width), float(box.height)
+    display = {
+        0: (1, 0, 0, 1, -l, -b),
+        90: (0, -1, 1, 0, -b, w + l),
+        180: (-1, 0, 0, -1, w + l, h + b),
+        270: (0, 1, -1, 0, h + b, -l),
+    }[page.rotation % 360]
+    return _mult(m, display)
 
 
 def _markers(reader):
@@ -316,20 +338,24 @@ def test_number_is_upright_in_the_displayed_page(tmp_path, rot, position, x_from
                      number_position=position)
     reader, _plan = _build(tmp_path, packet, {"ha": a})
     page = reader.pages[0]
-    # The rotation now lives in the content, so user space is what is shown.
-    assert page.rotation == 0
-    width, height = _size(page)
+    # The page keeps its /Rotate and its content; only the number is turned.
+    assert page.rotation == rot
+    assert _size(page) == (612.0, 792.0)
+    width, height = _shown_size(page)
     assert (width, height) == ((792.0, 612.0) if rot in (90, 270) else (612.0, 792.0))
     [(number, m)] = _numbers(page)
     assert number == 1
-    a_, b_, c_, d_, x, y = m
+    a_, b_, c_, d_, x, y = _shown(page, m)
     assert (round(a_, 3), round(b_, 3), round(c_, 3), round(d_, 3)) == (1, 0, 0, 1)
     assert y == pytest.approx(30)
     assert x == pytest.approx(width - x_from_right if x_from_right else 50)
-    # The source text turned with the page: its direction follows the rotation.
+    # The source text turned with the page: as shown, its direction follows
+    # the rotation, and in user space it hasn't moved.
     [(_text, src)] = [(t, mm) for t, mm in _texts(page) if not _DIGITS.match(t)]
+    assert src[4:] == pytest.approx((72, 720))
+    shown = _shown(page, src)
     direction = {0: (1, 0), 90: (0, -1), 180: (-1, 0), 270: (0, 1)}[rot]
-    assert (round(src[0], 3), round(src[1], 3)) == direction
+    assert (round(shown[0], 3), round(shown[1], 3)) == direction
 
 
 def test_source_rotation_is_also_upright(tmp_path):
@@ -337,26 +363,75 @@ def test_source_rotation_is_also_upright(tmp_path):
     a = _pdf(tmp_path / "a.pdf", pages=1, rotate=90)
     reader, _plan = _build(tmp_path, _packet(("", [_file("i1", "ha")])), {"ha": a})
     page = reader.pages[0]
-    assert page.rotation == 0
-    assert _size(page) == (792.0, 612.0)
+    assert page.rotation == 90
+    assert _shown_size(page) == (792.0, 612.0)
     [(_n, m)] = _numbers(page)
-    assert m[:4] == pytest.approx((1, 0, 0, 1))
-    assert m[4] == pytest.approx(742) and m[5] == pytest.approx(30)
+    shown = _shown(page, m)
+    assert shown[:4] == pytest.approx((1, 0, 0, 1))
+    assert shown[4] == pytest.approx(742) and shown[5] == pytest.approx(30)
 
 
-def test_number_sits_in_an_offset_crop_box(tmp_path):
+@pytest.mark.parametrize("rot", [0, 90, 180, 270])
+def test_number_sits_in_an_offset_crop_box(tmp_path, rot):
     path = tmp_path / "crop.pdf"
     _pdf(path, pages=1)
     reader = PdfReader(str(path))
     writer = PdfWriter()
     page = writer.add_page(reader.pages[0])
-    page.cropbox.lower_left = (100, 100)
+    page.cropbox.lower_left = (100, 150)
     page.cropbox.upper_right = (500, 700)
     with open(path, "wb") as fh:
         writer.write(fh)
-    out, _plan = _build(tmp_path, _packet(("", [_file("i1", "hc")])), {"hc": str(path)})
-    [(_n, m)] = _numbers(out.pages[0])
-    assert m[4] == pytest.approx(500 - 50) and m[5] == pytest.approx(100 + 30)
+    packet = _packet(("", [_file("i1", "hc", pages=_refs((0, rot)), src_pages=1)]))
+    out, _plan = _build(tmp_path, packet, {"hc": str(path)})
+    page = out.pages[0]
+    if rot == 0:   # in user space, without the display mapping
+        [(_n, m)] = _numbers(page)
+        assert m[4] == pytest.approx(500 - 50) and m[5] == pytest.approx(150 + 30)
+    width, _height = _shown_size(page)
+    assert width == (550 if rot in (90, 270) else 400)
+    [(_n, m)] = _numbers(page)
+    shown = _shown(page, m)
+    assert shown[:4] == pytest.approx((1, 0, 0, 1))
+    assert shown[4] == pytest.approx(width - 50) and shown[5] == pytest.approx(30)
+
+
+def _linked_pdf(path, rotate=0):
+    """One Letter page whose text "Src page 1" (at 72, 720) carries a link."""
+    _pdf(path, pages=1, rotate=rotate)
+    writer = PdfWriter(clone_from=str(path))
+    writer.add_annotation(page_number=0, annotation=Link(
+        rect=(70, 714, 200, 736), url="https://example.com/"))
+    with open(path, "wb") as fh:
+        writer.write(fh)
+    return str(path)
+
+
+@pytest.mark.parametrize("rot, source_rot", [(90, 0), (180, 0), (270, 0), (0, 90)])
+def test_links_stay_on_their_text_when_a_rotated_page_is_numbered(tmp_path, rot, source_rot):
+    """Stamping a number on a turned page moves no annotation: the link still
+    covers its text and lies inside the page, and the number is upright."""
+    a = _linked_pdf(tmp_path / "a.pdf", rotate=source_rot)
+    packet = _packet(("", [_file("i1", "ha", pages=_refs((0, rot)), src_pages=1)]))
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    page = reader.pages[0]
+    assert page.rotation == (rot + source_rot) % 360
+
+    [annot] = [ref.get_object() for ref in page["/Annots"]]
+    assert annot["/A"]["/URI"] == "https://example.com/"
+    left, bottom, right, top = (float(v) for v in annot["/Rect"])
+    assert (left, bottom, right, top) == (70, 714, 200, 736)
+    box = page.mediabox
+    assert box.left <= left < right <= box.right and box.bottom <= bottom < top <= box.top
+    [(_t, src)] = [(t, m) for t, m in _texts(page) if not _DIGITS.match(t)]
+    assert left <= src[4] <= right and bottom <= src[5] <= top
+
+    [(number, m)] = _numbers(page)
+    assert number == 1
+    shown = _shown(page, m)
+    assert shown[:4] == pytest.approx((1, 0, 0, 1))
+    assert shown[4] == pytest.approx(_shown_size(page)[0] - 50)
+    assert shown[5] == pytest.approx(30)
 
 
 def test_mixed_converted_docx_and_scanned_pdf_keep_sound_fonts(tmp_path, builders):
@@ -629,8 +704,12 @@ def test_copies_of_one_source_page_are_stamped_and_turned_apart(tmp_path):
     ]))
     reader, _plan = _build(tmp_path, packet, {"ha": a, "hb": b})
     assert [[n for n, _m in _numbers(p)] for p in reader.pages] == [[1], [2], [3], [4], [5]]
+    assert [p.rotation for p in reader.pages] == [0, 90, 0, 180, 0]
     directions = []
     for page in reader.pages:
         [(_t, m)] = [(t, mm) for t, mm in _texts(page) if not _DIGITS.match(t)]
-        directions.append((round(m[0]), round(m[1])))
+        shown = _shown(page, m)
+        directions.append((round(shown[0]), round(shown[1])))
+        [(_n, nm)] = _numbers(page)
+        assert _shown(page, nm)[:4] == pytest.approx((1, 0, 0, 1))
     assert directions == [(1, 0), (0, -1), (1, 0), (-1, 0), (1, 0)]

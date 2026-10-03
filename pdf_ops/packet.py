@@ -341,19 +341,40 @@ def _detach(page):
         page[NameObject('/Resources')] = own
 
 
-def _stamp_upright(page, label, position):
-    """Stamp ``label`` with the merge overlay, in the page's visible box.
+# Display rotation (clockwise, as /Rotate) -> the matrix that takes a point
+# on the page as displayed, measured from its visible box's lower left, into
+# user space measured from the same corner. ``w`` and ``h`` are the visible
+# box's user-space width and height.
+_DISPLAY_TO_USER = {
+    0: lambda w, h: (1, 0, 0, 1, 0, 0),
+    90: lambda w, h: (0, 1, -1, 0, w, 0),
+    180: lambda w, h: (-1, 0, 0, -1, w, h),
+    270: lambda w, h: (0, -1, 1, 0, 0, h),
+}
 
-    The caller has moved any /Rotate into the content first, so the number sits
-    the right way up at the bottom of the page as displayed.
+
+def _stamp_upright(page, label, position):
+    """Stamp ``label`` with the merge overlay, upright in the page as displayed.
+
+    Design section 4.8: the number goes in the displayed orientation. The page
+    keeps its /Rotate and its content; the overlay is drawn at the displayed
+    size of the visible (crop) box and merged through the inverse of the
+    display rotation, so nothing already on the page moves, links and form
+    fields included.
     """
     box = page.cropbox
-    overlay = _number_overlay(label, float(box.width), position, float(box.height))
-    left, bottom = float(box.left), float(box.bottom)
-    if left or bottom:
-        page.merge_transformed_page(overlay, Transformation().translate(left, bottom))
+    width, height = float(box.width), float(box.height)
+    rotation = int(page.rotation) % 360
+    if rotation not in _DISPLAY_TO_USER:
+        rotation = 0   # not a quarter turn: viewers ignore it, so do we
+    if rotation in (90, 270):
+        shown_w, shown_h = height, width
     else:
-        page.merge_page(overlay)
+        shown_w, shown_h = width, height
+    overlay = _number_overlay(label, shown_w, position, shown_h)
+    a, b, c, d, e, f = _DISPLAY_TO_USER[rotation](width, height)
+    ctm = (a, b, c, d, e + float(box.left), f + float(box.bottom))
+    page.merge_transformed_page(overlay, Transformation(ctm))
 
 
 def _add_outline(writer, plan):
@@ -475,10 +496,6 @@ def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
             new_page = writer.add_page(page)
             if info['print']:
                 _detach(new_page)
-                # Design section 4.8: the number goes in the displayed
-                # orientation, so /Rotate moves into the content first.
-                if new_page.rotation:
-                    new_page.transfer_rotation_to_content()
                 _stamp_upright(new_page, info['label'], opts['number_position'])
     if opts['bookmarks']:
         _add_outline(writer, planned)
