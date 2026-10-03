@@ -318,6 +318,63 @@ def metered(client):
         app.config.update(saved)
 
 
+class SharedList:
+    """A list a forked job can append to and the test can read back.
+
+    Route work runs in a forked child (pdf_ops/jobs.py), so a spy that appends
+    to an ordinary list records nothing the test can see. This one appends
+    one JSON line per item to a file. Items must be JSON values; tuples come
+    back as lists.
+    """
+
+    def __init__(self, path):
+        self._path = str(path)
+        open(self._path, 'w').close()
+
+    def append(self, item):
+        import json
+        with open(self._path, 'a') as fh:
+            fh.write(json.dumps(item) + '\n')
+
+    def _items(self):
+        import json
+        with open(self._path) as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
+    def clear(self):
+        open(self._path, 'w').close()
+
+    def __iter__(self):
+        return iter(self._items())
+
+    def __len__(self):
+        return len(self._items())
+
+    def __getitem__(self, index):
+        return self._items()[index]
+
+    def __eq__(self, other):
+        return self._items() == list(other)
+
+    def __bool__(self):
+        return bool(self._items())
+
+    def __repr__(self):
+        return f'SharedList({self._items()!r})'
+
+
+@pytest.fixture
+def shared_list(tmp_path):
+    """Factory: a :class:`SharedList` that survives a job's fork."""
+    count = [0]
+
+    def _make():
+        count[0] += 1
+        return SharedList(tmp_path / f'shared-{count[0]}.jsonl')
+
+    return _make
+
+
 def extract_all_text(pdf_path):
     """Concatenate extract_text() from every page of a PDF."""
     from pypdf import PdfReader

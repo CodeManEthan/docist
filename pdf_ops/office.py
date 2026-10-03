@@ -502,6 +502,11 @@ def _limits(timeout, mem_mb):
     mem = int(mem_mb) * 1024 * 1024
 
     def apply():
+        # Inside a job (pdf_ops/jobs.py) RLIMIT_DATA is capped for the job's
+        # own processes; LibreOffice keeps B2's RLIMIT_AS instead (design
+        # launch-hardening §3.4), so its soft limit goes back to the hard one.
+        _soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
+        resource.setrlimit(resource.RLIMIT_DATA, (hard, hard))
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
         resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
     return apply
@@ -526,7 +531,10 @@ def _tail(path):
 
 def _child_env(tmpdir):
     env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': tmpdir,
-           'LANG': os.environ.get('LANG', 'C.UTF-8')}
+           'LANG': os.environ.get('LANG', 'C.UTF-8'),
+           # Inside a job this is the job directory, so LibreOffice's own
+           # temp files go when the job does (launch-hardening J5).
+           'TMPDIR': tempfile.gettempdir()}
     return env
 
 

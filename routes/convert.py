@@ -28,11 +28,18 @@ from transforms import (
     targets_for,
     uses_ocr,
 )
+from pdf_ops.limits import LimitError
 from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr_langs import language_choices
 from utils.identity import current_user
 from utils.naming import display_name, result_name
-from utils.render_opts import RenderOptionsError, from_form, with_notes
+from utils.render_opts import (
+    RenderOptionsError,
+    from_form,
+    run_in_job,
+    take_notes,
+    with_notes,
+)
 from utils.uploads import charge_uploads, convert_large_ok
 from utils.validation import UploadValidationError, validate_upload
 
@@ -146,13 +153,25 @@ def run_convert():
                 return jsonify({'error': str(exc)}), 400
 
             requested_output = os.path.join(tmpdir, requested_name)
-            actual_path = transform(input_path, requested_output, render_opts)
+
+            def work():
+                # In the request's job: the result lands in tmpdir, outside
+                # the job directory, and is moved to OUTPUT_FOLDER only after
+                # the job returns ok (design launch-hardening §10.3).
+                path = transform(input_path, requested_output, render_opts)
+                return {'path': path, 'notes': list(render_opts.notes)}
+
+            done = run_in_job(work, tmpdir)
+            take_notes(render_opts, done['notes'])
+            actual_path = done['path']
 
             actual_name = os.path.basename(actual_path)
             actual_ext = os.path.splitext(actual_name)[1].lower()
 
             final_name = result_name(actual_name)
             shutil.move(actual_path, os.path.join(output_folder, final_name))
+    except LimitError as exc:
+        return jsonify({'error': str(exc)}), 400
     except TransformError as exc:
         return jsonify({'error': str(exc)}), 400
     except Exception as exc:  # pragma: no cover - defensive
