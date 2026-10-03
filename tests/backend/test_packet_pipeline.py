@@ -1,7 +1,7 @@
 """Tests for the packet page plan and pipeline (design sections 3.3 and 4.8).
 
 Stage B6's parts of the design section 6 list, B1's build-route cases at the
-end, and B3's cover, divider and outline cases. The shared page-plan vectors
+end, B3's cover, divider and outline cases, and B5's contents page. The shared page-plan vectors
 come from tests/fixtures/packet-plan.json; every source PDF is built here with
 reportlab and pypdf.
 """
@@ -26,10 +26,11 @@ from pdf_ops.packet import (
 )
 
 # This file's stage: B6 wrote it, B1 added the build route's byte-cap and
-# stale cases, and B3 the cover, divider and nested-outline cases. The
+# stale cases, B3 the cover, divider and nested-outline cases, and B5 the
+# contents page. The
 # fixture's stage order decides which vectors are later; every vector is
 # tagged B6 for this consumer, so all of them run.
-STAGE = "B3"
+STAGE = "B5"
 CONSUMER = "pipeline"
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "packet-plan.json"
@@ -765,11 +766,16 @@ def test_nothing_to_build_is_empty(tmp_path):
     assert _refusal(tmp_path, packet, {"ha": a}).code == "empty"
 
 
-def test_a_contents_page_without_its_renderer_is_unsupported(tmp_path):
-    """The contents renderer comes with B5; cover and divider are B3's."""
+def test_a_generated_page_without_its_renderer_is_unsupported(tmp_path, monkeypatch):
+    """Since B5 every generated kind the plan makes has a renderer; the rule
+    still refuses one that has none, before any work."""
+    monkeypatch.delitem(packet_mod._RENDERERS, "contents")
     a = _pdf(tmp_path / "a.pdf", pages=1)
     packet = _packet(("", [_file("i1", "ha")]), contents=True)
-    assert _refusal(tmp_path, packet, {"ha": a}).code == "unsupported"
+    err = _refusal(tmp_path, packet, {"ha": a})
+    assert (err.code, err.message, err.items) == (
+        "unsupported", "Contents pages are not available yet.", [])
+    assert os.listdir(tmp_path / "work") == []
 
 
 def test_a_divider_on_an_empty_section_needs_no_renderer(tmp_path):
@@ -1148,3 +1154,262 @@ def test_generated_pages_keep_sound_fonts_beside_a_converted_docx(tmp_path, buil
         for _name, font in used:
             assert font is not None and "/Subtype" in font and "/BaseFont" in font
     assert _markers(reader)[:2] == ["Application", "Letter"]
+
+
+# ---------------------------------------------------------------------------
+# Stage B5: the contents page (design sections 2.1, 3.3, 4.8)
+# ---------------------------------------------------------------------------
+def _rows(page):
+    """The contents page's lines as [(text, label)], top to bottom: the text
+    shows on one baseline joined, and the label (the last show when it is a
+    number) apart. The heading is a line with no label."""
+    lines = {}
+    for text, m in _texts(page):
+        lines.setdefault(round(m[5], 1), []).append((m[4], text))
+    out = []
+    for y in sorted(lines, reverse=True):
+        shows = [t for _x, t in sorted(lines[y])]
+        label = int(shows.pop()) if len(shows) > 1 and _DIGITS.match(shows[-1]) else None
+        out.append(("".join(shows), label))
+    return out
+
+
+def _links(reader, page):
+    """[(rect, target page index)] for each internal link on ``page``."""
+    out = []
+    for ref in page.get("/Annots") or []:
+        annot = ref.get_object()
+        assert annot["/Subtype"] == "/Link"
+        dest = annot["/Dest"]
+        # A link within the file names the page object, not a number.
+        assert hasattr(dest[0], "idnum"), dest
+        out.append((tuple(float(v) for v in annot["/Rect"]),
+                    reader.get_page_number(dest[0].get_object())))
+    return out
+
+
+def _stamped(page):
+    """The page numbers stamped in the bottom margin (the contents page's own
+    labels sit above it)."""
+    return [n for n, m in _numbers(page) if m[5] < 72]
+
+
+def _files(tmp_path, n, pages=1):
+    return {f"h{k}": _pdf(tmp_path / f"f{k}.pdf", pages=pages, marker=f"F{k}") for k in range(n)}
+
+
+def test_contents_lists_sections_and_files_and_links_each_to_its_first_page(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=2, marker="A")
+    b = _pdf(tmp_path / "b.pdf", pages=3, marker="B")
+    c = _pdf(tmp_path / "c.pdf", pages=1, marker="C")
+    packet = _packet(("Resume", [_file("i1", "ha", label="resume.docx"), _blank("x")], True),
+                     ("References", [_file("i2", "hb", label="refs.pdf"),
+                                     _file("i3", "hc", label="letter.pdf")]),
+                     cover=_cover(), contents=True)
+    reader, plan = _build(tmp_path, packet, {"ha": a, "hb": b, "hc": c})
+    kinds = [p["kind"] for p in plan["pages"]]
+    assert kinds == ["cover", "contents", "divider", "file", "file", "blank",
+                     "file", "file", "file", "file"]
+    assert _rows(reader.pages[1]) == [
+        ("Contents", None),
+        ("Resume", 1), ("resume.docx", 2),
+        ("References", 5), ("refs.pdf", 5), ("letter.pdf", 8),
+    ]
+    assert [t for _r, t in _links(reader, reader.pages[1])] == [2, 3, 6, 6, 9]
+    assert _markers(reader)[3] == "A page 1" and _markers(reader)[9] == "C page 1"
+    # Front matter: the contents page is not numbered, and the cover and the
+    # contents carry no link but the contents rows.
+    assert _stamped(reader.pages[1]) == []
+    assert "/Annots" not in reader.pages[0]
+
+
+def test_each_link_covers_its_row_inside_the_margins(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("A", [_file("i1", "ha")]), ("B", [_file("i2", "ha")]), contents=True)
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    page = reader.pages[0]
+    links = _links(reader, page)
+    rows = [(t, m) for t, m in _texts(page) if t != "Contents" and not _DIGITS.match(t)]
+    assert len(links) == len(rows) == 4
+    for ((left, bottom, right, top), _target), (_text, m) in zip(links, rows):
+        assert (left, right) == (72, 612 - 72) and top - bottom == 20
+        assert bottom < m[5] < top and left <= m[4] < right
+
+
+def test_one_section_lists_its_files_alone_as_the_outline_does(tmp_path):
+    """The page's heading rule: one section shows no heading, so the contents
+    lists its files, flat, like the bookmarks."""
+    a = _pdf(tmp_path / "a.pdf", pages=2)
+    b = _pdf(tmp_path / "b.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha", label="one.pdf"), _file("i2", "hb", label="two.pdf")]),
+                     contents=True, start_number=3)
+    reader, _plan = _build(tmp_path, packet, {"ha": a, "hb": b})
+    assert _rows(reader.pages[0]) == [("Contents", None), ("one.pdf", 3), ("two.pdf", 5)]
+    texts = dict((t, m) for t, m in _texts(reader.pages[0]))
+    assert texts["one.pdf"][4] == 72   # not indented
+    assert [t for _r, t in _links(reader, reader.pages[0])] == [1, 3]
+    assert _outline(reader) == [("one.pdf", 1, []), ("two.pdf", 3, [])]
+
+
+def test_an_empty_section_still_makes_headings_and_untitled_reads_untitled(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha", label="a.pdf")]), ("Empty", [], True), contents=True)
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    assert _rows(reader.pages[0]) == [("Contents", None), ("Untitled section", 1), ("a.pdf", 1)]
+    texts = dict((t, m) for t, m in _texts(reader.pages[0]))
+    assert texts["a.pdf"][4] == 72 + 18   # under its section
+
+
+def test_a_long_contents_runs_to_two_pages_with_recto_and_a_start_number(tmp_path):
+    """31 rows or more is two pages. The length is measured before the plan is
+    fixed, so the recto pads and every link land where the plan says."""
+    staged = _files(tmp_path, 40, pages=2)
+    sections = [(f"Part {s}", [_file(f"i{s}_{k}", f"h{s * 10 + k}", label=f"doc-{s * 10 + k}.pdf")
+                               for k in range(10)], s == 2) for s in range(4)]
+    packet = _packet(*sections, cover=_cover(), contents=True, recto_starts=True,
+                     start_number=7)
+    reader, plan = _build(tmp_path, packet, staged)
+    kinds = [p["kind"] for p in plan["pages"]]
+    # cover, pad, two contents pages, then Part 0 on physical page 5.
+    assert kinds[:5] == ["cover", "pad", "contents", "contents", "file"]
+    assert len(reader.pages) == len(plan["pages"])
+    first, second = _rows(reader.pages[2]), _rows(reader.pages[3])
+    assert first[0] == ("Contents", None) and second[0] == ("Contents, continued", None)
+    assert len(first) == 31 and len(second) == 44 - 30 + 1
+    rows = first[1:] + second[1:]
+    entries = plan["entries"]
+    assert [r[0] for r in rows] == [e["title"] for e in entries]
+    assert [r[1] for r in rows] == [e["label"] for e in entries]
+    targets = [t for _r, t in _links(reader, reader.pages[2]) + _links(reader, reader.pages[3])]
+    assert targets == [e["index"] for e in entries]
+    for entry in entries:
+        page = reader.pages[entry["index"]]
+        if plan["pages"][entry["index"]]["kind"] == "file":
+            item = entry["id"] if entry["kind"] == "item" else None
+            if item:
+                k = int(item.split("_")[0][1:]) * 10 + int(item.split("_")[1])
+                assert _markers(reader)[entry["index"]] == f"F{k} page 1"
+        if plan["pages"][entry["index"]]["print"]:
+            assert _stamped(page) == [entry["label"]]
+    assert entries[0]["label"] == 7
+    assert _stamped(reader.pages[2]) == [] and _stamped(reader.pages[3]) == []
+
+
+def test_links_survive_numbers_stamped_on_turned_pages(tmp_path):
+    """Phase 2 stamps numbers through the inverse rotation; the links are
+    added after it and name the pages the PDF keeps."""
+    a = _pdf(tmp_path / "a.pdf", pages=2)
+    packet = _packet(("", [_file("i1", "ha", label="turned.pdf", pages=_refs((1, 90), (0, 270)),
+                                 src_pages=2),
+                           _file("i2", "ha", label="again.pdf")]),
+                     contents=True)
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    assert [p.rotation for p in reader.pages] == [0, 90, 270, 0, 0]
+    assert [t for _r, t in _links(reader, reader.pages[0])] == [1, 3]
+    assert [n for n, _m in _numbers(reader.pages[1])] == [1]
+    # A second read-and-write keeps them (the destination is a page object).
+    again = tmp_path / "again.pdf"
+    writer = PdfWriter(clone_from=reader)
+    with open(again, "wb") as fh:
+        writer.write(fh)
+    reread = PdfReader(str(again))
+    assert [t for _r, t in _links(reread, reread.pages[0])] == [1, 3]
+
+
+def test_contents_and_outline_agree_and_the_outline_still_nests(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("A", [_file("i1", "ha", label="x.pdf")], True),
+                     ("B", [_file("i2", "ha", label="y.pdf")]), cover=_cover(), contents=True)
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    assert _outline(reader) == [("A", 2, [("x.pdf", 3, [])]), ("B", 4, [("y.pdf", 4, [])])]
+    assert [t for _r, t in _links(reader, reader.pages[1])] == [2, 3, 4, 4]
+
+
+def test_without_a_cover_the_contents_is_the_first_page(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha")]), contents=True, bookmarks=False)
+    reader, plan = _build(tmp_path, packet, {"ha": a})
+    assert [p["kind"] for p in plan["pages"]] == ["contents", "file"]
+    assert _rows(reader.pages[0]) == [("Contents", None), ("ha.pdf", 1)]
+    assert [t for _r, t in _links(reader, reader.pages[0])] == [1]
+
+
+@pytest.mark.parametrize("paper, size", [("letter", LETTER), ("a4", A4)])
+def test_contents_is_the_packet_paper_and_holds_thirty_rows_on_either(tmp_path, paper, size):
+    staged = _files(tmp_path, 31)
+    packet = _packet(("", [_file(f"i{k}", f"h{k}") for k in range(31)]), contents=True,
+                     paper=paper)
+    reader, plan = _build(tmp_path, packet, staged)
+    assert [p["kind"] for p in plan["pages"]][:3] == ["contents", "contents", "file"]
+    assert _size(reader.pages[0]) == (round(size[0], 2), round(size[1], 2))
+    assert len(_rows(reader.pages[0])) == 31 and len(_rows(reader.pages[1])) == 2
+    for (left, bottom, right, top), _t in _links(reader, reader.pages[0]):
+        assert 72 <= bottom and top <= size[1] - 72 and right == pytest.approx(size[0] - 72)
+
+
+def test_a_long_title_is_cut_with_an_ellipsis_and_unprintable_text_is_a_box(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    long = "Exhibit " + "word " * 200
+    packet = _packet(("Łódź", [_file("i1", "ha", label=long)]),
+                     ("B", [_file("i2", "ha", label="x\n\ty.pdf")]), contents=True)
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    rows = _rows(reader.pages[0])
+    # Ł and ź are ZapfDingbats boxes and ó is WinAnsi \363, as on the cover.
+    assert sorted(rows[1][0]) == sorted("■ód■") and rows[1][1] == 1
+    shows = re.findall(rb"\((.*?)\) Tj", reader.pages[0].get_contents().get_data())
+    assert shows[1:4] == [b"n", b"\\363d", b"n"]
+    title, label = rows[2]
+    assert title.startswith("Exhibit word") and title.endswith("…") and label == 1
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    assert 90 + stringWidth(title, "Helvetica", 11) <= 612 - 72 - stringWidth("1", "Helvetica", 11)
+    assert rows[4] == ("x y.pdf", 2)
+    fonts = {str(f["/BaseFont"]) for f in reader.pages[0]["/Resources"]["/Font"].values()}
+    assert "/ZapfDingbats" in fonts
+
+
+def test_the_contents_length_depends_only_on_its_row_count():
+    """Design section 3.3: measured before any page is placed. The measuring
+    layout, the plan's own measure and the count rule agree for every count."""
+    for rows in range(0, 200):
+        entries = [{"kind": "item", "id": f"i{k}", "section": "s1", "title": "x" * (k % 50),
+                    "label": 10 ** (k % 5), "index": k} for k in range(rows)]
+        planned = {"pages": [], "entries": entries}
+        packet = {"sections": [{"id": "s1"}]}
+        assert packet_mod.contents_page_count(rows) == max(1, -(-rows // 30))
+        for paper in ("letter", "a4"):
+            assert packet_mod._measure_contents(planned, packet, {"paper": paper}) \
+                == packet_mod.contents_page_count(rows)
+
+
+def test_page_plan_measures_the_contents_when_no_length_is_given():
+    vector = next(v for v in PLAN_FIXTURE["vectors"] if v["name"] == "contents-after-cover")
+    assert vector["contents_pages"] == 2
+    plan = page_plan(vector["packet"], vector["page_counts"])
+    assert [p["kind"] for p in plan["pages"]] == ["cover", "contents", "file", "file"]
+    counts = {f"h{k}": 1 for k in range(31)}
+    packet = _packet(("", [_file(f"i{k}", f"h{k}") for k in range(31)]), contents=True)
+    assert [p["kind"] for p in page_plan(packet, counts)["pages"]][:3] == \
+        ["contents", "contents", "file"]
+    # Two sections: 31 files and two headings are 33 rows.
+    packet = _packet(("A", [_file(f"i{k}", f"h{k}") for k in range(29)]),
+                     ("B", [_file("j", "h30")]), contents=True)
+    assert sum(p["kind"] == "contents" for p in page_plan(packet, counts)["pages"]) == 2
+
+
+def test_the_page_scripts_contents_rows_per_page_is_the_servers():
+    source = (Path(__file__).resolve().parents[2] / "static" / "packet-model.js").read_text(encoding="utf-8")
+    found = re.search(r"const CONTENTS_ROWS = (\d+);", source)
+    assert found and int(found.group(1)) == packet_mod.CONTENTS_ROWS == 30
+
+
+def test_the_contents_page_keeps_sound_fonts_beside_a_converted_docx(tmp_path, builders):
+    docx = builders.docx(tmp_path / "doc.docx")
+    converted = tmp_path / "doc.pdf"
+    docx_converter.convert(str(docx), str(converted))
+    packet = _packet(("Letter", [_file("i1", "hd", label="doc.docx")]),
+                     ("Again", [_file("i2", "hd", label="doc.docx")]), contents=True)
+    reader, plan = _build(tmp_path, packet, {"hd": str(converted)})
+    assert plan["pages"][0]["kind"] == "contents"
+    for page in reader.pages:
+        for _name, font in _used_fonts(page):
+            assert font is not None and "/Subtype" in font and "/BaseFont" in font

@@ -19,16 +19,17 @@ build route's job. It imports nothing from ``pdf_ops.jobs`` or
 ``pdf_ops.limits``. Staged inputs are already PDFs; it converts nothing.
 
 Cover, divider and contents pages are planned here and drawn by the renderers
-in :data:`_RENDERERS`. Stage B3 registers the cover and divider; until B5
-registers the contents page, a packet that needs one is refused with
-``unsupported``.
+in :data:`_RENDERERS`: stage B3's cover and divider, and stage B5's contents
+page. A planned generated page with no renderer is refused ``unsupported``;
+since B5 every kind the plan makes has one.
 """
 import contextlib
 import io
 import os
 
 from pypdf import PdfReader, PdfWriter, Transformation
-from pypdf.generic import DictionaryObject, NameObject
+from pypdf.annotations import Link
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
@@ -64,7 +65,7 @@ OUT_PART_NAME = 'packet-out.part.pdf'
 # appends exactly one page to ``writer`` for the plan page ``page``, reading
 # its text from ``packet`` (cover, section titles) and ``planned`` (contents
 # entries and labels), at ``opts['paper']``. The divider and cover renderers
-# are stage B3's, registered below them; the contents renderer comes with B5
+# are stage B3's, registered below them; the contents renderer is stage B5's
 # (design, Build stages).
 _RENDERERS = {}
 
@@ -213,13 +214,15 @@ def _item_pages(section, item, page_counts, errors):
             for ref in refs]
 
 
-def page_plan(packet, page_counts, contents_pages=1, options=None):
+def page_plan(packet, page_counts, contents_pages=None, options=None):
     """Plan every physical page of ``packet`` (design section 3.3).
 
     ``page_counts`` maps each ready file hash to its staged PDF's page count; a
     hash missing from it is not ready, and its items give no page.
-    ``contents_pages`` is the contents page's length when ``contents`` is on.
-    ``options`` replaces ``packet['options']`` when given.
+    ``contents_pages`` is the contents page's length when ``contents`` is on;
+    None means its measured length, :func:`contents_page_count` of the rows
+    the plan's entries give (design section 3.3: it depends only on the entry
+    count). ``options`` replaces ``packet['options']`` when given.
 
     Returns ``{'pages': [...], 'entries': [...]}``. Each page is a dict with a
     ``kind`` (``cover``, ``contents``, ``pad``, ``divider``, ``file`` or
@@ -234,6 +237,19 @@ def page_plan(packet, page_counts, contents_pages=1, options=None):
     """
     _check_shape(packet)
     opts = normalize_options(packet.get('options') if options is None else options)
+    if contents_pages is None:
+        # The entries don't depend on the contents length, so a plan with one
+        # contents page gives the rows that measure it.
+        contents_pages = 1
+        if opts['contents']:
+            first = _plan(packet, page_counts, 1, opts)
+            contents_pages = contents_page_count(len(contents_rows(first, packet)))
+    return _plan(packet, page_counts, contents_pages, opts)
+
+
+def _plan(packet, page_counts, contents_pages, opts):
+    """:func:`page_plan` for a checked packet, normalized options and a
+    known contents length."""
     recto = opts['recto_starts']
 
     pages = []
@@ -546,6 +562,168 @@ _RENDERERS['divider'] = _render_divider
 _RENDERERS['cover'] = _render_cover
 
 
+# ---------------------------------------------------------------------------
+# Generated pages: contents (stage B5)
+# ---------------------------------------------------------------------------
+# Design section 3.3: the contents page's length depends only on its entry
+# count. Every row is one line of one height, so each contents page holds
+# the same number of rows on either paper; a title too wide for its line is
+# cut with an ellipsis, never wrapped. static/packet-model.js carries the
+# same number as CONTENTS_ROWS (pinned by test_packet_pipeline.py).
+CONTENTS_ROWS = 30
+CONTENTS_HEADING = 'Contents'
+CONTENTS_HEADING_MORE = 'Contents, continued'
+_CONTENTS_HEAD_SIZE = 24
+_CONTENTS_SIZE = 11
+_CONTENTS_ROW = 20          # row height, points
+_CONTENTS_INDENT = 18       # a file under its section
+_CONTENTS_GAP = 12          # between a title and its leader or label
+# The rows start below the heading: the top margin, the heading's leading
+# and a gap. 30 rows end at the bottom margin on Letter, the shorter paper.
+_CONTENTS_TOP = _MARGIN + _CONTENTS_HEAD_SIZE * _LEADING + 18
+# The label width the measuring layout reserves (design section 4.8: render
+# once with placeholder labels of fixed width). The layout cuts titles to
+# fit beside any label, so the measure and the final render agree.
+_CONTENTS_PLACEHOLDER = '0000'
+
+
+def contents_page_count(rows):
+    """The contents length for ``rows`` rows: one page at least, then one
+    more for each further :data:`CONTENTS_ROWS`."""
+    return max(1, -(-rows // CONTENTS_ROWS))
+
+
+def contents_rows(planned, packet):
+    """The rows the contents page lists, in order (design section 3.3 rule 6).
+
+    Each entry of ``planned`` is a row, by the page's heading rule (as the
+    outline nests): when the packet has more than one section, each planned
+    section is a row and its file items are indented under it; a packet of
+    one section shows no heading, so its file items alone are rows. Each row
+    is ``{kind, title, label, index, indent}``, the title cleaned to one line
+    as the page prints it.
+    """
+    nested = len(packet['sections']) > 1
+    rows = []
+    for entry in planned['entries']:
+        if entry['kind'] == 'section':
+            if nested:
+                rows.append({'kind': 'section', 'indent': False, 'label': entry['label'],
+                             'index': entry['index'],
+                             'title': _clean(entry['title'])[:_TEXT_CUT] or UNTITLED_SECTION})
+        else:
+            rows.append({'kind': 'item', 'indent': nested, 'label': entry['label'],
+                         'index': entry['index'],
+                         'title': _clean(entry['title'])[:_TEXT_CUT] or 'Untitled'})
+    return rows
+
+
+def _contents_layout(rows, width, height):
+    """Each row's place: ``(page, row, bottom)``, its contents page (0-based)
+    and the height of its line's bottom edge. Rows only, so the length is
+    the same whatever the labels say."""
+    placed = []
+    for n, row in enumerate(rows):
+        page, line = divmod(n, CONTENTS_ROWS)
+        bottom = height - _CONTENTS_TOP - (line + 1) * _CONTENTS_ROW
+        placed.append((page, row, bottom))
+    return placed
+
+
+def _measure_contents(planned, packet, opts):
+    """Design section 4.8 step 3: the contents length, laid out with
+    placeholder labels of fixed width before the plan is fixed."""
+    width, height = PAPER_SIZES[opts['paper']]
+    rows = [dict(row, label=_CONTENTS_PLACEHOLDER) for row in contents_rows(planned, packet)]
+    pages = {page for page, _row, _bottom in _contents_layout(rows, width, height)}
+    return max(1, len(pages))
+
+
+def _ellipsize(text, font, size, width):
+    """``text`` cut with an ellipsis to fit ``width``, or whole if it fits."""
+    if stringWidth(text, font, size) <= width:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:   # the longest prefix that fits with its ellipsis
+        mid = (lo + hi + 1) // 2
+        if stringWidth(text[:mid].rstrip() + _ELLIPSIS, font, size) <= width:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo].rstrip() + _ELLIPSIS
+
+
+def _contents_row_rect(bottom, width):
+    """A row's link area: the whole line between the margins."""
+    return (_MARGIN, bottom, width - _MARGIN, bottom + _CONTENTS_ROW)
+
+
+def _first_contents(planned):
+    return next(i for i, p in enumerate(planned['pages']) if p['kind'] == 'contents')
+
+
+def _render_contents(writer, page, packet, planned, opts):
+    """Design section 2.1: the contents page lists sections and files with
+    the labels of their first pages. Phase 1 appends one writer page per
+    plan page, so this is contents page ``len(writer.pages) - first``. The
+    links are added in phase 2 (:func:`_add_contents_links`)."""
+    part = len(writer.pages) - _first_contents(planned)
+    width, height = PAPER_SIZES[opts['paper']]
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(width, height))
+    c.setFillGray(0)
+    c.setFont('Helvetica-Bold', _CONTENTS_HEAD_SIZE)
+    c.drawString(_MARGIN, height - _MARGIN - _CONTENTS_HEAD_SIZE,
+                 CONTENTS_HEADING if part == 0 else CONTENTS_HEADING_MORE)
+    right = width - _MARGIN
+    for at, row, bottom in _contents_layout(contents_rows(planned, packet), width, height):
+        if at != part:
+            continue
+        font = 'Helvetica-Bold' if row['kind'] == 'section' else 'Helvetica'
+        label = '' if row['label'] is None else str(row['label'])
+        label_w = stringWidth(label, 'Helvetica', _CONTENTS_SIZE)
+        left = _MARGIN + (_CONTENTS_INDENT if row['indent'] else 0)
+        room = right - label_w - _CONTENTS_GAP - left
+        title = _ellipsize(row['title'], font, _CONTENTS_SIZE, room)
+        baseline = bottom + (_CONTENTS_ROW - _CONTENTS_SIZE) / 2 + 2
+        c.setFont(font, _CONTENTS_SIZE)
+        c.drawString(left, baseline, title)
+        c.setFont('Helvetica', _CONTENTS_SIZE)
+        c.drawRightString(right, baseline, label)
+        # Dot leaders from the title to the label.
+        start = left + stringWidth(title, font, _CONTENTS_SIZE) + 6
+        end = right - label_w - 6
+        if end - start > 6:
+            c.saveState()
+            c.setStrokeGray(0.55)
+            c.setLineWidth(0.8)
+            c.setLineCap(1)
+            c.setDash(0.1, 3.5)
+            c.line(start, baseline, end, baseline)
+            c.restoreState()
+    c.showPage()
+    c.save()
+    writer.add_page(PdfReader(io.BytesIO(buf.getvalue())).pages[0])
+
+
+def _add_contents_links(writer, planned, packet, opts):
+    """Link each contents row to the physical page of its first page (design
+    section 3.3 rule 6). Added to the finished writer after the numbers are
+    stamped, so the link and its target are the pages the PDF keeps."""
+    width, height = PAPER_SIZES[opts['paper']]
+    first = _first_contents(planned)
+    for part, row, bottom in _contents_layout(contents_rows(planned, packet), width, height):
+        link = writer.add_annotation(first + part, Link(
+            rect=_contents_row_rect(bottom, width), target_page_index=row['index']))
+        # pypdf writes a page number here, which only a remote link may use;
+        # a link within the file names the page object (PDF 1.7, 12.3.2.2).
+        link[NameObject('/Dest')] = ArrayObject(
+            [writer.pages[row['index']].indirect_reference, NameObject('/Fit')])
+
+
+_RENDERERS['contents'] = _render_contents
+
+
 def _phase1(packet, plan, readers, opts, work_dir):
     """Append every planned page to one writer and write it under ``work_dir``.
 
@@ -634,8 +812,15 @@ def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
     for h, ids in by_hash.items():
         readers[h], counts[h] = _open_staged(staged_paths[h], ids)
 
-    # The contents renderer (B5) measures its length here before planning.
+    # Design section 4.8 step 3: plan with one contents page, measure the
+    # contents from that plan's entries, then plan again at that length. The
+    # entries don't depend on the length, so the second plan's rows are the
+    # ones measured.
     planned = page_plan(plan, counts, contents_pages=1, options=opts)
+    if opts['contents']:
+        length = _measure_contents(planned, plan, opts)
+        if length != 1:
+            planned = page_plan(plan, counts, contents_pages=length, options=opts)
     pages = planned['pages']
 
     for kind in sorted({p['kind'] for p in pages} - {'file', 'blank', 'pad'}):
@@ -664,6 +849,9 @@ def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
             if info['print']:
                 _detach(new_page)
                 _stamp_upright(new_page, info['label'], opts['number_position'])
+    if opts['contents']:
+        with _reading([]):
+            _add_contents_links(writer, planned, plan, opts)
     if opts['bookmarks']:
         _add_outline(writer, planned, plan)
     part_path = os.path.join(work_dir, OUT_PART_NAME)

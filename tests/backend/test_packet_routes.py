@@ -1,6 +1,6 @@
 """The packet render and build endpoints (design §4.3, §4.4, §6).
 
-Stage B1, with B3's cover and divider builds. Responses are checked against
+Stage B1, with B3's cover and divider builds and B5's contents page. Responses are checked against
 ``tests/fixtures/packet-api.json`` with ``packet_helpers.assert_shape``; the
 page-plan vectors tagged this stage or earlier run through the real build
 endpoint as well as through ``test_packet_pipeline.py``.
@@ -20,7 +20,7 @@ from routes import packet_build, packet_stage
 from utils import staging
 
 APP = flask_app_module.app
-STAGE = "B3"
+STAGE = "B5"
 CONSUMER = "pipeline"
 PLAN = json.loads((ph.FIXTURES / "packet-plan.json").read_text(encoding="utf-8"))
 
@@ -413,15 +413,18 @@ def test_build_byte_cap_counts_distinct_staged_pdfs(client, monkeypatch, jobs_ru
     assert len(jobs_run) == 1   # refused before the job
 
 
-@pytest.mark.parametrize("pkt_kw,code,name", [
-    ({"contents": True}, "unsupported", "unsupported"),
-])
-def test_pipeline_refusals_map_to_400_with_their_code(client, pkt_kw, code, name):
-    a = ph.staged(client, ph.pdf_bytes(1))
-    cover = pkt_kw.pop("cover", None)
-    pkt = ph.packet(ph.file_item("i1", a), cover=cover, **pkt_kw)
-    body = ph.assert_shape(ph.build(client, pkt, [a]), "build", name)
-    assert body["code"] == code and body["items"] == []
+def test_a_contents_page_builds_with_its_links(client):
+    """B5 registers the contents renderer: a contents page is no longer
+    refused, and each of its rows links to its file's first page."""
+    a = ph.staged(client, ph.pdf_bytes(2, marker="A"))
+    b = ph.staged(client, ph.pdf_bytes(1, marker="B"))
+    pkt = ph.packet(ph.file_item("i1", a), ph.file_item("i2", b), contents=True)
+    body = ph.assert_shape(ph.build(client, pkt, [a, b]), "build", "ok")
+    reader = PdfReader(os.path.join(client.output_dir, body["filename"]))
+    assert body["pages"] == len(reader.pages) == 4
+    targets = [reader.get_page_number(ref.get_object()["/Dest"][0].get_object())
+               for ref in reader.pages[0]["/Annots"]]
+    assert targets == [1, 3]
 
 
 def test_a_packet_with_no_pages_is_empty(client):
@@ -598,10 +601,11 @@ def _vector_params():
 @pytest.mark.parametrize("vector", _vector_params())
 def test_page_plan_vectors_through_the_build_endpoint(client, vector):
     """Stage a PDF for each ready hash, rewrite the vector's hashes and keys to
-    the staged ones, and build. Vectors with a contents page are refused
-    ``unsupported`` until B5; a hash with no ready row is ``expired`` (the
+    the staged ones, and build. A hash with no ready row is ``expired`` (the
     page never sends one); the rest build page for page, cover and dividers
-    included (B3)."""
+    included (B3). A vector with a contents page builds at the length the
+    build measures (B5), which a vector may set otherwise to test the plan,
+    so its pages are planned again with the measured length."""
     rows, real = {}, {}
     for fake, count in vector["page_counts"].items():
         row = ph.staged(client, ph.pdf_bytes(count, marker=f"V{fake}"), f"{fake}.pdf")
@@ -627,14 +631,16 @@ def test_page_plan_vectors_through_the_build_endpoint(client, vector):
         body = ph.assert_shape(response, "build", "bad_items", code="expired")
         assert body["items"] == [{"id": i, "code": "expired"} for i in missing]
         return
-    if "contents" in kinds:
-        ph.assert_shape(response, "build", "unsupported")
-        return
     if not vector["expect"]["pages"]:
         ph.assert_shape(response, "build", "empty")
         return
     body = ph.assert_shape(response, "build", "ok")
     expect = vector["expect"]["pages"]
+    if "contents" in kinds:
+        from pdf_ops.packet import page_plan
+        planned = page_plan(vector["packet"], vector["page_counts"])
+        expect = planned["pages"]
+        entries = planned["entries"]
     assert body["pages"] == len(expect)
     reader = PdfReader(os.path.join(client.output_dir, body["filename"]))
     for page, want in zip(reader.pages, expect):
@@ -649,3 +655,12 @@ def test_page_plan_vectors_through_the_build_endpoint(client, vector):
             assert (section["title"] or "Untitled section") in text
         if want["print"]:
             assert str(want["label"]) in text.split()
+    if "contents" in kinds:
+        nested = len(pkt["sections"]) > 1
+        want = [e["index"] for e in entries if nested or e["kind"] == "item"]
+        targets = []
+        for index, page in enumerate(expect):
+            if page["kind"] == "contents":
+                targets += [reader.get_page_number(ref.get_object()["/Dest"][0].get_object())
+                            for ref in reader.pages[index].get("/Annots") or []]
+        assert targets == want
