@@ -31,7 +31,7 @@ const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;   // DOCIST_STAGING_MAX_HOURS
 // The cover's text fields (§3.1) and the longest text the page lets each
 // one hold. The server takes any length and cuts what doesn't fit its page.
 const COVER_FIELDS = ['title', 'subtitle', 'date', 'note'];
-const TEXT_MAX = { title: 120, subtitle: 160, date: 60, note: 200, section: 120 };
+const TEXT_MAX = { title: 120, subtitle: 160, date: 60, note: 200, section: 120, label: 200 };
 const UNTITLED_SECTION = 'Untitled section';
 
 // Row statuses kept in the table. 'stale' is never stored: a ready non-PDF
@@ -328,9 +328,11 @@ function duplicateItems(packet, itemIds) {
     return changed ? next : packet;
 }
 
+// A file item's label: its line in the contents and its bookmark (§2.1).
+// One line, capped like the other text the page sends; empty keeps the old.
 function setLabel(packet, itemId, label) {
     const found = findItem(packet, itemId);
-    const text = String(label || '').trim();
+    const text = cleanText(label, TEXT_MAX.label);
     if (!found || found.item.kind !== 'file' || !text || found.item.label === text) return packet;
     const next = clone(packet);
     findItem(next, itemId).item.label = text;

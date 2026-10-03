@@ -638,6 +638,10 @@
 .pk-aside {
     position: sticky;
     top: 76px;
+    /* Above the sticky footer, so the last option stays reachable while the
+       canvas scrolls; the panel scrolls itself when it is taller. */
+    max-height: calc(100vh - 76px - 100px);
+    overflow-y: auto;
     padding: 14px;
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -1067,6 +1071,7 @@
 
     .pk-aside {
         position: static;
+        max-height: none;
     }
 }
 
@@ -1258,6 +1263,87 @@
 .pk-gs i {
     margin-top: 1.4cqw;
     font-size: 2cqw;
+}
+
+/* The contents page ([B5]), laid out as pdf_ops/packet.py draws it, in
+   points of the page width: 72 pt margins, a 24 pt heading, then rows of
+   11 pt text, 20 pt apart, the first 120 pt from the top. */
+.pk-sheet-contents {
+    display: block;
+    position: relative;
+    --pt: calc(100cqw / 612);
+}
+
+.pk-sheet-contents.pk-a4 {
+    --pt: calc(100cqw / 595.276);
+}
+
+.pk-gc {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: calc(72 * var(--pt)) calc(72 * var(--pt)) 0;
+    color: var(--paper);
+    line-height: 1;
+    text-align: left;
+}
+
+.pk-gc-head {
+    height: calc(48 * var(--pt));
+    font-size: calc(24 * var(--pt));
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.pk-gc-row {
+    display: flex;
+    align-items: baseline;
+    gap: calc(6 * var(--pt));
+    height: calc(20 * var(--pt));
+    padding: calc(5 * var(--pt)) 0 0;
+    margin: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: calc(11 * var(--pt));
+    text-align: left;
+}
+
+button.pk-gc-row {
+    cursor: pointer;
+}
+
+button.pk-gc-row:hover .pk-gc-t,
+button.pk-gc-row:focus-visible .pk-gc-t {
+    text-decoration: underline;
+}
+
+.pk-gc-sec {
+    font-weight: 700;
+}
+
+.pk-gc-in {
+    padding-left: calc(18 * var(--pt));
+}
+
+.pk-gc-t {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pk-gc-dots {
+    flex: 1 1 0;
+    min-width: 0;
+    border-bottom: max(1px, calc(0.8 * var(--pt))) dotted color-mix(in srgb, var(--paper) 45%, transparent);
+}
+
+.pk-gc-n {
+    flex: none;
+    font-weight: 400;
 }
 
 .pk-o-in .pk-o-link {

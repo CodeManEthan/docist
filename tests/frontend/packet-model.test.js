@@ -1270,3 +1270,16 @@ test('the contents option is one undo step and off leaves no contents page', () 
     plan = M.pagePlan(s.packet, M.readyCounts(s.table, s.packet));
     assert.ok(!plan.pages.some(p => p.kind === 'contents'));
 });
+
+test('renaming a file card cleans and caps its label, and empty keeps the old one', () => {
+    const s = twoFiles();
+    const id = s.packet.sections[0].items[0].id;
+    const p = M.setLabel(s.packet, id, '  Exhibit\tA \n resume.pdf  ');
+    assert.equal(M.findItem(p, id).item.label, 'Exhibit A resume.pdf');
+    assert.equal(M.findItem(s.packet, id).item.label, 'a.pdf', 'the input is unchanged');
+    assert.equal(M.setLabel(s.packet, id, '   '), s.packet);
+    assert.equal(M.findItem(M.setLabel(s.packet, id, 'x'.repeat(500)), id).item.label.length, M.TEXT_MAX.label);
+    const plan = M.pagePlan(Object.assign({}, p, { options: Object.assign({}, p.options, { contents: true }) }),
+        M.readyCounts(s.table, p));
+    assert.equal(M.contentsRows(p, plan)[0].title, 'Exhibit A resume.pdf');
+});

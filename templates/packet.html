@@ -95,6 +95,7 @@
                             <input type="number" id="pkOptStart" min="1" step="1" value="1">
                         </label>
                         <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptBookmarks"> <span>Add bookmarks <small>One per file, under its section when there are sections</small></span></label>
+                        <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptContents"> <span>Add a contents page <small>After the cover: each section and file with its page number, linked to it</small></span></label>
                         <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptRecto"> <span>Start each section on a right-hand page <small>Adds a blank page where needed, for double-sided printing</small></span></label>
                     </fieldset>
                 </aside>
@@ -202,6 +203,21 @@
                 <button type="button" class="pk-btn pk-small pk-quiet pk-left" id="pkDividerRemove">Remove divider</button>
                 <button type="submit" class="pk-btn pk-primary pk-small">Save</button>
                 <button type="button" class="pk-btn pk-small pk-quiet" id="pkDividerCancel">Cancel</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="pk-movedlg pk-gendlg" id="pkRenameDialog" aria-labelledby="pkRenameHead">
+        <form id="pkRenameForm">
+            <h2 id="pkRenameHead">Rename</h2>
+            <p class="pk-hint">The name this file has in the contents page and the bookmarks. The file itself is unchanged.</p>
+            <label class="pk-field">Name
+                <input type="text" id="pkRenameLabel" maxlength="200" autocomplete="off" required>
+            </label>
+            <p class="pk-hint pk-print-note" id="pkRenamePrint" role="status" hidden></p>
+            <div class="pk-movedlg-foot">
+                <button type="submit" class="pk-btn pk-primary pk-small">Save</button>
+                <button type="button" class="pk-btn pk-small pk-quiet" id="pkRenameCancel">Cancel</button>
             </div>
         </form>
     </dialog>

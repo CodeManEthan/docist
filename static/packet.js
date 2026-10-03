@@ -890,26 +890,54 @@ function initPacket() {
         return '<span class="pk-sheet pk-sheet-gen ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '">'
             + genSheetInner(kind, section) + '</span>';
     }
-    // Where a cover or divider sits in the plan, for its card and the outline.
+    // The contents page ([B5]): its rows from the plan, laid out as the
+    // server lays them out (pdf_ops/packet.py _render_contents): a heading,
+    // then one line per row with its label, a title too wide cut with an
+    // ellipsis. `part` is which contents page. In the preview (`links`) each
+    // row is a button to its page, as each row is a link in the PDF.
+    function contentsSheetInner(plan, part, links) {
+        const rows = PM.contentsRows(S.packet, plan).filter(r => r.page === part);
+        const tag = links ? 'button type="button"' : 'span';
+        const end = links ? 'button' : 'span';
+        return '<span class="pk-gc"><b class="pk-gc-head">' + escapeHtml(part ? PM.CONTENTS_HEADING_MORE : PM.CONTENTS_HEADING) + '</b>'
+            + rows.map(r => '<' + tag + ' class="pk-gc-row' + (r.kind === 'section' ? ' pk-gc-sec' : '') + (r.indent ? ' pk-gc-in' : '') + '"'
+                + (links ? ' data-goto="' + r.index + '" aria-label="Go to ' + escapeHtml(r.title) + (r.label != null ? ', page ' + r.label : '') + '"' : '') + '>'
+                + '<span class="pk-gc-t">' + escapeHtml(r.title) + '</span><span class="pk-gc-dots"></span>'
+                + '<span class="pk-gc-n">' + (r.label == null ? '' : r.label) + '</span></' + end + '>').join('')
+            + '</span>';
+    }
+    function contentsSheet(plan, part, extraClass, links) {
+        return '<span class="pk-sheet pk-sheet-gen pk-sheet-contents ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '">'
+            + contentsSheetInner(plan, part, links) + '</span>';
+    }
+    // Where a cover, contents or divider page sits in the plan, for its card
+    // and the outline.
     function genWhere(kind, sectionId, plan) {
-        const page = plan.pages.find(p => p.kind === kind && (kind === 'cover' || p.section === sectionId));
+        const page = plan.pages.find(p => p.kind === kind && (kind !== 'divider' || p.section === sectionId));
         if (!page) return kind === 'divider' ? 'shows once its section has pages' : '';
+        if (kind === 'contents') {
+            const n = plan.pages.filter(p => p.kind === 'contents').length;
+            return 'not numbered' + (n > 1 ? ', ' + n + ' pages' : '');
+        }
         if (page.label == null) return 'not numbered';
         return page.print ? 'p. ' + page.label : 'counts as p. ' + page.label;
     }
     function flagCardHtml(kind, section, plan) {
-        const key = kind === 'cover' ? 'g:cover' : 'g:div:' + section.id;
-        const what = kind === 'cover' ? 'cover page' : 'divider page of ' + PM.sectionName(section);
-        const name = kind === 'cover' ? 'Cover page' : 'Divider · ' + PM.sectionName(section);
+        const key = kind === 'cover' ? 'g:cover' : kind === 'contents' ? 'g:contents' : 'g:div:' + section.id;
+        const what = { cover: 'cover page', contents: 'contents page' }[kind] || 'divider page of ' + PM.sectionName(section);
+        const name = { cover: 'Cover page', contents: 'Contents page' }[kind] || 'Divider · ' + PM.sectionName(section);
         const where = genWhere(kind, section && section.id, plan);
+        // The contents page has no text of its own to edit: it opens the
+        // preview, and the options panel turns it on and off.
+        const verb = kind === 'contents' ? 'Preview' : 'Edit';
         return '<div class="pk-card pk-card-gen pk-card-flag" data-key="' + key + '">'
             + '<div class="pk-card-head"><span class="pk-flag-gap" aria-hidden="true"></span>'
-            + '<button type="button" class="pk-open" data-act="open" data-fkey="' + key + ':open" aria-label="Edit ' + escapeHtml(what)
+            + '<button type="button" class="pk-open" data-act="open" data-fkey="' + key + ':open" aria-label="' + verb + ' ' + escapeHtml(what)
             + (where ? ', ' + escapeHtml(where) : '') + '">'
-            + '<span class="pk-thumb">' + genSheet(kind, section) + '</span>'
+            + '<span class="pk-thumb">' + (kind === 'contents' ? contentsSheet(plan, 0) : genSheet(kind, section)) + '</span>'
             + '<span class="pk-meta"><span class="pk-name">' + escapeHtml(name) + '</span><span class="pk-sub">'
-            + '<span class="pk-badge">' + (kind === 'cover' ? 'COVER' : 'DIVIDER') + '</span><span class="pk-gen">generated</span>'
-            + (where ? '<span>' + escapeHtml(where) + '</span>' : '') + '<span class="pk-edit">Edit text</span></span></span></button>'
+            + '<span class="pk-badge">' + { cover: 'COVER', contents: 'CONTENTS', divider: 'DIVIDER' }[kind] + '</span><span class="pk-gen">generated</span>'
+            + (where ? '<span>' + escapeHtml(where) + '</span>' : '') + '<span class="pk-edit">' + (kind === 'contents' ? 'Preview' : 'Edit text') + '</span></span></span></button>'
             + '<span class="pk-actions"><button type="button" class="pk-ibtn pk-remove" data-act="genremove" data-fkey="' + key + ':remove" aria-label="Remove ' + escapeHtml(what) + '" title="Remove">'
             + '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span>'
             + '</div></div>';
@@ -1047,6 +1075,7 @@ function initPacket() {
 
         const sectionCount = S.packet.sections.length;
         list.innerHTML = (S.packet.cover ? flagCardHtml('cover', null, plan) : '')
+            + (S.packet.options.contents ? flagCardHtml('contents', null, plan) : '')
             + S.packet.sections.map((section, n) => {
                 const entries = order.filter(e => e.section === section);
                 const collapsed = showSections && ui.collapsed.has(section.id);
@@ -1102,6 +1131,10 @@ function initPacket() {
             + '<span class="pk-o-name">' + escapeHtml(name) + '</span><span class="pk-o-pp">' + escapeHtml(where) + '</span></button></li>';
         const label = page => (page && page.label != null ? String(page.label) : '–');
         if (S.packet.cover) out.push(genLine('g:cover', 'Cover page', '–'));
+        if (S.packet.options.contents) {
+            const n = plan.pages.filter(p => p.kind === 'contents').length;
+            out.push(genLine('g:contents', n > 1 ? 'Contents (' + n + ' pages)' : 'Contents', '–'));
+        }
         S.packet.sections.forEach(section => {
             const entries = order.filter(e => e.section === section);
             if (showSections) {
@@ -1168,6 +1201,7 @@ function initPacket() {
         $('#pkOptPosition').value = o.number_position;
         $('#pkOptStart').value = o.start_number;
         $('#pkOptBookmarks').checked = o.bookmarks;
+        $('#pkOptContents').checked = o.contents;
         $('#pkOptRecto').checked = o.recto_starts;
         $('#pkOptPosition').disabled = !o.page_numbers;
         $('#pkOptStart').disabled = !o.page_numbers;
@@ -1348,6 +1382,10 @@ function initPacket() {
         menuTarget = { kind: 'plus', slot: { section: opener.dataset.section, index: Number(opener.dataset.index) } };
         openMenu(opener, plusEntries(S.packet, opener.dataset.section), 'Insert here');
     }
+    function fileCard(key) {
+        const found = key[0] === 'c' ? PM.findItem(S.packet, key.slice(2)) : null;
+        return !!found && found.item.kind === 'file';
+    }
     function moveMenu(opener, key) {
         menuTarget = { kind: 'move', key };
         const name = key[0] === 'c' ? describeItem(key.slice(2)) : 'page ' + pageLabel({ item: key.split(':')[1], index: Number(key.split(':')[2]) });
@@ -1357,7 +1395,8 @@ function initPacket() {
             { id: 'later', text: 'Later' },
             { id: 'end', text: 'Move to end' },
             { id: 'position', text: 'Move to position…' },
-        ].concat(S.packet.sections.length > 1 ? [{ id: 'tosection', text: 'Move to section…' }] : []), 'Move ' + name);
+        ].concat(S.packet.sections.length > 1 ? [{ id: 'tosection', text: 'Move to section…' }] : [])
+            .concat(fileCard(key) ? [{ id: 'rename', text: 'Rename…', note: 'Its name in the contents and bookmarks' }] : []), 'Move ' + name);
     }
     // The sections to move `keys` (cards or pages) to: each goes to the end
     // of the section chosen. Cards already all in a section can't go there.
@@ -1493,6 +1532,7 @@ function initPacket() {
         }
         if (choice === 'position') { openMoveDialog(target.key ? [target.key] : null, opener); return; }
         if (choice === 'tosection') { sectionChooser(opener, [target.key]); return; }
+        if (choice === 'rename') { openRenameForm(target.key.slice(2), opener); return; }
         stepMove(target.key, choice, false);
     });
 
@@ -1658,6 +1698,15 @@ function initPacket() {
         else setTimeout(pendingRename.flush, 0);
     }
     function removeGenerated(key) {
+        if (key === 'g:contents') {
+            // Focus goes to the first file card, as after removing a card.
+            const card = list.querySelector('.pk-items > .pk-card');
+            if (card) ui.focusKey = card.dataset.key + ':open';
+            change(PM.setOption(S.packet, 'contents', false));
+            showToast('Removed the contents page.', true);
+            if (!card) focusFirstCard();
+            return;
+        }
         if (key === 'g:cover') {
             change(PM.removeCover(S.packet));
             showToast('Removed the cover page.', true);
@@ -1887,6 +1936,8 @@ function initPacket() {
     $('#pkOptPosition').addEventListener('change', e => change(PM.setOption(S.packet, 'number_position', e.target.value)));
     $('#pkOptStart').addEventListener('change', e => change(PM.setOption(S.packet, 'start_number', e.target.value)));
     $('#pkOptBookmarks').addEventListener('change', e => change(PM.setOption(S.packet, 'bookmarks', e.target.checked)));
+    $('#pkOptContents').addEventListener('change', e => change(PM.setOption(S.packet, 'contents', e.target.checked),
+        e.target.checked ? 'Contents page added' + (S.packet.cover ? ' after the cover.' : ' at the start.') : 'Contents page removed.'));
     $('#pkOptRecto').addEventListener('change', e => change(PM.setOption(S.packet, 'recto_starts', e.target.checked),
         e.target.checked ? 'Each section now starts on a right-hand page.' : 'Sections no longer forced to right-hand pages.'));
     $('#pkOutline').addEventListener('click', e => {
@@ -1918,7 +1969,8 @@ function initPacket() {
     let genFocusKey = null;             // set by a save or remove
     let dividerSection = null;
     function openGenForm(key, opener) {
-        if (key === 'g:cover') openCoverForm(opener);
+        if (key === 'g:contents') openPreviewAtContents(opener);
+        else if (key === 'g:cover') openCoverForm(opener);
         else openDividerForm(key.slice('g:div:'.length), opener);
     }
     // The forms say which typed characters the PDF can't print (m2): the
@@ -1993,7 +2045,33 @@ function initPacket() {
         removeGenerated('g:div:' + dividerSection);
     });
     $('#pkDividerCancel').addEventListener('click', () => dividerDialog.close());
-    [coverDialog, dividerDialog].forEach(d => d.addEventListener('close', () => {
+    // Rename a file card: its label is its line in the contents and its
+    // bookmark (§2.1 Contents page, §3.1). One undo step.
+    const renameDialog = $('#pkRenameDialog');
+    let renameItem = null;
+    const renameNote = () => printNote($('#pkRenamePrint'), [$('#pkRenameLabel').value]);
+    $('#pkRenameLabel').addEventListener('input', renameNote);
+    function openRenameForm(itemId, opener) {
+        const found = PM.findItem(S.packet, itemId);
+        if (!found || found.item.kind !== 'file') return;
+        renameItem = itemId;
+        genOpenerKey = opener && opener.dataset.fkey;
+        genFocusKey = null;
+        $('#pkRenameLabel').value = found.item.label;
+        renameNote();
+        renameDialog.showModal();
+        $('#pkRenameLabel').focus();
+        $('#pkRenameLabel').select();
+    }
+    $('#pkRenameForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const next = PM.setLabel(S.packet, renameItem, $('#pkRenameLabel').value);
+        genFocusKey = 'c:' + renameItem + ':menu';
+        renameDialog.close();
+        if (next !== S.packet) change(next, 'Renamed to ' + PM.findItem(next, renameItem).item.label + '.');
+    });
+    $('#pkRenameCancel').addEventListener('click', () => renameDialog.close());
+    [coverDialog, dividerDialog, renameDialog].forEach(d => d.addEventListener('close', () => {
         // A save focuses the page it saved; a remove has placed focus
         // already; a cancel goes back to whatever opened the form.
         const key = genFocusKey === null ? genOpenerKey : genFocusKey;
@@ -2043,6 +2121,10 @@ function initPacket() {
         const seq = previewSeq();
         const pos = seq.findIndex(p => p.item === page.item && p.index === page.index);
         showPreview({ pos: Math.max(0, pos), item: null, opener });
+    }
+    function openPreviewAtContents(opener) {
+        const pos = previewSeq().findIndex(p => p.kind === 'contents');
+        if (pos !== -1) showPreview({ pos, item: null, opener });
     }
     function openPreviewAtItem(itemId, opener) {
         const seq = previewSeq();
@@ -2125,19 +2207,28 @@ function initPacket() {
                 if (thumbUrls.has(small)) img.src = thumbUrls.get(small);
                 wantThumb(url, true);
             }
+        } else if (p.kind === 'contents') {
+            // Drawn from the plan's labels; the build plans again, so a
+            // file still converting can move them (§2.1).
+            const plan = PM.pagePlan(S.packet, counts());
+            const first = seq.findIndex(x => x.kind === 'contents');
+            const n = seq.filter(x => x.kind === 'contents').length;
+            const part = pv.pos - first;
+            what = 'Contents page' + (n > 1 ? ' ' + (part + 1) + ' of ' + n : '');
+            page.innerHTML = contentsSheet(plan, part, 'pk-sheet-large', true);
         } else if (p.kind === 'cover' || p.kind === 'divider') {
             const section = p.kind === 'divider' ? PM.findSection(S.packet, p.section).section : null;
             what = p.kind === 'cover' ? 'Cover page' : 'Divider · ' + PM.sectionName(section);
             page.innerHTML = genSheet(p.kind, section, 'pk-sheet-large');
         } else {
-            what = { blank: 'Blank page', pad: 'Blank page added for double-sided printing', contents: 'Contents page' }[p.kind];
+            what = { blank: 'Blank page', pad: 'Blank page added for double-sided printing' }[p.kind];
             page.innerHTML = sheet(0, '<span class="pk-sheet-note">' + escapeHtml(what) + '</span>', 'pk-sheet-large pk-sheet-blank');
             const shape = (p.kind === 'blank' || p.kind === 'pad') && shapeBefore(seq, pv.pos);
             if (shape) page.firstElementChild.style.aspectRatio = shape;
         }
         title.textContent = 'Page ' + (pv.pos + 1) + ' of ' + seq.length + ' · ' + what;
         sub.textContent = (p.label == null ? 'Not numbered' : (p.print || !S.packet.options.page_numbers ? 'Numbered ' : 'Counts as page ') + p.label)
-            + (p.rot ? ' · rotated ' + p.rot + '°' : '');
+            + (p.rot ? ' · rotated ' + p.rot + '°' : '') + (p.kind === 'contents' ? ' · numbers are final at build' : '');
         const movable = p.kind === 'file' || p.kind === 'blank';
         $('#pkPvRotL').disabled = p.kind !== 'file';
         $('#pkPvRotR').disabled = p.kind !== 'file';
@@ -2243,6 +2334,17 @@ function initPacket() {
         else if (e.key === 'ArrowRight') { e.preventDefault(); pvStep(1); }
     });
     dialog.addEventListener('click', e => { if (e.target === dialog) closePreview(); });
+    // A contents row in the preview goes to its page, as its link does.
+    $('#pkPvPage').addEventListener('click', e => {
+        const row = e.target.closest('[data-goto]');
+        if (!row || !ui.preview) return;
+        e.stopPropagation();
+        ui.preview.item = null;
+        ui.preview.pos = Number(row.dataset.goto);
+        renderPreview();
+        say($('#pkPvTitle').textContent);
+        $('#pkPvClose').focus();
+    });
     // Swipe between pages on touch.
     let swipe = null;
     dialog.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') swipe = { x: e.clientX, y: e.clientY }; });
