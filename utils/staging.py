@@ -24,7 +24,8 @@ Layout under ``root``::
     <stage_id>/doc.pdf            the staged PDF (a job opened it)
     <stage_id>/thumb-<w>-<n>.png  cached thumbnails, counted in the entry's bytes
     <stage_id>/meta.json          owner, subject, key, name, type, pages, bytes,
-                                  created, holders {holder: last renewal}
+                                  created, holders {holder: last renewal},
+                                  sizes (from packet [B7]; see page_sizes)
     <stage_id>/.lock              the use lock: shared while a build or render
                                   reads the entry, exclusive to remove it
     <stage_id>/.meta.lock         held while meta.json is read and replaced
@@ -398,7 +399,7 @@ class Store:
                 return meta
         return None
 
-    def add(self, src_dir, *, owner, subject, holder, key, name, file_type, pages):
+    def add(self, src_dir, *, owner, subject, holder, key, name, file_type, pages, sizes=None):
         """Keep a finished entry directory (``src_dir``, under :attr:`tmp_root`)
         as a new stage. Re-checks the caps with its real size, then renames it
         into place and records it in the ledger, all under the store lock.
@@ -413,6 +414,8 @@ class Store:
             'name': name, 'type': file_type, 'pages': int(pages), 'bytes': nbytes,
             'created': now, 'holders': {holder: now},
         }
+        if sizes is not None:
+            meta['sizes'] = sizes
 
         def action(ledger):
             stage_id = secrets.token_urlsafe(16)
@@ -672,11 +675,17 @@ def _ledger_resize(ledger, subject, stage_id, added):
 _PLACEHOLDER_FILL = (226, 228, 232)
 _PLACEHOLDER_TEXT = (90, 96, 108)
 _LETTER_RATIO = 792.0 / 612.0
+# A tEXt chunk the page script looks for, so a page whose image is this tile
+# shows no number on it (design packet-builder §2.1 Page numbers on the page
+# images; verification v0.20 m4): the tile's shape is not the page's.
+PLACEHOLDER_TEXT = ('docist', 'placeholder')
 
 
 def _placeholder_png(width, out_path):
-    """The "too large to preview" tile: a Letter-shaped grey PNG."""
+    """The "too large to preview" tile: a Letter-shaped grey PNG, marked with
+    :data:`PLACEHOLDER_TEXT`."""
     from PIL import Image, ImageDraw
+    from PIL.PngImagePlugin import PngInfo
     height = max(1, round(width * _LETTER_RATIO))
     image = Image.new('RGB', (width, height), _PLACEHOLDER_FILL)
     draw = ImageDraw.Draw(image)
@@ -686,7 +695,9 @@ def _placeholder_png(width, out_path):
         w = draw.textlength(line)
         draw.text(((width - w) / 2, y), line, fill=_PLACEHOLDER_TEXT)
         y += 14
-    image.save(out_path, 'PNG')
+    info = PngInfo()
+    info.add_text(*PLACEHOLDER_TEXT)
+    image.save(out_path, 'PNG', pnginfo=info)
 
 
 def _render_page_png(doc, index, width, out_path):
@@ -719,6 +730,32 @@ def _render_page_png(doc, index, width, out_path):
         page.close()
 
 
+def page_sizes(reader):
+    """Each page's displayed size, for placing its number on the page images
+    (design packet-builder §4.2 Convert ``sizes``, §3.3 rule 7).
+
+    A list of runs ``[count, crop_w, crop_h, rotate, media_w, media_h]`` in
+    page order, whose counts add up to the page count. ``crop`` is the visible
+    box, the crop box clipped to the media box (``pdf_ops.packet.visible_box``,
+    which the stamp uses too); ``rotate`` is the page's own ``/Rotate``
+    reduced modulo 360. Sizes are points rounded to 0.01, and consecutive
+    pages with equal values share a run.
+    """
+    from pdf_ops.packet import visible_box
+
+    runs = []
+    for page in reader.pages:
+        _left, _bottom, crop_w, crop_h = visible_box(page)
+        media = page.mediabox
+        values = [round(crop_w, 2), round(crop_h, 2), int(page.rotation) % 360,
+                  round(abs(float(media.width)), 2), round(abs(float(media.height)), 2)]
+        if runs and runs[-1][1:] == values:
+            runs[-1][0] += 1
+        else:
+            runs.append([1] + values)
+    return runs
+
+
 def stage_work(upload_path, ext, render_opts, entry_dir):
     """One stage request's work, run in its job (design §4.2 Convert).
 
@@ -728,7 +765,9 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
     160 px through ``limits.render_page``. ``entry_dir`` is created here, in
     the request's temp directory, outside the job directory.
 
-    Returns ``{'pages', 'pdf_bytes'}``. Raises :class:`StageRefusal`
+    Also reads each page's size (:func:`page_sizes`) from the reader it
+    already opened. Returns ``{'pages', 'pdf_bytes', 'sizes'}``. Raises
+    :class:`StageRefusal`
     (``rejected``, ``unreadable``, ``encrypted``); a limit reaches the parent
     as ``LimitError`` through the job's cause-chain walk.
     """
@@ -758,6 +797,7 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
             raise StageRefusal('encrypted',
                                'This PDF needs a password. Remove the password and add it again.')
         pages = len(reader.pages)
+        sizes = page_sizes(reader) if pages else []
     except StageRefusal:
         raise
     except Exception as exc:
@@ -777,7 +817,7 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
                                  os.path.join(entry_dir, thumb_name(index, STAGE_THUMB_WIDTH)))
         finally:
             doc.close()
-    return {'pages': pages, 'pdf_bytes': os.path.getsize(pdf_path)}
+    return {'pages': pages, 'pdf_bytes': os.path.getsize(pdf_path), 'sizes': sizes}
 
 
 def render_work(pdf_path, index, width, out_path):

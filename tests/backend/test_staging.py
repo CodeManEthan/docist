@@ -121,6 +121,107 @@ def test_a_pdf_key_is_the_same_under_either_paper(client, job_calls):
     assert len(job_calls) == 1
 
 
+# ---------------------------------------------------------------------------
+# B7: each page's size, for its number on the page images (§4.2 Convert)
+# ---------------------------------------------------------------------------
+def _sized_pdf(pages, crop=None, rotate=None):
+    """A PDF with one page per size in ``pages``. ``crop`` maps a page index
+    to its crop box (x0, y0, x1, y1); ``rotate`` maps one to its /Rotate."""
+    from pypdf.generic import NameObject, NumberObject
+    from reportlab.pdfgen import canvas
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=pages[0])
+    for size in pages:
+        c.setPageSize(size)
+        c.drawString(72, 72, "sized")
+        c.showPage()
+    c.save()
+    reader = PdfReader(io.BytesIO(buf.getvalue()))
+    writer = PdfWriter()
+    for index, page in enumerate(reader.pages):
+        page = writer.add_page(page)
+        if crop and index in crop:
+            page.cropbox.lower_left = crop[index][:2]
+            page.cropbox.upper_right = crop[index][2:]
+        if rotate and index in rotate:
+            page[NameObject("/Rotate")] = NumberObject(rotate[index])
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def test_sizes_of_a_uniform_pdf_are_one_run(client):
+    body = ph.staged(client, ph.pdf_bytes(5))
+    assert body["sizes"] == [[5, 612.0, 792.0, 0, 612.0, 792.0]]
+
+
+def test_sizes_of_a_mixed_pdf_run_in_page_order_and_add_up_to_pages(client):
+    a4 = (595.276, 841.89)
+    body = ph.staged(client, _sized_pdf([(612, 792), (612, 792), a4, (792, 612), (612, 792)]))
+    assert body["sizes"] == [
+        [2, 612.0, 792.0, 0, 612.0, 792.0],
+        [1, 595.28, 841.89, 0, 595.28, 841.89],
+        [1, 792.0, 612.0, 0, 792.0, 612.0],
+        [1, 612.0, 792.0, 0, 612.0, 792.0],
+    ]
+    assert sum(run[0] for run in body["sizes"]) == body["pages"] == 5
+
+
+def test_sizes_use_the_crop_box_clipped_to_the_media_box(client):
+    data = _sized_pdf([(612, 792)] * 3, crop={0: (100, 150, 500, 700.5), 2: (-50, 0, 700, 800)})
+    body = ph.staged(client, data)
+    assert body["sizes"] == [
+        [1, 400.0, 550.5, 0, 612.0, 792.0],
+        [2, 612.0, 792.0, 0, 612.0, 792.0],
+    ]
+
+
+def test_sizes_carry_the_pages_own_rotate_reduced_modulo_360(client):
+    data = _sized_pdf([(612, 792)] * 5, rotate={0: 90, 1: 450, 2: -90, 3: 45, 4: 360})
+    body = ph.staged(client, data)
+    assert [run[3] for run in body["sizes"]] == [90, 270, 45, 0]
+    assert [run[0] for run in body["sizes"]] == [2, 1, 1, 1]
+
+
+def test_sizes_are_kept_in_meta_and_returned_on_a_dedup_hit(client, job_calls):
+    data = _sized_pdf([(612, 792), (792, 612)])
+    first = ph.staged(client, data)
+    assert store().read_meta(first["stage_id"])["sizes"] == first["sizes"]
+    again = ph.assert_shape(ph.stage(client, data, "scan.pdf", holder=ph.OTHER_HOLDER),
+                            "stage", "ok_pdf")
+    assert len(job_calls) == 1
+    assert again["stage_id"] == first["stage_id"]
+    assert again["sizes"] == first["sizes"] == [[1, 612.0, 792.0, 0, 612.0, 792.0],
+                                                [1, 792.0, 612.0, 0, 792.0, 612.0]]
+
+
+def test_an_entry_staged_before_b7_answers_without_sizes(client, job_calls):
+    data = ph.pdf_bytes(2)
+    first = ph.staged(client, data)
+    st = store()
+    path = os.path.join(st.entry_dir(first["stage_id"]), staging.META_NAME)
+    with open(path, encoding="utf-8") as fh:
+        meta = json.load(fh)
+    del meta["sizes"]
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(meta, fh)
+    again = ph.staged(client, data, holder=ph.OTHER_HOLDER)
+    assert again["stage_id"] == first["stage_id"]
+    assert "sizes" not in again
+    assert set(again) == {"stage_id", "pages", "name", "type", "key", "bytes"}
+
+
+def test_the_too_large_tile_is_marked_for_the_page_script(tmp_path):
+    from PIL import Image
+    out = str(tmp_path / "ph.png")
+    staging._placeholder_png(160, out)
+    image = Image.open(out)
+    assert image.text == {"docist": "placeholder"}
+    with open(out, "rb") as fh:
+        head = fh.read(256)
+    assert b"docist\x00placeholder" in head   # where packet.js looks
+
+
 def test_dedup_is_per_owner(client):
     data = ph.pdf_bytes(1)
     a = ph.staged(client, data)

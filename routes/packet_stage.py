@@ -136,10 +136,15 @@ def _shown_name(raw):
 
 
 def _stage_body(meta, name=None):
-    return {
+    body = {
         'stage_id': meta['id'], 'pages': meta['pages'], 'name': name or meta['name'],
         'type': meta['type'], 'key': meta['key'], 'bytes': meta['bytes'],
     }
+    # Each page's size for its number on the page images (design §4.2
+    # Convert, from packet [B7]). An entry staged before [B7] has none.
+    if 'sizes' in meta:
+        body['sizes'] = meta['sizes']
+    return body
 
 
 def _quota(st, subj, holder, code):
@@ -224,7 +229,8 @@ def stage():
                            f"A packet can use at most {mb(limit)} MB of files.",
                            limit_bytes=limit)
         meta, code = st.add(entry_src, owner=owner, subject=subj, holder=holder, key=key,
-                            name=name, file_type=file_type, pages=done['pages'])
+                            name=name, file_type=file_type, pages=done['pages'],
+                            sizes=done['sizes'])
         if code is not None:
             return _quota(st, subj, holder, code)
     return jsonify(_stage_body(meta))
