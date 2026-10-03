@@ -55,11 +55,13 @@ Operator commands:
     flask --app app set-plan EMAIL PLAN    set a user's plan ('free' or paid)
     flask --app app verify-user EMAIL      mark a user's email verified
 """
+import fcntl
 import importlib
 import os
 import pkgutil
+import re
 import secrets
-import time
+import tempfile
 from datetime import timedelta
 
 import click
@@ -95,26 +97,65 @@ def _is_memory_sqlite(url):
             and parsed.database in (None, '', ':memory:'))
 
 
-def _persisted_secret_key(path):
-    """Read the key at ``path``, creating it first if absent.
+_KEY_PATTERN = re.compile(r'[0-9a-f]{64}')
 
-    O_EXCL makes concurrent first starts safe: exactly one process creates the
-    file and the others read the winner's key (waiting briefly for its write).
-    """
+
+def _read_key(path):
+    """The stripped key at ``path`` if it is 64 hex characters, else None.
+    A missing file is None; any other read error raises."""
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        for _ in range(50):
-            with open(path) as fh:
-                key = fh.read().strip()
-            if key:
+        with open(path) as fh:
+            key = fh.read().strip()
+    except FileNotFoundError:
+        return None
+    return key if _KEY_PATTERN.fullmatch(key) else None
+
+
+def _persisted_secret_key(path):
+    """Read the key at ``path``, creating it first if absent or unusable.
+
+    Rule I (design launch-hardening §14): no reader sees the file before its
+    bytes are complete and on disk. A new key is written to a temporary file
+    in the same directory, fsynced, and os.replace()d onto ``path`` under an
+    exclusive flock on ``path + '.lock'``, so a reader without the lock sees
+    no file, the whole old one or the whole new one. An empty or partial file
+    left by older code is replaced at the next start (which signs everyone
+    out; a key never fully written was never in use). Old code wrote
+    token_hex(32), 64 hex characters, so its keys are kept.
+    """
+    key = _read_key(path)
+    if key is not None:
+        return key
+    directory = os.path.dirname(os.path.abspath(path))
+    with open(path + '.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            key = _read_key(path)   # another process may have just written it
+            if key is not None:
                 return key
-            time.sleep(0.1)
-        raise RuntimeError(f'{path} exists but is empty; delete it and restart')
-    key = secrets.token_hex(32)
-    with os.fdopen(fd, 'w') as fh:
-        fh.write(key)
-    return key
+            key = secrets.token_hex(32)
+            fd, tmp = tempfile.mkstemp(prefix='.secret_key.', dir=directory)
+            try:
+                with os.fdopen(fd, 'w') as fh:
+                    fh.write(key)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, path)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+            return key
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 app = Flask(__name__)
