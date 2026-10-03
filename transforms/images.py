@@ -50,6 +50,8 @@ HEIC/HEIF support relies on ``pillow-heif``.  ``register_heif_opener()`` is
 called at import time (idempotent) and, with current pillow-heif, enables
 both *reading* and *writing* of HEIF via Pillow's ``save(..., "HEIF")``.
 """
+import re
+
 import pillow_heif
 from PIL import Image
 
@@ -84,6 +86,9 @@ _NEEDS_RGB = {'JPEG', 'BMP'}
 pillow_heif.register_heif_opener()
 
 JPEG_QUALITY = 90
+
+# Pillow's text for libwebp's VP8_ENC_ERROR_OUT_OF_MEMORY.
+_WEBP_OUT_OF_MEMORY = re.compile(r'\bencoding error 1\b')
 
 
 def _open(input_path):
@@ -150,6 +155,15 @@ def _convert(input_path, output_path, target_fmt):
 
     try:
         out.save(output_path, target_fmt, **save_kwargs)
+    except OSError as exc:
+        if target_fmt == 'WEBP' and _WEBP_OUT_OF_MEMORY.search(str(exc)):
+            # libwebp's VP8_ENC_ERROR_OUT_OF_MEMORY (1): the encoder ran out of
+            # the job's memory, but Pillow reports it as a plain OSError. Give
+            # the ruled memory refusal, not Pillow's text and a server path.
+            raise limits.LimitError(limits.memory_message(), kind='memory') from exc
+        raise TransformError(
+            f"Could not write '{output_path}' as {target_fmt}: {exc}"
+        ) from exc
     except Exception as exc:
         raise TransformError(
             f"Could not write '{output_path}' as {target_fmt}: {exc}"

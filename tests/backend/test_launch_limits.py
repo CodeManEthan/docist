@@ -20,6 +20,7 @@ import converters
 from converters import ConversionError, image_converter
 from models import ApiKey, User, db
 from pdf_ops import jobs, limits
+from transforms import TransformError
 from routes import api as api_routes
 
 app = flask_app_module.app
@@ -631,3 +632,37 @@ def test_minor_1_a_small_body_limit_still_answers_json(api, monkeypatch):
     assert response.status_code == 413
     assert response.is_json
     assert response.get_json()['code'] == 'upload_too_large'
+
+
+# --------------------------------------------------------------------------
+# Fixes after build verification
+# --------------------------------------------------------------------------
+def _webp_save_fails(monkeypatch, text):
+    real = Image.Image.save
+
+    def save(self, fp, format=None, **params):
+        if format == 'WEBP':
+            raise OSError(text)
+        return real(self, fp, format, **params)
+    monkeypatch.setattr(Image.Image, 'save', save)
+
+
+@pytest.mark.parametrize('path', ['/convert/run', '/api/v1/convert'])
+def test_webp_encoder_out_of_memory_is_the_memory_refusal(api, monkeypatch, path):
+    """Build verification MAJOR-2 (a): libwebp's error 1 is
+    VP8_ENC_ERROR_OUT_OF_MEMORY; Pillow raises it as a plain OSError."""
+    _webp_save_fails(monkeypatch, 'encoding error 1')
+    response = post(api, path, {'file': (png_bytes((40, 30), 'RGBA', (1, 2, 3, 4)), 'a.png')},
+                    target='.webp')
+    assert response.status_code == 400
+    assert error(response) == limits.memory_message()
+    assert '/tmp' not in error(response)
+
+
+def test_other_webp_encoder_errors_stay_ordinary(tmp_path, monkeypatch):
+    from transforms import images
+    _webp_save_fails(monkeypatch, 'encoding error 6')
+    src = tmp_path / 'a.png'
+    src.write_bytes(png_bytes())
+    with pytest.raises(TransformError, match='encoding error 6'):
+        images._convert(str(src), str(tmp_path / 'a.webp'), 'WEBP')
