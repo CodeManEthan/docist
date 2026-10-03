@@ -1,24 +1,31 @@
 /* Shared theme for all tool pages.
  *
- * Ink & Stamp: black ink on warm paper, with a rubber-stamp vermilion
+ * Midnight: near-black ground lit by a warm stamp-red glow and a cool
+ * indigo one, dark glass panels, Inter type. The stamp red is still
  * reserved for interactive elements. All identity colors live in the
  * :root token block; success/error message colors stay semantic and are
  * defined at their point of use.
  */
 :root {
-    --paper: #f2f0ea;        /* page background */
-    --card: #ffffff;         /* main container surface */
-    --ink: #1c1c1e;          /* headings, primary actions */
-    --ink-soft: #4d4b45;     /* body / label text */
-    --muted: #77746b;        /* secondary text */
-    --faint: #a8a49a;        /* hints, tertiary text */
-    --accent: #d63c2f;       /* stamp red: links, focus, active */
-    --accent-wash: #f9e7e4;  /* pale accent hover background */
-    --tint: #f1efe8;         /* panel / row background */
-    --tint-strong: #e4e1d8;  /* pill and hover background */
-    --line: #dcd9cf;         /* hairline borders */
-    --shimmer-a: #eceae3;    /* thumbnail loading shimmer */
-    --shimmer-b: #e0ddd4;
+    color-scheme: dark;      /* native controls, scrollbars, selects go dark */
+    --paper: #07070a;        /* page background (near-black) */
+    --card: #111117;         /* solid raised surface (thumbs, inputs) */
+    --ink: #f4f4f6;          /* headings, primary text */
+    --ink-soft: #c8c8d0;     /* body / label text */
+    --muted: #9a9aa8;        /* secondary text */
+    --faint: #7f7f8e;        /* hints, tertiary text */
+    --accent: #ff5a47;       /* stamp red, lifted for dark ground */
+    --accent-2: #ff8a3d;     /* warm orange partner for gradients */
+    --indigo: #6d5dfc;       /* cool glow */
+    --accent-wash: rgba(255, 90, 71, 0.12);
+    --tint: rgba(255, 255, 255, 0.035);
+    --tint-strong: rgba(255, 255, 255, 0.08);
+    --line: rgba(255, 255, 255, 0.10);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --shimmer-a: #15151b;
+    --shimmer-b: #23232c;
+    --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 * {
@@ -714,4 +721,541 @@ input[type="file"] {
     font-size: 0.92em;
     color: var(--ink);
     background: var(--card);
+}
+
+/* =====================================================================
+ * Midnight layer. Sits last so it wins over the base rules above at equal
+ * specificity. Decoration only: no class or id that the JS relies on is
+ * renamed, and every rule here is safe to delete to fall back.
+ * ===================================================================== */
+
+html {
+    background: var(--paper);
+}
+
+body {
+    font-family: var(--font);
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    color: var(--ink-soft);
+    background: var(--paper);
+    justify-content: flex-start;
+    padding: 0 16px 80px;
+    gap: 0;
+    position: relative;
+    isolation: isolate;
+    overflow-x: hidden;
+}
+
+/* Two soft colour glows: stamp red/orange up-left, indigo up-right. */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background:
+        radial-gradient(1000px 680px at 16% -10%, rgba(255, 90, 71, 0.38), transparent 62%),
+        radial-gradient(800px 560px at 2% 38%, rgba(255, 138, 61, 0.13), transparent 62%),
+        radial-gradient(1100px 760px at 90% -6%, rgba(109, 93, 252, 0.40), transparent 60%),
+        radial-gradient(1000px 640px at 70% 125%, rgba(109, 93, 252, 0.16), transparent 62%),
+        radial-gradient(700px 500px at 50% 45%, rgba(255, 90, 71, 0.06), transparent 70%);
+}
+
+/* Faint dot grid that fades out toward the edges. */
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1.3px);
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
+}
+
+::selection {
+    background: rgba(255, 90, 71, 0.35);
+    color: #fff;
+}
+
+/* ---- Top bar ---- */
+.tool-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    width: calc(100% + 32px);
+    margin: 0 -16px;
+    padding: 12px max(24px, calc((100% - 1240px) / 2));
+    gap: 4px;
+    justify-content: flex-start;
+    align-items: center;
+    background: rgba(9, 9, 13, 0.62);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+
+.tool-nav .nav-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 1.02em;
+    letter-spacing: -0.02em;
+    padding: 6px 18px 6px 0;
+    margin-right: 6px;
+    border-right: 1px solid var(--line);
+}
+
+/* Logo mark: a folded-corner page in the brand gradient. */
+.tool-nav .nav-brand::before {
+    content: "";
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background:
+        linear-gradient(225deg, rgba(255, 255, 255, 0.55) 0 22%, transparent 22.5%),
+        linear-gradient(135deg, var(--accent-2), var(--accent) 45%, var(--indigo));
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset,
+                0 4px 14px rgba(255, 90, 71, 0.35);
+}
+
+.tool-nav a {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 0.875em;
+    padding: 7px 12px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tool-nav a:hover {
+    background: var(--tint-strong);
+    color: var(--ink);
+}
+
+.tool-nav a.active {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.07);
+    border-color: var(--line);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.tool-nav .nav-usage {
+    color: var(--faint);
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+}
+
+.tool-nav a[href="/login"],
+.tool-nav a[href="/account"] {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--ink);
+}
+
+.tool-nav a[href="/signup"] {
+    border: 1px solid transparent;
+    color: #fff;
+    background: linear-gradient(180deg, #ff6b55, #e23b2e);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 4px 14px rgba(255, 90, 71, 0.3);
+}
+
+.tool-nav a[href="/signup"]:hover {
+    color: #fff;
+    background: linear-gradient(180deg, #ff7a66, #ea4434);
+}
+
+.tool-nav .nav-signout {
+    font-weight: 500;
+    font-size: 0.875em;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    color: var(--ink-soft);
+}
+
+.tool-nav .nav-signout:hover {
+    background: var(--tint-strong);
+}
+
+/* ---- Main panel: dark glass ---- */
+.container {
+    position: relative;
+    margin-top: 72px;
+    max-width: 680px;
+    padding: 44px 44px 40px;
+    border-radius: 20px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015) 40%),
+        rgba(14, 14, 19, 0.72);
+    border: 1px solid var(--line);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.07),
+        0 0 0 1px rgba(0, 0, 0, 0.4),
+        0 40px 100px -30px rgba(0, 0, 0, 0.8),
+        0 0 120px -40px rgba(255, 90, 71, 0.18);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+}
+
+/* Hairline of light along the top edge of the panel. */
+.container::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: 12%;
+    right: 12%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 138, 61, 0.9), rgba(255, 90, 71, 0.9) 40%, rgba(109, 93, 252, 0.9) 75%, transparent);
+    pointer-events: none;
+}
+
+h1 {
+    color: var(--ink);
+    font-size: 2.3em;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1.1;
+    margin-bottom: 12px;
+}
+
+.subtitle {
+    color: var(--muted);
+    font-size: 1em;
+    line-height: 1.55;
+    margin-bottom: 30px;
+}
+
+/* ---- Drop zone ---- */
+.upload-area {
+    position: relative;
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 16px;
+    padding: 44px 32px;
+    background:
+        radial-gradient(120% 90% at 50% 0%, rgba(255, 90, 71, 0.09), transparent 60%),
+        rgba(255, 255, 255, 0.02);
+    transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.25s ease;
+}
+
+.upload-area:hover {
+    border-color: rgba(255, 90, 71, 0.65);
+    background:
+        radial-gradient(120% 90% at 50% 0%, rgba(255, 90, 71, 0.18), transparent 65%),
+        rgba(255, 255, 255, 0.03);
+    box-shadow: 0 0 0 4px rgba(255, 90, 71, 0.07), 0 0 50px -10px rgba(255, 90, 71, 0.35);
+}
+
+.upload-area.dragover {
+    border-color: var(--accent);
+    background:
+        radial-gradient(120% 100% at 50% 0%, rgba(255, 90, 71, 0.26), transparent 70%),
+        rgba(255, 90, 71, 0.05);
+    box-shadow: 0 0 0 4px rgba(255, 90, 71, 0.12), 0 0 70px -10px rgba(255, 90, 71, 0.5);
+}
+
+.upload-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+    font-size: 30px;
+    margin-bottom: 18px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02));
+    border: 1px solid var(--line-strong);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 10px 30px -8px rgba(255, 90, 71, 0.45);
+}
+
+.upload-text {
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 1.05em;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+}
+
+.upload-hint {
+    color: var(--faint);
+    font-size: 0.86em;
+}
+
+/* ---- File rows ---- */
+.file-item {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--line);
+    border-top-width: 1px;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
+.file-item.drag-over-top {
+    border-top: 2px solid var(--accent);
+}
+
+.file-item.drag-over-bottom {
+    border-bottom: 2px solid var(--accent);
+}
+
+.file-size {
+    font-variant-numeric: tabular-nums;
+}
+
+.file-thumb,
+.page-thumb {
+    background: var(--card);
+    border-color: var(--line);
+}
+
+.page-thumb:hover {
+    box-shadow: 0 0 0 3px rgba(255, 90, 71, 0.15), 0 8px 20px -6px rgba(255, 90, 71, 0.4);
+}
+
+.thumb-grid,
+.options-panel {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.options-panel label {
+    color: var(--ink-soft);
+}
+
+/* Text fields and selects everywhere. */
+.options-panel select,
+.options-panel input[type="text"],
+.options-panel input[type="number"],
+.options-panel input[type="password"],
+.login-form input[type="email"],
+.login-form input[type="password"],
+.login-form input[type="text"],
+select,
+textarea {
+    font-family: inherit;
+    color: var(--ink);
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-form input[type="email"],
+.login-form input[type="password"],
+.login-form input[type="text"] {
+    padding: 12px 14px;
+    border-radius: 10px;
+}
+
+.options-panel select:focus,
+.options-panel input:focus,
+.login-form input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: rgba(255, 90, 71, 0.7);
+    box-shadow: 0 0 0 3px rgba(255, 90, 71, 0.18);
+}
+
+select option {
+    background: #15151b;
+    color: var(--ink);
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--faint);
+}
+
+/* ---- Buttons ---- */
+.btn {
+    position: relative;
+    color: #fff;
+    font-family: inherit;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: linear-gradient(135deg, var(--accent-2) 0%, var(--accent) 45%, #d93a7a 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        0 10px 30px -10px rgba(255, 90, 71, 0.7);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    filter: brightness(1.08);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        0 16px 40px -10px rgba(255, 90, 71, 0.85);
+}
+
+.btn:disabled {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--line);
+    color: var(--faint);
+    box-shadow: none;
+    filter: none;
+}
+
+.download-btn {
+    background: linear-gradient(135deg, #34d399, #10b981 50%, #0e9f8f);
+    color: #04140d;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 10px 30px -10px rgba(16, 185, 129, 0.7);
+}
+
+.download-btn:hover:not(:disabled) {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 16px 40px -10px rgba(16, 185, 129, 0.85);
+}
+
+.icon-btn:hover:not(:disabled) {
+    background: var(--tint-strong);
+}
+
+/* ---- Messages ---- */
+.message {
+    border-radius: 12px;
+}
+
+.message.success {
+    background: rgba(16, 185, 129, 0.10);
+    color: #6ee7b7;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.message.error,
+.login-error {
+    background: rgba(239, 68, 68, 0.10);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.flash {
+    background: rgba(255, 90, 71, 0.07);
+    color: var(--ink-soft);
+}
+
+/* Loading captions carry an inline paper-era grey. */
+.loading p {
+    color: var(--muted) !important;
+}
+
+.spinner {
+    border-color: rgba(255, 255, 255, 0.08);
+    border-top-color: var(--accent);
+    box-shadow: 0 0 24px -4px rgba(255, 90, 71, 0.5);
+}
+
+/* ---- Feature list ---- */
+.features {
+    border-top: 1px solid var(--line);
+}
+
+.feature-item {
+    color: var(--muted);
+}
+
+.feature-item::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin-right: 12px;
+    border-radius: 6px;
+    background:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%23ff8a7a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px no-repeat,
+        rgba(255, 90, 71, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(255, 90, 71, 0.3);
+}
+
+/* ---- Account and API pages ---- */
+.key-once::after {
+    font-family: var(--font);
+}
+
+.key-once,
+.key-table code,
+.api-endpoint h2 {
+    font-family: var(--mono);
+}
+
+body pre.api-curl {
+    font-family: var(--mono);
+    background: rgba(0, 0, 0, 0.45);
+    color: #e6e6ef;
+    border: 1px solid var(--line);
+}
+
+body .api-endpoint {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--line);
+}
+
+body .api-endpoint h2 .verb {
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent), #d93a7a);
+}
+
+a {
+    color: var(--accent);
+}
+
+/* ---- Phone width ---- */
+@media (max-width: 720px) {
+    .tool-nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding: 10px 16px;
+    }
+
+    .tool-nav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tool-nav a,
+    .tool-nav .nav-usage,
+    .tool-nav .nav-brand {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    .container {
+        margin-top: 28px;
+        padding: 28px 20px;
+        border-radius: 16px;
+    }
+
+    h1 {
+        font-size: 1.8em;
+    }
+
+    .upload-area {
+        padding: 32px 18px;
+    }
+}
+
+fieldset {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 12px 8px;
+}
+
+legend {
+    padding: 0 6px;
+    color: var(--muted);
+    font-size: 0.78em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
 }
