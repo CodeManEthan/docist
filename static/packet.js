@@ -394,7 +394,7 @@ function initPacket() {
         anchor: null,
         selecting: false,               // touch selection mode
         grab: null,                     // {key, snapshot}
-        preview: null,                  // {pos, item, opener}
+        preview: null,                  // {pos, item, openerKey, openerItem, openerIndex, order}
         buildErrors: new Map(),         // item id -> code from a refused build
         building: false,
         result: null,
@@ -1484,13 +1484,17 @@ function initPacket() {
     document.addEventListener('keydown', e => {
         const t = e.target;
         const typing = t.matches && t.matches('input[type="text"], input[type="number"], textarea, select, [contenteditable="true"]');
-        if (typing || document.querySelector('dialog[open]')) return;
+        const open = document.querySelector('dialog[open]');
+        // Undo and redo also work in the preview, where Delete promises them.
+        const inPreview = open && open.id === 'pkPreview';
+        if (typing || (open && !inPreview)) return;
         const k = e.key.toLowerCase();
         if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
             e.preventDefault();
             if (k === 'y' || e.shiftKey) doRedo(); else doUndo();
             return;
         }
+        if (inPreview) return;
         if ((e.ctrlKey || e.metaKey) && k === 'a' && !t.matches('input:not([type="checkbox"])')) {
             const kind = (t.closest && t.closest('.pk-tile')) || selKind() === 'p' ? 'p' : 'c';
             const keys = viewKeys(kind);
@@ -1519,9 +1523,24 @@ function initPacket() {
         const pos = seq.findIndex(p => p.item === itemId);
         showPreview(pos === -1 ? { pos: -1, item: itemId, opener } : { pos, item: null, opener });
     }
+    // The opener is kept by its focus key, not its node: any render while
+    // the preview is open (an edit in it, a stage finishing) replaces the
+    // canvas and detaches the node.
     function showPreview(state) {
-        ui.preview = state;
+        const opener = state.opener;
+        const holder = opener && opener.closest('[data-key]');
+        ui.preview = {
+            pos: state.pos,
+            item: state.item,
+            openerKey: opener && opener.dataset.fkey,
+            openerItem: holder ? holder.dataset.item : null,
+            openerIndex: holder && holder.dataset.index != null ? Number(holder.dataset.index) : null,
+            order: PM.itemOrder(S.packet).map(e => e.item.id),
+        };
         renderPreview();
+        // The toast sits in the top layer with the dialog, so its Undo stays
+        // reachable while the modal makes the rest of the page inert.
+        dialog.appendChild(toast);
         if (!dialog.open) dialog.showModal();
         $('#pkPvClose').focus();
     }
@@ -1615,12 +1634,32 @@ function initPacket() {
     dialog.addEventListener('close', () => {
         const pv = ui.preview;
         ui.preview = null;
-        if (pv && pv.opener && document.contains(pv.opener)) pv.opener.focus();
-        else {
-            const first = list.querySelector('.pk-open');
-            if (first) first.focus();
-        }
+        document.body.appendChild(toast);
+        const el = previewReturn(pv);
+        if (el) el.focus();
     });
+    // Where focus goes when the preview closes: the tile or card that opened
+    // it; if that page was deleted, the nearest tile of the same item, then
+    // its card, then the nearest card that remains.
+    function previewReturn(pv) {
+        const find = fkey => list.querySelector('[data-fkey="' + fkey + '"]');
+        if (!pv) return list.querySelector('.pk-open');
+        let el = pv.openerKey ? find(pv.openerKey) : null;
+        if (el) return el;
+        if (pv.openerItem) {
+            const tiles = Array.from(list.querySelectorAll('.pk-tile[data-item="' + pv.openerItem + '"] .pk-tile-open'));
+            if (tiles.length) return tiles[Math.max(0, Math.min(pv.openerIndex || 0, tiles.length - 1))];
+            el = find('c:' + pv.openerItem + ':open');
+            if (el) return el;
+            const at = pv.order.indexOf(pv.openerItem);
+            for (let d = 1; at !== -1 && d < pv.order.length; d++) {
+                el = (pv.order[at - d] && find('c:' + pv.order[at - d] + ':open'))
+                    || (pv.order[at + d] && find('c:' + pv.order[at + d] + ':open'));
+                if (el) return el;
+            }
+        }
+        return list.querySelector('.pk-open');
+    }
     function currentPage() {
         const pv = ui.preview;
         if (!pv || pv.item) return null;
