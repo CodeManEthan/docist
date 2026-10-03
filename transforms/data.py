@@ -208,6 +208,10 @@ def _load_json(input_path):
     try:
         with open(input_path, encoding='utf-8') as fh:
             return json.load(fh)
+    except RecursionError as exc:
+        # Nesting deeper than the interpreter allows: the ruled "couldn't
+        # convert" sentence, not a 500 (build verification MINOR-2).
+        raise TransformError(limits.died_message()) from exc
     except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         raise TransformError(f'Invalid JSON input: {exc}') from exc
 

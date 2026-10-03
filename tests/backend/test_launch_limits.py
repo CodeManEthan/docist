@@ -721,3 +721,13 @@ def test_an_image_over_pillows_own_limit_gets_the_image_sentence(api, monkeypatc
         assert response.status_code == 400, (path, fields)
         assert error(response) == limits.image_message(), (path, fields)
         assert '/tmp' not in error(response)
+
+
+@pytest.mark.parametrize('target', ['.yaml', '.csv'])
+def test_deeply_nested_json_is_a_400_with_the_couldnt_convert_sentence(client, target):
+    """Build verification MINOR-2: was a 500 ("Stack overflow ...")."""
+    src = b'[' * 100_000 + b']' * 100_000
+    response = post(client, '/convert/run', {'file': (src, 'deep.json')}, target=target)
+    assert response.status_code == 400
+    assert error(response) == ("Docist couldn't convert this file. It may be damaged, "
+                               'or too complex to convert.')
