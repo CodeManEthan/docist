@@ -22,8 +22,17 @@ Cover, divider and contents pages are planned here but rendered by renderers
 that later stages add to :data:`_RENDERERS`. Until one is registered, a packet
 that needs it is refused with ``unsupported``.
 """
+import contextlib
+import os
+
+from pypdf import PdfReader, PdfWriter, Transformation
+from pypdf.generic import DictionaryObject, NameObject
+
 from converters.options import DEFAULT_PAPER, PAPER_SIZES
-from pdf_ops.merge import VALID_POSITIONS
+from pdf_ops.merge import VALID_POSITIONS, _add_padding_blank, _number_overlay
+
+# Design section 4.6: the output page count is capped.
+MAX_OUTPUT_PAGES = 2000
 
 VALID_ROTATIONS = (0, 90, 180, 270)
 
@@ -41,6 +50,16 @@ DEFAULT_OPTIONS = {
 }
 _BOOL_OPTIONS = ('page_numbers', 'number_generated', 'bookmarks', 'contents', 'recto_starts')
 
+# Phase 1's document, written under the caller's work_dir.
+PHASE1_NAME = 'packet-phase1.pdf'
+
+# Generated pages other than blanks and pads, keyed by plan kind. Each
+# renderer is ``render(writer, page, packet, planned, opts) -> None``: it
+# appends exactly one page to ``writer`` for the plan page ``page``, reading
+# its text from ``packet`` (cover, section titles) and ``planned`` (contents
+# entries and labels), at ``opts['paper']``. The divider and cover renderers
+# come with stage B3 and the contents renderer with B5 (design, Build stages).
+_RENDERERS = {}
 
 
 class PacketError(ValueError):
@@ -251,3 +270,218 @@ def page_plan(packet, page_counts, contents_pages=1, options=None):
         entry['label'] = pages[entry['index']]['label']
 
     return {'pages': pages, 'entries': entries}
+
+
+# ---------------------------------------------------------------------------
+# Pipeline (design section 4.8)
+# ---------------------------------------------------------------------------
+@contextlib.contextmanager
+def _reading(item_ids):
+    """Turn a pypdf failure on staged content into an ``unreadable`` refusal.
+
+    Staged PDFs were opened once by the stage job, but a build still reads
+    their pages and content streams, and pypdf raises a mix of exception types
+    on a damaged file. None of them may escape as anything but PacketError.
+    """
+    try:
+        yield
+    except (PacketError, MemoryError, OSError):
+        raise
+    except Exception as exc:
+        raise PacketError('unreadable', "A file in this packet can't be read as a PDF.",
+                          [{'id': i, 'code': 'unreadable'} for i in item_ids]) from exc
+
+
+def _open_staged(path, item_ids):
+    """One ``PdfReader`` and its page count for a staged PDF, or a refusal."""
+    if not os.path.isfile(path):
+        raise PacketError('expired', 'A file in this packet is no longer staged.',
+                          [{'id': i, 'code': 'expired'} for i in item_ids])
+    with _reading(item_ids):
+        reader = PdfReader(path)
+        locked = reader.is_encrypted and not reader.decrypt('')
+        count = 0 if locked else len(reader.pages)
+    if locked:
+        raise PacketError('encrypted', 'A file in this packet is password protected.',
+                          [{'id': i, 'code': 'encrypted'} for i in item_ids])
+    return reader, count
+
+
+def _file_items(packet):
+    """``{hash: [item ids]}`` for every file item, in packet order."""
+    by_hash = {}
+    for section in packet['sections']:
+        for item in section['items']:
+            if item['kind'] == 'file':
+                by_hash.setdefault(item['hash'], []).append(item['id'])
+    return by_hash
+
+
+def _detach(page):
+    """Give ``page`` its own content stream and resource dicts.
+
+    With one reader per staged PDF, pypdf clones a source page's objects once,
+    so two output pages from one source page (a duplicate, or one page in two
+    items) share their /Contents and /Resources. pypdf rewrites those in place
+    when it rotates content or merges an overlay, which would stamp or turn
+    both pages. A page is detached before phase 2 changes it.
+    """
+    contents = page.get_contents()   # a new object, parsed from the shared one
+    if '/Contents' in page:
+        del page['/Contents']
+    if contents is not None:
+        page.replace_contents(contents)
+    resources = page.get('/Resources')
+    if resources is not None:
+        own = DictionaryObject()
+        for key, value in resources.get_object().items():
+            resolved = value.get_object()
+            own[NameObject(key)] = (DictionaryObject(resolved)
+                                    if isinstance(resolved, DictionaryObject) else value)
+        page[NameObject('/Resources')] = own
+
+
+def _stamp_upright(page, label, position):
+    """Stamp ``label`` with the merge overlay, in the page's visible box.
+
+    The caller has moved any /Rotate into the content first, so the number sits
+    the right way up at the bottom of the page as displayed.
+    """
+    box = page.cropbox
+    overlay = _number_overlay(label, float(box.width), position, float(box.height))
+    left, bottom = float(box.left), float(box.bottom)
+    if left or bottom:
+        page.merge_transformed_page(overlay, Transformation().translate(left, bottom))
+    else:
+        page.merge_page(overlay)
+
+
+def _add_outline(writer, plan):
+    """Flat bookmarks: one per file item, at its first page.
+
+    Stage B3 replaces this with the nested outline (sections, then items).
+    """
+    for entry in plan['entries']:
+        if entry['kind'] == 'item':
+            writer.add_outline_item(entry['title'] or 'Untitled', entry['index'])
+
+
+def _phase1(packet, plan, readers, opts, work_dir):
+    """Append every planned page to one writer and write it under ``work_dir``.
+
+    Consecutive pages from the same staged PDF go in one
+    ``writer.append(reader, pages=[...])``; pages is a list of ints, since pypdf
+    reads a tuple as range arguments. Rotation is added to each page here.
+    """
+    paper = PAPER_SIZES[opts['paper']]
+    writer = PdfWriter()
+    last_body = None   # writer index of the latest file or blank page
+    pages = plan['pages']
+
+    index = 0
+    while index < len(pages):
+        page = pages[index]
+        if page['kind'] == 'file':
+            end = index
+            while (end < len(pages) and pages[end]['kind'] == 'file'
+                   and pages[end]['hash'] == page['hash']):
+                end += 1
+            run = pages[index:end]
+            base = len(writer.pages)
+            with _reading(sorted({p['item'] for p in run})):
+                writer.append(readers[page['hash']], pages=[p['src'] for p in run],
+                              import_outline=False)
+                for offset, ref in enumerate(run):
+                    if ref['rot']:
+                        writer.pages[base + offset].rotate(ref['rot'])
+            last_body = len(writer.pages) - 1
+            index = end
+            continue
+
+        if page['kind'] == 'blank':
+            # Design section 2.1: a blank matches the body page before it,
+            # as merge's padding does, or takes the packet's paper size.
+            if last_body is None:
+                writer.add_blank_page(width=paper[0], height=paper[1])
+            else:
+                _add_padding_blank(writer, writer.pages[last_body])
+            last_body = len(writer.pages) - 1
+        elif page['kind'] == 'pad':
+            # A pad is never first: it follows the page before a section start.
+            _add_padding_blank(writer, writer.pages[-1])
+        else:
+            _RENDERERS[page['kind']](writer, page, packet, plan, opts)
+        index += 1
+
+    phase1_path = os.path.join(work_dir, PHASE1_NAME)
+    with _reading([]), open(phase1_path, 'wb') as fh:
+        writer.write(fh)
+    writer.close()
+    return phase1_path
+
+
+def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
+    """Build the packet PDF and write it to ``out_path``.
+
+    ``plan`` is the validated packet document (design section 3.1).
+    ``staged_paths`` maps each file item's ``hash`` to its staged PDF's path.
+    ``options`` are the packet's output options (``plan['options']`` when
+    None). Phase 1's document is written under ``work_dir``; nothing else is
+    written but ``out_path``.
+
+    Returns the page plan the PDF was built from (see :func:`page_plan`).
+    Raises :class:`PacketError` for every refusal.
+    """
+    _check_shape(plan)
+    opts = normalize_options(plan.get('options') if options is None else options)
+    by_hash = _file_items(plan)
+
+    missing = [{'id': i, 'code': 'expired'}
+               for h, ids in by_hash.items() if h not in staged_paths for i in ids]
+    if missing:
+        raise PacketError('expired', 'Some files in this packet are no longer staged.', missing)
+
+    # One reader per staged PDF for the whole build.
+    readers, counts = {}, {}
+    for h, ids in by_hash.items():
+        readers[h], counts[h] = _open_staged(staged_paths[h], ids)
+
+    # The contents renderer (B5) measures its length here before planning.
+    planned = page_plan(plan, counts, contents_pages=1, options=opts)
+    pages = planned['pages']
+
+    for kind in sorted({p['kind'] for p in pages} - {'file', 'blank', 'pad'}):
+        if kind not in _RENDERERS:
+            raise PacketError('unsupported', f'{kind.capitalize()} pages are not available yet.')
+    if not any(p['kind'] in ('file', 'blank') for p in pages):
+        raise PacketError('empty', 'This packet has no pages to build.')
+    if len(pages) > MAX_OUTPUT_PAGES:
+        raise PacketError('too_large', f'This packet would have {len(pages)} pages. '
+                                       f'The limit is {MAX_OUTPUT_PAGES}.')
+
+    # --- Phase 1: assemble every page, then write it to a file. -------------
+    # Routing every source through PdfWriter.append normalizes page and font
+    # resources; stamping the number overlay directly onto raw converter output
+    # can corrupt merged font dicts (missing /Subtype), so, as in
+    # merge_pipeline, numbers are stamped only on the re-read phase-1 document.
+    phase1_path = _phase1(plan, planned, readers, opts, work_dir)
+
+    # --- Phase 2: stamp numbers onto a fresh writer, then the outline. ------
+    reader = PdfReader(phase1_path)
+    writer = PdfWriter()
+    for info, page in zip(pages, reader.pages):
+        with _reading([info['item']] if 'item' in info else []):
+            # Attach the page first; pypdf merges only onto a writer's pages.
+            new_page = writer.add_page(page)
+            if info['print']:
+                _detach(new_page)
+                # Design section 4.8: the number goes in the displayed
+                # orientation, so /Rotate moves into the content first.
+                if new_page.rotation:
+                    new_page.transfer_rotation_to_content()
+                _stamp_upright(new_page, info['label'], opts['number_position'])
+    if opts['bookmarks']:
+        _add_outline(writer, planned)
+    with _reading([]), open(out_path, 'wb') as fh:
+        writer.write(fh)
+    return planned
