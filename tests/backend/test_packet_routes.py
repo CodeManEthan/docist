@@ -1,9 +1,9 @@
 """The packet render and build endpoints (design §4.3, §4.4, §6).
 
-Stage B1. Responses are checked against ``tests/fixtures/packet-api.json``
-with ``packet_helpers.assert_shape``; the page-plan vectors tagged B1 or
-earlier run through the real build endpoint as well as through
-``test_packet_pipeline.py``.
+Stage B1, with B3's cover and divider builds. Responses are checked against
+``tests/fixtures/packet-api.json`` with ``packet_helpers.assert_shape``; the
+page-plan vectors tagged this stage or earlier run through the real build
+endpoint as well as through ``test_packet_pipeline.py``.
 """
 import io
 import json
@@ -20,7 +20,7 @@ from routes import packet_build, packet_stage
 from utils import staging
 
 APP = flask_app_module.app
-STAGE = "B1"
+STAGE = "B3"
 CONSUMER = "pipeline"
 PLAN = json.loads((ph.FIXTURES / "packet-plan.json").read_text(encoding="utf-8"))
 
@@ -286,6 +286,34 @@ def test_build_is_named_after_the_cover_or_packet(client):
     assert body["filename"].endswith("_packet.pdf")
 
 
+def test_build_with_a_cover_and_dividers_is_named_after_the_cover(client):
+    """B3: cover and divider pages build through the endpoint in the build's
+    job, and the stored name comes from the cover title."""
+    a = ph.staged(client, ph.pdf_bytes(2, marker="A"))
+    b = ph.staged(client, ph.pdf_bytes(1, marker="B"))
+    sections = [
+        {"id": "s1", "title": "Resume", "divider": True, "items": [ph.file_item("i1", a)]},
+        {"id": "s2", "title": "References", "divider": True, "items": [ph.file_item("i2", b)]},
+    ]
+    cover = {"title": "Application", "subtitle": "J. Pluto", "date": "", "note": ""}
+    pkt = ph.packet(cover=cover, sections=sections, recto_starts=True)
+    body = ph.assert_shape(ph.build(client, pkt, [a, b]), "build", "ok")
+    assert body["filename"].endswith("_Application.pdf")
+    reader = PdfReader(os.path.join(client.output_dir, body["filename"]))
+    texts = [page.extract_text() or "" for page in reader.pages]
+    # cover, pad, divider, A1, A2, pad, divider, B1
+    assert body["pages"] == len(texts) == 8
+    assert "Application" in texts[0] and "Resume" in texts[2] and "References" in texts[6]
+    assert [o.title for o in reader.outline if not isinstance(o, list)] == ["Resume", "References"]
+
+
+def test_build_refuses_a_cover_whose_fields_are_not_text(client):
+    a = ph.staged(client, ph.pdf_bytes(1))
+    pkt = ph.packet(ph.file_item("i1", a), cover={"title": ["x"]})
+    body = ph.assert_shape(ph.build(client, pkt, [a]), "build", "invalid")
+    assert body["items"] == []
+
+
 def test_build_renews_the_holder_on_every_entry(client):
     a = ph.staged(client, ph.pdf_bytes(1), holder=ph.OTHER_HOLDER)
     pkt = ph.packet(ph.file_item("i1", a))
@@ -386,7 +414,6 @@ def test_build_byte_cap_counts_distinct_staged_pdfs(client, monkeypatch, jobs_ru
 
 
 @pytest.mark.parametrize("pkt_kw,code,name", [
-    ({"cover": {"title": "Cover"}}, "unsupported", "unsupported"),
     ({"contents": True}, "unsupported", "unsupported"),
 ])
 def test_pipeline_refusals_map_to_400_with_their_code(client, pkt_kw, code, name):
@@ -571,9 +598,10 @@ def _vector_params():
 @pytest.mark.parametrize("vector", _vector_params())
 def test_page_plan_vectors_through_the_build_endpoint(client, vector):
     """Stage a PDF for each ready hash, rewrite the vector's hashes and keys to
-    the staged ones, and build. Vectors with a cover, divider or contents page
-    are refused ``unsupported`` until B3 and B5; a hash with no ready row is
-    ``expired`` (the page never sends one); the rest build page for page."""
+    the staged ones, and build. Vectors with a contents page are refused
+    ``unsupported`` until B5; a hash with no ready row is ``expired`` (the
+    page never sends one); the rest build page for page, cover and dividers
+    included (B3)."""
     rows, real = {}, {}
     for fake, count in vector["page_counts"].items():
         row = ph.staged(client, ph.pdf_bytes(count, marker=f"V{fake}"), f"{fake}.pdf")
@@ -599,7 +627,7 @@ def test_page_plan_vectors_through_the_build_endpoint(client, vector):
         body = ph.assert_shape(response, "build", "bad_items", code="expired")
         assert body["items"] == [{"id": i, "code": "expired"} for i in missing]
         return
-    if kinds & {"cover", "divider", "contents"}:
+    if "contents" in kinds:
         ph.assert_shape(response, "build", "unsupported")
         return
     if not vector["expect"]["pages"]:
@@ -616,5 +644,8 @@ def test_page_plan_vectors_through_the_build_endpoint(client, vector):
             assert page.rotation % 360 == want["rot"]
         else:
             assert not any(f"V{fake}-p" in text for fake in real)
+        if want["kind"] == "divider":
+            [section] = [s for s in pkt["sections"] if s["id"] == want["section"]]
+            assert (section["title"] or "Untitled section") in text
         if want["print"]:
             assert str(want["label"]) in text.split()

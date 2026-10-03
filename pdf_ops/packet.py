@@ -18,15 +18,19 @@ refusal as :class:`PacketError` (a ValueError), so it runs unchanged inside the
 build route's job. It imports nothing from ``pdf_ops.jobs`` or
 ``pdf_ops.limits``. Staged inputs are already PDFs; it converts nothing.
 
-Cover, divider and contents pages are planned here but rendered by renderers
-that later stages add to :data:`_RENDERERS`. Until one is registered, a packet
-that needs it is refused with ``unsupported``.
+Cover, divider and contents pages are planned here and drawn by the renderers
+in :data:`_RENDERERS`. Stage B3 registers the cover and divider; until B5
+registers the contents page, a packet that needs one is refused with
+``unsupported``.
 """
 import contextlib
+import io
 import os
 
 from pypdf import PdfReader, PdfWriter, Transformation
 from pypdf.generic import DictionaryObject, NameObject
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfgen import canvas
 
 from converters.options import DEFAULT_PAPER, PAPER_SIZES
 from pdf_ops.merge import VALID_POSITIONS, _add_padding_blank, _number_overlay
@@ -60,8 +64,15 @@ OUT_PART_NAME = 'packet-out.part.pdf'
 # appends exactly one page to ``writer`` for the plan page ``page``, reading
 # its text from ``packet`` (cover, section titles) and ``planned`` (contents
 # entries and labels), at ``opts['paper']``. The divider and cover renderers
-# come with stage B3 and the contents renderer with B5 (design, Build stages).
+# are stage B3's, registered below them; the contents renderer comes with B5
+# (design, Build stages).
 _RENDERERS = {}
+
+# What a section with no title is called on its divider and in the outline,
+# as the page calls its heading.
+UNTITLED_SECTION = 'Untitled section'
+# The cover's text fields (design section 3.1); each is a string when given.
+COVER_FIELDS = ('title', 'subtitle', 'date', 'note')
 
 
 class PacketError(ValueError):
@@ -121,6 +132,8 @@ def _check_shape(packet):
     cover = packet.get('cover')
     if cover is not None and not isinstance(cover, dict):
         raise PacketError('invalid', 'The cover must be an object or null.')
+    if cover is not None and not all(isinstance(cover.get(f, ''), str) for f in COVER_FIELDS):
+        raise PacketError('invalid', "The cover's title, subtitle, date and note must be text.")
     sections = packet.get('sections')
     if not isinstance(sections, list):
         raise PacketError('invalid', 'The packet has no section list.')
@@ -388,14 +401,143 @@ def _stamp_upright(page, label, position):
     page.merge_transformed_page(overlay, Transformation(ctm))
 
 
-def _add_outline(writer, plan):
-    """Flat bookmarks: one per file item, at its first page.
+def _add_outline(writer, plan, packet):
+    """Bookmarks from the plan's entries (design section 3.3 rule 6).
 
-    Stage B3 replaces this with the nested outline (sections, then items).
+    With more than one section in the packet, each planned section is a
+    bookmark at its first page (its divider when it has one) and its file
+    items nest under it. A packet of one section has no section headings on
+    the page, so its file items are top-level bookmarks.
     """
+    nested = len(packet['sections']) > 1
+    parents = {}
     for entry in plan['entries']:
-        if entry['kind'] == 'item':
-            writer.add_outline_item(entry['title'] or 'Untitled', entry['index'])
+        if entry['kind'] == 'section':
+            if nested:
+                parents[entry['id']] = writer.add_outline_item(
+                    _clean(entry['title']) or UNTITLED_SECTION, entry['index'])
+        else:
+            writer.add_outline_item(_clean(entry['title']) or 'Untitled', entry['index'],
+                                    parent=parents.get(entry['section']))
+
+
+# ---------------------------------------------------------------------------
+# Generated pages: cover and divider (stage B3)
+# ---------------------------------------------------------------------------
+_MARGIN = 72
+_LEADING = 1.25
+_ELLIPSIS = '\u2026'
+
+
+def _clean(text):
+    """``text`` on one line: runs of whitespace and control characters become
+    one space. The fields are short single lines (design section 2.1)."""
+    return ' '.join(''.join(ch if ch.isprintable() else ' ' for ch in str(text or '')).split())
+
+
+def _break_word(word, font, size, width):
+    """Pieces of one word too wide for a line, each fitting ``width``."""
+    pieces, piece = [], ''
+    for ch in word:
+        if piece and stringWidth(piece + ch, font, size) > width:
+            pieces.append(piece)
+            piece = ch
+        else:
+            piece += ch
+    return pieces + ([piece] if piece else [])
+
+
+def _wrap(text, font, size, width):
+    """Greedy word wrap; a word wider than a line is broken where it fills one."""
+    lines, line = [], ''
+    for word in text.split(' '):
+        candidate = f'{line} {word}' if line else word
+        if stringWidth(candidate, font, size) <= width:
+            line = candidate
+            continue
+        if line:
+            lines.append(line)
+        pieces = _break_word(word, font, size, width)
+        lines.extend(pieces[:-1])
+        line = pieces[-1] if pieces else ''
+    if line:
+        lines.append(line)
+    return lines
+
+
+def _fit(text, font, size, min_size, width, max_lines):
+    """``(lines, size)`` for ``text``: the largest size from ``size`` down to
+    ``min_size`` at which it fits in ``max_lines``; at ``min_size`` the lines
+    past ``max_lines`` are cut and the last one ends in an ellipsis."""
+    while True:
+        lines = _wrap(text, font, size, width)
+        if len(lines) <= max_lines or size <= min_size:
+            break
+        size = max(min_size, size - 2)
+    if len(lines) > max_lines:
+        last = lines[max_lines - 1]
+        while last and stringWidth(last + _ELLIPSIS, font, size) > width:
+            last = last[:-1]
+        lines = lines[:max_lines - 1] + [last.rstrip() + _ELLIPSIS]
+    return lines, size
+
+
+def _draw_blocks(c, width, height, blocks, centre):
+    """Draw text blocks centred across the page, the stack centred on ``centre``
+    (a height from the bottom). Each block is ``(text, font, size, min_size,
+    max_lines, gap_after)``; empty texts are left out."""
+    laid = []
+    for text, font, size, min_size, max_lines, gap in blocks:
+        text = _clean(text)
+        if text:
+            lines, fitted = _fit(text, font, size, min_size, width - 2 * _MARGIN, max_lines)
+            laid.append((lines, font, fitted, gap))
+    total = sum(len(lines) * size * _LEADING + gap for lines, _f, size, gap in laid)
+    if laid:
+        total -= laid[-1][3]
+    y = centre + total / 2
+    for lines, font, size, gap in laid:
+        c.setFont(font, size)
+        for line in lines:
+            y -= size * _LEADING
+            # The baseline sits a fifth of the leading above the line's bottom.
+            c.drawCentredString(width / 2, y + size * 0.25, line)
+        y -= gap
+
+
+def _generated_page(opts, blocks, centre_ratio):
+    """One page of the packet's paper, portrait, with ``blocks`` drawn on it."""
+    width, height = PAPER_SIZES[opts['paper']]
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(width, height))
+    c.setFillGray(0)
+    _draw_blocks(c, width, height, blocks, height * centre_ratio)
+    c.showPage()
+    c.save()
+    return PdfReader(io.BytesIO(buf.getvalue())).pages[0]
+
+
+def _render_divider(writer, page, packet, planned, opts):
+    """Design section 2.1: the section title, large, centred."""
+    section = next(s for s in packet['sections'] if s['id'] == page['section'])
+    title = _clean(section.get('title', '')) or UNTITLED_SECTION
+    writer.add_page(_generated_page(opts, [(title, 'Helvetica-Bold', 36, 16, 4, 0)], 0.5))
+
+
+def _render_cover(writer, page, packet, planned, opts):
+    """Design section 2.1: title, subtitle, date and a short line of text,
+    centred, a little above the middle of the page."""
+    cover = packet['cover']
+    writer.add_page(_generated_page(opts, [
+        (cover.get('title', ''), 'Helvetica-Bold', 32, 16, 4, 18),
+        (cover.get('subtitle', ''), 'Helvetica', 20, 12, 3, 28),
+        (cover.get('date', ''), 'Helvetica', 13, 10, 2, 22),
+        (cover.get('note', ''), 'Helvetica-Oblique', 12, 9, 3, 0),
+    ], 0.58))
+
+
+_RENDERERS['divider'] = _render_divider
+_RENDERERS['cover'] = _render_cover
 
 
 def _phase1(packet, plan, readers, opts, work_dir):
@@ -517,7 +659,7 @@ def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
                 _detach(new_page)
                 _stamp_upright(new_page, info['label'], opts['number_position'])
     if opts['bookmarks']:
-        _add_outline(writer, planned)
+        _add_outline(writer, planned, plan)
     part_path = os.path.join(work_dir, OUT_PART_NAME)
     try:
         with _reading([]), open(part_path, 'wb') as fh:

@@ -1,6 +1,7 @@
 """Tests for the packet page plan and pipeline (design sections 3.3 and 4.8).
 
-Stage B6's parts of the design section 6 list. The shared page-plan vectors
+Stage B6's parts of the design section 6 list, B1's build-route cases at the
+end, and B3's cover, divider and outline cases. The shared page-plan vectors
 come from tests/fixtures/packet-plan.json; every source PDF is built here with
 reportlab and pypdf.
 """
@@ -24,10 +25,11 @@ from pdf_ops.packet import (
     DEFAULT_OPTIONS, MAX_OUTPUT_PAGES, PHASE1_NAME, PacketError, packet_pipeline, page_plan,
 )
 
-# This file's stage: B6 wrote it, B1 adds the build route's byte-cap and
-# stale cases at the end. The fixture's stage order decides which vectors are
-# later; every vector is tagged B6 for this consumer, so B1 runs them all.
-STAGE = "B1"
+# This file's stage: B6 wrote it, B1 added the build route's byte-cap and
+# stale cases, and B3 the cover, divider and nested-outline cases. The
+# fixture's stage order decides which vectors are later; every vector is
+# tagged B6 for this consumer, so all of them run.
+STAGE = "B3"
 CONSUMER = "pipeline"
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "packet-plan.json"
@@ -501,7 +503,7 @@ def test_mixed_converted_docx_and_scanned_pdf_keep_sound_fonts(tmp_path, builder
         assert fonts is not None   # at least the stamped number's font
         for ref in fonts.get_object().values():
             font = ref.get_object()
-            assert "/Subtype" in font and "/BaseFont" in font
+            assert font is not None and "/Subtype" in font and "/BaseFont" in font
         used = _used_fonts(page)
         assert all(font is not None for _n, font in used), (index, used)
         base = [str(font["/BaseFont"]) for _n, font in used]
@@ -517,17 +519,27 @@ def test_mixed_converted_docx_and_scanned_pdf_keep_sound_fonts(tmp_path, builder
 # ---------------------------------------------------------------------------
 # Bookmarks, phase 1, files written
 # ---------------------------------------------------------------------------
-def test_flat_bookmarks_point_at_each_file_items_first_page(tmp_path):
+def _outline(reader, items=None):
+    """The outline as [(title, page index, [children])]."""
+    out = []
+    for entry in reader.outline if items is None else items:
+        if isinstance(entry, list):
+            title, page, _kids = out[-1]
+            out[-1] = (title, page, _outline(reader, entry))
+        else:
+            out.append((entry.title, reader.get_destination_page_number(entry), []))
+    return out
+
+
+def test_one_section_has_flat_bookmarks_at_each_file_items_first_page(tmp_path):
     a = _pdf(tmp_path / "a.pdf", pages=2)
     b = _pdf(tmp_path / "b.pdf", pages=1)
-    packet = _packet(("A", [_file("i1", "ha", label="resume.docx"), _blank("x")]),
-                     ("B", [_file("i2", "hb", label="refs.pdf"),
-                            _file("i3", "hx", label="not-ready.pdf", pages=[], src_pages=1)]),
-                     recto_starts=True)
+    packet = _packet(("", [_file("i1", "ha", label="resume.docx"), _blank("x"),
+                           _file("i2", "hb", label="refs.pdf"),
+                           _file("i3", "hx", label="not-ready.pdf", pages=[], src_pages=1)]))
     reader, _plan = _build(tmp_path, packet, {"ha": a, "hb": b, "hx": b})
-    outline = [(item.title, reader.get_destination_page_number(item)) for item in reader.outline]
-    # A, A, blank, pad (recto), refs.pdf; the emptied item gets no bookmark.
-    assert outline == [("resume.docx", 0), ("refs.pdf", 4)]
+    # A, A, blank, refs.pdf; the emptied item and the blank get no bookmark.
+    assert _outline(reader) == [("resume.docx", 0, []), ("refs.pdf", 3, [])]
 
 
 def test_bookmarks_off_adds_no_outline(tmp_path):
@@ -753,15 +765,10 @@ def test_nothing_to_build_is_empty(tmp_path):
     assert _refusal(tmp_path, packet, {"ha": a}).code == "empty"
 
 
-@pytest.mark.parametrize("packet", [
-    _packet(("", [_file("i1", "ha")]),
-            cover={"title": "T", "subtitle": "", "date": "", "note": ""}),
-    _packet(("A", [_file("i1", "ha")], True)),
-    _packet(("", [_file("i1", "ha")]), contents=True),
-])
-def test_generated_pages_without_a_renderer_are_unsupported(tmp_path, packet):
-    """Cover and divider renderers come with B3, the contents page with B5."""
+def test_a_contents_page_without_its_renderer_is_unsupported(tmp_path):
+    """The contents renderer comes with B5; cover and divider are B3's."""
     a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha")]), contents=True)
     assert _refusal(tmp_path, packet, {"ha": a}).code == "unsupported"
 
 
@@ -840,3 +847,215 @@ def test_build_route_refuses_refs_that_dont_fit_their_stage_as_stale(client):
     assert body["items"] == [{"id": "i1", "code": "stale"}]
     whole = ph.file_item("i1", letter)
     assert ph.build(client, ph.packet(whole), [a4]).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Stage B3: cover and divider pages, the nested outline (design sections 2.1,
+# 3.3, 4.8)
+# ---------------------------------------------------------------------------
+def _cover(title="Application", subtitle="J. Pluto", date="October 3, 2026", note=""):
+    return {"title": title, "subtitle": subtitle, "date": date, "note": note}
+
+
+def _lines(page):
+    """The page's text shows, numbers left out, in order."""
+    return [text for text, _m in _texts(page) if not _DIGITS.match(text)]
+
+
+def _centres(page):
+    """[(text, x centre)] for every non-number text show on ``page``."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    found = []
+
+    def visit(text, cm, tm, font, size):
+        text = text.strip()
+        if not text or _DIGITS.match(text):
+            return
+        m = _mult(tm, cm)
+        name = font.get("/BaseFont", "/Helvetica")[1:] if font else "Helvetica"
+        found.append((text, m[4] + stringWidth(text, name, size * m[0]) / 2, size * m[0]))
+
+    page.extract_text(visitor_text=visit)
+    return found
+
+
+def test_cover_and_dividers_in_plan_order_with_recto_starts(tmp_path):
+    """The packet the brief asks for: a cover, two sections with dividers and
+    recto starts on. Order, labels, printing and sizes follow the plan."""
+    a = _pdf(tmp_path / "a.pdf", pages=3, marker="A")
+    b = _pdf(tmp_path / "b.pdf", pages=2, marker="B")
+    packet = _packet(("Resume", [_file("i1", "ha")], True),
+                     ("References", [_file("i2", "hb"), _blank("x")], True),
+                     cover=_cover(), recto_starts=True)
+    reader, plan = _build(tmp_path, packet, {"ha": a, "hb": b})
+    kinds = [p["kind"] for p in plan["pages"]]
+    assert kinds == ["cover", "pad", "divider", "file", "file", "file",
+                     "divider", "file", "file", "blank"]
+    assert _markers(reader) == ["Application", None, "Resume", "A page 1", "A page 2",
+                                "A page 3", "References", "B page 1", "B page 2", None]
+    # Front matter has no number; dividers use numbers but don't print them.
+    assert [[n for n, _m in _numbers(p)] for p in reader.pages] == [
+        [], [], [], [2], [3], [4], [], [6], [7], [8]]
+    assert [p["label"] for p in plan["pages"]] == [None, None, 1, 2, 3, 4, 5, 6, 7, 8]
+    assert all(_size(p) == LETTER for p in reader.pages)
+
+
+@pytest.mark.parametrize("paper, size", [("letter", (612.0, 792.0)), ("a4", (595.28, 841.89))])
+def test_divider_is_the_section_title_centred_on_the_packet_paper(tmp_path, paper, size):
+    a4 = _pdf(tmp_path / "a4.pdf", pages=1, size=A4, marker="A")
+    packet = _packet(("Exhibit A", [_file("i1", "h4")], True), paper=paper)
+    reader, _plan = _build(tmp_path, packet, {"h4": a4})
+    divider = reader.pages[0]
+    assert _size(divider) == size and divider.rotation == 0
+    [(text, centre, font_size)] = _centres(divider)
+    assert text == "Exhibit A"
+    assert centre == pytest.approx(size[0] / 2, abs=1)
+    assert font_size == 36
+    [(_t, m)] = [(t, mm) for t, mm in _texts(divider) if t == "Exhibit A"]
+    assert m[5] == pytest.approx(size[1] / 2, abs=40)   # in the middle of the page
+
+
+def test_an_untitled_sections_divider_reads_untitled_section(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1, marker="A")
+    b = _pdf(tmp_path / "b.pdf", pages=1, marker="B")
+    packet = _packet(("", [_file("i1", "ha")], True), ("Two", [_file("i2", "hb")], True))
+    reader, _plan = _build(tmp_path, packet, {"ha": a, "hb": b})
+    assert _markers(reader) == ["Untitled section", "A page 1", "Two", "B page 1"]
+
+
+def test_dividers_print_their_number_upright_when_numbering_generated(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1, marker="A")
+    packet = _packet(("One", [_file("i1", "ha")], True), number_generated=True,
+                     number_position="bottom-center")
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    [(n, m)] = _numbers(reader.pages[0])
+    assert n == 1
+    assert _shown(reader.pages[0], m)[:4] == pytest.approx((1, 0, 0, 1))
+    assert [t for t, _m in _texts(reader.pages[0])] == ["One", "1"]
+
+
+def test_cover_draws_each_field_centred_and_is_never_numbered(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1, marker="A")
+    packet = _packet(("", [_file("i1", "ha")]), page_numbers=True, number_generated=True,
+                     cover=_cover(note="Prepared for Acme Corp."))
+    reader, plan = _build(tmp_path, packet, {"ha": a})
+    cover = reader.pages[0]
+    shown = _centres(cover)
+    assert [t for t, _c, _s in shown] == ["Application", "J. Pluto", "October 3, 2026",
+                                          "Prepared for Acme Corp."]
+    assert all(c == pytest.approx(LETTER[0] / 2, abs=1) for _t, c, _s in shown)
+    sizes = [s for _t, _c, s in shown]
+    assert sizes == sorted(sizes, reverse=True)   # the title is the largest
+    assert _numbers(cover) == []
+    assert plan["pages"][0] == {"kind": "cover", "label": None, "print": False}
+    assert [n for n, _m in _numbers(reader.pages[1])] == [1]
+
+
+def test_cover_leaves_out_empty_fields(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha")]), cover={"title": "Only a title"})
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    assert _lines(reader.pages[0]) == ["Only a title"]
+
+
+def test_a_cover_with_nothing_on_it_is_a_plain_page(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha")]), cover=_cover("", "", "", ""))
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    assert len(reader.pages) == 2 and _lines(reader.pages[0]) == []
+
+
+def test_long_text_wraps_inside_the_margins_and_is_cut_with_an_ellipsis(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    long_title = " ".join(["Considerably"] * 60)
+    unbroken = "X" * 400
+    packet = _packet((unbroken, [_file("i1", "ha")], True),
+                     cover=_cover(title=long_title, subtitle="Line\nbreaks\tand  tabs"))
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    for page in reader.pages[:2]:
+        for text, centre, size in _centres(page):
+            half = stringWidth(text, "Helvetica-Bold", size) / 2
+            assert centre - half >= 72 - 1 and centre + half <= LETTER[0] - 72 + 1, text
+    cover_lines = _lines(reader.pages[0])
+    title_lines = [t for t in cover_lines if t.startswith("Considerably")]
+    assert len(title_lines) == 4 and title_lines[-1].endswith("…")
+    assert "Line breaks and tabs" in cover_lines
+    divider_lines = _lines(reader.pages[1])
+    assert len(divider_lines) == 4 and divider_lines[-1].endswith("…")
+    assert all(set(line.rstrip("…")) == {"X"} for line in divider_lines)
+
+
+@pytest.mark.parametrize("cover", [
+    {"title": 3}, {"title": "T", "subtitle": None}, {"date": ["2026"]}, {"note": {"a": 1}},
+])
+def test_cover_fields_that_are_not_text_are_invalid(tmp_path, cover):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha")]), cover=cover)
+    assert _refusal(tmp_path, packet, {"ha": a}).code == "invalid"
+
+
+def test_outline_nests_files_under_their_sections(tmp_path):
+    """Design section 3.3 rule 6: each section points at its divider when it
+    has one, else its first page; its file items nest under it; blanks, empty
+    items and sections that give no page get no bookmark."""
+    a = _pdf(tmp_path / "a.pdf", pages=2)
+    b = _pdf(tmp_path / "b.pdf", pages=1)
+    packet = _packet(("Resume", [_file("i1", "ha", label="resume.docx"), _blank("x")], True),
+                     ("", [_file("i2", "hb", label="refs.pdf"),
+                           _file("i3", "hx", label="not-ready.pdf", pages=[], src_pages=1),
+                           _file("i4", "ha", label="again.pdf", pages=_refs((1, 0)),
+                                 src_pages=2)]),
+                     ("Empty", [], True),
+                     cover=_cover(), recto_starts=True)
+    reader, _plan = _build(tmp_path, packet, {"ha": a, "hb": b, "hx": b})
+    # cover, pad, divider, A1, A2, blank, refs, again
+    assert _outline(reader) == [
+        ("Resume", 2, [("resume.docx", 3, [])]),
+        ("Untitled section", 6, [("refs.pdf", 6, []), ("again.pdf", 7, [])]),
+    ]
+
+
+def test_bookmarks_off_adds_no_outline_with_sections(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("A", [_file("i1", "ha")], True), ("B", [_blank("x")]), bookmarks=False)
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    assert reader.outline == []
+
+
+def test_a_blank_after_a_divider_matches_the_body_page_before_the_divider(tmp_path):
+    """Design section 2.1: a blank skips any cover or divider to size itself."""
+    a4 = _pdf(tmp_path / "a4.pdf", pages=1, size=A4)
+    packet = _packet(("One", [_file("i1", "h4")]), ("Two", [_blank("x")], True),
+                     paper="letter")
+    reader, _plan = _build(tmp_path, packet, {"h4": a4})
+    assert [_size(p) for p in reader.pages] == [(595.28, 841.89), (612.0, 792.0),
+                                                (595.28, 841.89)]
+
+
+def test_a_blank_after_only_a_cover_takes_the_packet_paper(tmp_path):
+    a4 = _pdf(tmp_path / "a4.pdf", pages=1, size=A4)
+    packet = _packet(("", [_blank("x"), _file("i1", "h4")]), paper="letter",
+                     cover=_cover())
+    reader, _plan = _build(tmp_path, packet, {"h4": a4})
+    assert [_size(p) for p in reader.pages] == [(612.0, 792.0)] * 2 + [(595.28, 841.89)]
+
+
+def test_generated_pages_keep_sound_fonts_beside_a_converted_docx(tmp_path, builders):
+    """Font-dict safety (design section 4.8): a cover and a numbered divider
+    (reportlab Helvetica, as the converter and the overlay use) built beside
+    converted DOCX pages leave every font the content selects whole."""
+    docx = builders.docx(tmp_path / "doc.docx")
+    converted = tmp_path / "doc.pdf"
+    docx_converter.convert(str(docx), str(converted))
+    packet = _packet(("Letter", [_file("i1", "hd", label="doc.docx")], True),
+                     ("Again", [_file("i2", "hd", label="doc.docx")], True),
+                     cover=_cover(), number_generated=True)
+    reader, plan = _build(tmp_path, packet, {"hd": str(converted)})
+    assert [p["kind"] for p in plan["pages"]][:3] == ["cover", "divider", "file"]
+    for page in reader.pages:
+        used = _used_fonts(page)
+        assert used
+        for _name, font in used:
+            assert font is not None and "/Subtype" in font and "/BaseFont" in font
+    assert _markers(reader)[:2] == ["Application", "Letter"]
