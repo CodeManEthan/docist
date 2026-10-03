@@ -53,7 +53,7 @@ both *reading* and *writing* of HEIF via Pillow's ``save(..., "HEIF")``.
 import re
 
 import pillow_heif
-from PIL import Image
+from PIL import Image, ImageOps
 
 from pdf_ops import limits
 
@@ -115,18 +115,26 @@ def _has_alpha(img):
 
 
 def _flatten_to_rgb(img):
-    """RGB copy with any transparency composited onto a white background."""
+    """RGB copy with any transparency composited onto a white background.
+
+    White is pasted through the inverted alpha band onto the RGB copy, the
+    same result as compositing onto white without a full-size RGBA copy, RGBA
+    background and composite (Rule D; as ``ocr_text._flatten_to_white``).
+    """
     if _has_alpha(img):
-        rgba = img.convert('RGBA')
-        background = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
-        return Image.alpha_composite(background, rgba).convert('RGB')
+        source = img if img.mode in ('RGBA', 'LA') else img.convert('RGBA')
+        alpha = source.getchannel('A')
+        rgb = img.convert('RGB')
+        rgb.paste((255, 255, 255), None, ImageOps.invert(alpha))
+        return rgb
     return img.convert('RGB')
 
 
 def _prep_keep_alpha(img):
-    """Normalise a frame for a target codec that supports alpha."""
+    """Normalise a frame for a target codec that supports alpha (an RGBA
+    frame is used as it is, not copied)."""
     if _has_alpha(img):
-        return img.convert('RGBA')
+        return img if img.mode == 'RGBA' else img.convert('RGBA')
     if img.mode in ('RGB', 'L'):
         return img
     return img.convert('RGB')
@@ -155,10 +163,11 @@ def _convert(input_path, output_path, target_fmt):
 
     try:
         out.save(output_path, target_fmt, **save_kwargs)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         if target_fmt == 'WEBP' and _WEBP_OUT_OF_MEMORY.search(str(exc)):
             # libwebp's VP8_ENC_ERROR_OUT_OF_MEMORY (1): the encoder ran out of
-            # the job's memory, but Pillow reports it as a plain OSError. Give
+            # the job's memory, but Pillow 12.3 reports it as a plain
+            # ValueError ("encoding error 1"; OSError too, to be safe). Give
             # the ruled memory refusal, not Pillow's text and a server path.
             raise limits.LimitError(limits.memory_message(), kind='memory') from exc
         raise TransformError(

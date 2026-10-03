@@ -637,21 +637,22 @@ def test_minor_1_a_small_body_limit_still_answers_json(api, monkeypatch):
 # --------------------------------------------------------------------------
 # Fixes after build verification
 # --------------------------------------------------------------------------
-def _webp_save_fails(monkeypatch, text):
+def _webp_save_fails(monkeypatch, text, error=ValueError):
     real = Image.Image.save
 
     def save(self, fp, format=None, **params):
         if format == 'WEBP':
-            raise OSError(text)
+            raise error(text)
         return real(self, fp, format, **params)
     monkeypatch.setattr(Image.Image, 'save', save)
 
 
 @pytest.mark.parametrize('path', ['/convert/run', '/api/v1/convert'])
-def test_webp_encoder_out_of_memory_is_the_memory_refusal(api, monkeypatch, path):
+@pytest.mark.parametrize('error_type', [ValueError, OSError])
+def test_webp_encoder_out_of_memory_is_the_memory_refusal(api, monkeypatch, path, error_type):
     """Build verification MAJOR-2 (a): libwebp's error 1 is
-    VP8_ENC_ERROR_OUT_OF_MEMORY; Pillow raises it as a plain OSError."""
-    _webp_save_fails(monkeypatch, 'encoding error 1')
+    VP8_ENC_ERROR_OUT_OF_MEMORY; Pillow 12.3 raises it as a plain ValueError."""
+    _webp_save_fails(monkeypatch, 'encoding error 1', error_type)
     response = post(api, path, {'file': (png_bytes((40, 30), 'RGBA', (1, 2, 3, 4)), 'a.png')},
                     target='.webp')
     assert response.status_code == 400
@@ -666,3 +667,23 @@ def test_other_webp_encoder_errors_stay_ordinary(tmp_path, monkeypatch):
     src.write_bytes(png_bytes())
     with pytest.raises(TransformError, match='encoding error 6'):
         images._convert(str(src), str(tmp_path / 'a.webp'), 'WEBP')
+
+
+@pytest.mark.parametrize('mode,color', [('RGBA', (255, 0, 0, 128)), ('LA', (0, 128))])
+def test_images_flatten_to_rgb_matches_compositing_onto_white(mode, color):
+    """Build verification MINOR-4: the alpha-mask paste gives what
+    alpha_composite onto white gave."""
+    from transforms import images
+    src = Image.new(mode, (50, 40), color)
+    flat = images._flatten_to_rgb(src)
+    rgba = src.convert('RGBA')
+    expected = Image.alpha_composite(Image.new('RGBA', rgba.size, (255,) * 4), rgba).convert('RGB')
+    assert flat.mode == 'RGB'
+    for got, want in zip(flat.getpixel((5, 5)), expected.getpixel((5, 5))):
+        assert abs(got - want) <= 1
+
+
+def test_prep_keep_alpha_doesnt_copy_an_rgba_frame():
+    from transforms import images
+    src = Image.new('RGBA', (8, 8), (1, 2, 3, 4))
+    assert images._prep_keep_alpha(src) is src
