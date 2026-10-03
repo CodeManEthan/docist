@@ -397,6 +397,21 @@ test('a stage is released only when the packet, past and future all drop its has
     assert.deepEqual(M.keepIds(r.state), [stage(HA, 3).stage_id]);
 });
 
+test('a stage named only by the redo stack stays held until a change clears it', () => {
+    let s = M.emptyState('letter');
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: HA, label: 'a.pdf' }]));
+    s = M.bindStage(s, HA, stage(HA, 3)).state;
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: HC, label: 'c.pdf' }]));
+    s = M.bindStage(s, HC, stage(HC, 1)).state;
+    s = M.undo(s);
+    let r = M.releaseUnnamed(s);
+    assert.deepEqual(r.release, [], 'future still names c, so redo brings it back ready');
+    assert.ok(r.state.table[HC]);
+    s = M.commit(r.state, M.setOption(r.state.packet, 'start_number', 3));
+    r = M.releaseUnnamed(s);
+    assert.deepEqual(r.release, [stage(HC, 1).stage_id]);
+});
+
 test('two cards of one file are one hold', () => {
     let s = twoFiles();
     s = M.commit(s, M.addFiles(s.packet, [{ hash: HA, label: 'a.pdf' }]));
@@ -853,6 +868,17 @@ test('old drafts are pruned at load, keeping the 10 newest', () => {
     assert.deepEqual(removed.sort(), ['junk', 'old', 't10', 't11'].sort());
     assert.equal(M.listDrafts(store).length, 10);
     assert.equal(store.getItem('docist.paper'), 'a4', 'other keys are left alone');
+});
+
+test('drafts older than the maximum age are pruned even when fewer than 10 are kept', () => {
+    const store = new MemoryStorage();
+    const now = 100 * 3600 * 1000;
+    const maxAge = 24 * 3600 * 1000;
+    M.saveDraft(store, 'fresh', M.emptyPacket(), {}, now - 1000);
+    M.saveDraft(store, 'edge', M.emptyPacket(), {}, now - maxAge);
+    M.saveDraft(store, 'stale', M.emptyPacket(), {}, now - maxAge - 1);
+    assert.deepEqual(M.pruneDrafts(store, now, maxAge, 10), ['stale']);
+    assert.deepEqual(M.listDrafts(store).map(d => d.tabId), ['fresh', 'edge']);
 });
 
 test('storage that throws is survived', () => {
