@@ -178,4 +178,11 @@ PDF's bookmarks are Resume and References, each with its files nested
 under it. Section up/down, collapse, delete (its files move to the
 neighbouring section, with Undo) and the divider's Edit text form all
 work by keyboard, and Escape in a section name puts the old name back.
+Deleting a section by keyboard leaves focus on the menu of the section that
+took its files. Drag a file from the desktop onto the cover card, onto a
+divider card, onto a section heading and into the gap between two sections:
+each drop adds a card at the start of that section (the first section for
+the cover) and the insertion line shows there first. Type "Łódź" as the
+cover title: the form says Ł and ź can't be printed, and the card and the
+PDF both show "■ód■".
 - [ ] Pass
