@@ -2,12 +2,13 @@
   "version": 1,
   "description": "Packet builder endpoint shapes (design.md §4.3). B2's fake server serves these bodies; B1's route tests assert their responses against them. A change to an endpoint's shape is a change to this file, made on the branch that owns it at the time, in a fixture-only commit.",
   "conventions": {
-    "refusal_body": "Every refusal is JSON with a human `error` string. Every packet refusal also carries a `code`. Only two shared refusals have no code: the CSRF 400 and the POST rate-limit 429 (see shared below).",
+    "refusal_body": "Every refusal is JSON with a human `error` string. Every packet refusal also carries a `code`. Only two shared refusals have no code: the CSRF 400 and the POST rate-limit 429 (see shared below). A launch-hardening limit (LimitError) in a packet route's own job is answered by that route with a code, never by the app-wide handler, which has none: `rejected` on stage, `limit` on thumb, page and build.",
     "ids": "stage_id is secrets.token_urlsafe(16): 22 characters of [A-Za-z0-9_-]. holder (the tab id) is 22 to 32 characters of the same alphabet.",
     "key": "hash:engine:paper. hash is the sha256 of the uploaded bytes in lowercase hex. A PDF has empty engine and paper, so its key is '<hash>::' whatever the paper.",
     "type": "The upload's extension, lowercase, without the dot.",
     "not_found": "A bad id, a bad page index, an expired id and another owner's id all get the same 404. The client reads any 404 on a staged id as expired.",
-    "build_refusal": "A build refusal from the packet checks or from packet_pipeline's PacketError is 400 {error, code, items}: code is PacketError.code (the first item's code when items is not empty), items lists {id, code} for each bad item and is empty for a packet-wide refusal. Item codes: expired, stale, out_of_range, unreadable, encrypted, invalid. Packet-wide codes: invalid, empty, too_large (over the per-build byte cap, or over 2000 output pages), unsupported (a cover, divider or contents page with no renderer yet)."
+    "build_refusal": "A build refusal from the packet checks or from packet_pipeline's PacketError is 400 {error, code, items}: code is PacketError.code (the first item's code when items is not empty), items lists {id, code} for each bad item and is empty for a packet-wide refusal. Item codes: expired, stale, out_of_range, unreadable, encrypted, invalid. Packet-wide codes: invalid, empty, too_large (over the per-build byte cap, or over 2000 output pages), unsupported (a cover, divider or contents page with no renderer yet), limit (a launch-hardening limit in the build's job).",
+    "json_bodies": "hold and build read a JSON body of at most 1 MiB (pdf_ops/limits.FORM_FIELD_BYTES). A larger body is the 413 upload_too_large with limit_mb 1, before it is parsed."
   },
   "samples": {
     "holder": "EZM1BEvzSWxoVlti-shb3w",
@@ -57,6 +58,14 @@
             "bytes": 1830554
           }
         },
+        "bad_request": {
+          "status": 400,
+          "note": "A malformed form: no file part or more than one file, a file part with no name, a paper other than letter or a4, or a holder that isn't 22 to 32 characters of [A-Za-z0-9_-].",
+          "body": {
+            "error": "Bad stage request.",
+            "code": "bad_request"
+          }
+        },
         "rejected": {
           "status": 400,
           "note": "The file can't be read or converted: validate_upload, a converter error, or one of launch-hardening's limits. `error` is the short reason the card shows. A PDF the job can't open is `unreadable`; one that needs a password is `encrypted` (below).",
@@ -94,12 +103,13 @@
             "error": "Over your staging limit.",
             "code": "staging_quota",
             "cap_bytes": 209715200,
-            "cap_files": 200,
+            "cap_files": 100,
             "subject_bytes": 207618048,
             "subject_files": 31,
             "holder_bytes": 188743680,
             "holder_files": 27
-          }
+          },
+          "note": "The ruled caps (round note [C5]): 200 MB and 100 files per subject."
         },
         "staging_full": {
           "status": 400,
@@ -110,7 +120,7 @@
         },
         "upload_too_large": {
           "status": 413,
-          "note": "From utils/uploads.py (too_large), unchanged.",
+          "note": "From utils/uploads.py, unchanged: the body over the request limit (too_large), and also a text field over 1 MiB, too many parts, or a chunked body over the limit (its 413 handler, same code and fields).",
           "body": {
             "error": "This upload is over the 50 MB limit.",
             "code": "upload_too_large",
@@ -125,6 +135,14 @@
           "body": {
             "error": "Another file is still being prepared. Trying again shortly.",
             "code": "busy"
+          }
+        },
+        "server_error": {
+          "status": 500,
+          "note": "Not a refusal: the server failed (the job couldn't start, or the disk failed). The card shows error.",
+          "body": {
+            "error": "Docist couldn't stage this file. Try again.",
+            "code": "server_error"
           }
         }
       }
@@ -166,6 +184,16 @@
           "body": {
             "error": "Bad hold request.",
             "code": "bad_request"
+          },
+          "note": "A body that isn't a JSON object, a holder of the wrong shape, keep or release not lists of strings, an id in both lists, or over 500 ids."
+        },
+        "upload_too_large": {
+          "status": 413,
+          "note": "A JSON body over 1 MiB (conventions.json_bodies).",
+          "body": {
+            "error": "This request is over the 1 MB limit.",
+            "code": "upload_too_large",
+            "limit_mb": 1
           }
         }
       }
@@ -193,6 +221,14 @@
             "code": "not_found"
           }
         },
+        "limit": {
+          "status": 400,
+          "note": "A launch-hardening limit other than the frame limit (memory, time) stopped the render. The client leaves the tile's placeholder.",
+          "body": {
+            "error": "This took longer than Docist allows for one request (90 seconds, counting the upload). Try a smaller file or fewer pages.",
+            "code": "limit"
+          }
+        },
         "busy": {
           "status": 429,
           "headers": {
@@ -201,6 +237,13 @@
           "body": {
             "error": "Too many previews at once.",
             "code": "busy"
+          }
+        },
+        "server_error": {
+          "status": 500,
+          "body": {
+            "error": "Docist couldn't render this page.",
+            "code": "server_error"
           }
         }
       }
@@ -227,6 +270,14 @@
             "code": "not_found"
           }
         },
+        "limit": {
+          "status": 400,
+          "note": "A launch-hardening limit other than the frame limit (memory, time) stopped the render. The client leaves the tile's placeholder.",
+          "body": {
+            "error": "This took longer than Docist allows for one request (90 seconds, counting the upload). Try a smaller file or fewer pages.",
+            "code": "limit"
+          }
+        },
         "busy": {
           "status": 429,
           "headers": {
@@ -235,6 +286,13 @@
           "body": {
             "error": "Too many previews at once.",
             "code": "busy"
+          }
+        },
+        "server_error": {
+          "status": 500,
+          "body": {
+            "error": "Docist couldn't render this page.",
+            "code": "server_error"
           }
         }
       }
@@ -316,7 +374,7 @@
         },
         "invalid": {
           "status": 400,
-          "note": "A malformed packet, item or options. items lists the bad items when known.",
+          "note": "A malformed packet, item or options, or a body without a packet object, a stages object of strings, and a holder of the right shape. items lists the bad items when known.",
           "body": {
             "error": "This packet is malformed.",
             "code": "invalid",
@@ -345,6 +403,24 @@
             "items": []
           }
         },
+        "limit": {
+          "status": 400,
+          "note": "A launch-hardening limit (memory, time, a file over the size cap) stopped the build's job. error is the limit's own message.",
+          "body": {
+            "error": "This file needs more memory to convert than Docist allows for one request. Try a smaller file or split it.",
+            "code": "limit",
+            "items": []
+          }
+        },
+        "upload_too_large": {
+          "status": 413,
+          "note": "A JSON body over 1 MiB (conventions.json_bodies). No items: the body was not read.",
+          "body": {
+            "error": "This request is over the 1 MB limit.",
+            "code": "upload_too_large",
+            "limit_mb": 1
+          }
+        },
         "daily_limit": {
           "status": 429,
           "headers": {
@@ -354,7 +430,9 @@
           "body": {
             "error": "You've used today's 10 free operations. Create a free account and verify your email for 20 a day at /signup — or come back after midnight UTC.",
             "code": "daily_limit",
-            "limit": 10
+            "limit": 10,
+            "used": 10,
+            "signup_url": "/signup"
           }
         },
         "busy": {
@@ -365,6 +443,15 @@
           "body": {
             "error": "Another file is still being prepared. Trying again shortly.",
             "code": "busy"
+          }
+        },
+        "server_error": {
+          "status": 500,
+          "note": "Not a refusal: the server failed. items is empty.",
+          "body": {
+            "error": "Docist couldn't build this packet. Try again.",
+            "code": "server_error",
+            "items": []
           }
         }
       }
