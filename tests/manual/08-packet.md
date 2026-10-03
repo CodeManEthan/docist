@@ -8,8 +8,8 @@ updated: 2026-10-03
 
 # 08 — Packet Builder
 
-The page is `/packet`. No nav link points to it until the packet round's
-[B4]; type the URL.
+The page is `/packet`. Every page's nav links to it as "Packet Builder",
+beside Merge, and the merge page links to it under its heading.
 
 **Two servers.** Until the packet endpoints ([B1]) land, run the dev fake,
 which serves the shapes in `tests/fixtures/packet-api.json` from memory and
