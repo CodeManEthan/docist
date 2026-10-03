@@ -1,7 +1,8 @@
 """Tests for the packet page plan and pipeline (design sections 3.3 and 4.8).
 
 Stage B6's parts of the design section 6 list, B1's build-route cases at the
-end, B3's cover, divider and outline cases, and B5's contents page. The shared page-plan vectors
+end, B3's cover, divider and outline cases, B5's contents page, and B7's
+number placement. The shared page-plan vectors
 come from tests/fixtures/packet-plan.json; every source PDF is built here with
 reportlab and pypdf.
 """
@@ -16,21 +17,23 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.annotations import Link
 from pypdf.generic import ContentStream
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from converters import docx_converter
 from pdf_ops import packet as packet_mod
-from pdf_ops.merge import _number_overlay
+from pdf_ops.merge import _number_overlay, _number_xy
 from pdf_ops.packet import (
     DEFAULT_OPTIONS, MAX_OUTPUT_PAGES, PHASE1_NAME, PacketError, packet_pipeline, page_plan,
 )
 
 # This file's stage: B6 wrote it, B1 added the build route's byte-cap and
 # stale cases, B3 the cover, divider and nested-outline cases, and B5 the
-# contents page. The
-# fixture's stage order decides which vectors are later; every vector is
-# tagged B6 for this consumer, so all of them run.
-STAGE = "B5"
+# contents page, and B7 the number placement (its vectors under
+# placement_vectors). The fixture's stage order decides which vectors are
+# later; every page-plan vector is tagged B6 for this consumer, so all of
+# them run.
+STAGE = "B7"
 CONSUMER = "pipeline"
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "packet-plan.json"
@@ -196,6 +199,35 @@ def test_fixture_lists_its_stage_order_and_tags():
     order = PLAN_FIXTURE["stage_order"]
     assert STAGE in order
     for vector in PLAN_FIXTURE["vectors"]:
+        assert set(vector["stage"]) == {"pipeline", "model"}
+        assert all(tag in order for tag in vector["stage"].values())
+
+
+def _placement_params():
+    order = PLAN_FIXTURE["stage_order"]
+    params = []
+    for vector in PLAN_FIXTURE["placement_vectors"]:
+        tag = vector["stage"][CONSUMER]
+        marks = []
+        if order.index(tag) > order.index(STAGE):
+            marks.append(pytest.mark.skip(reason=f"vector tagged {tag}, later than {STAGE}"))
+        params.append(pytest.param(vector, id=vector["name"], marks=marks))
+    return params
+
+
+@pytest.mark.parametrize("vector", _placement_params())
+def test_number_placement_vectors(vector):
+    """Design section 3.3 rule 7: the stamp's placement, as the page script's."""
+    x, y, align = _number_xy(vector["number_position"], vector["width"])
+    want = vector["expect"]
+    assert x == pytest.approx(want["x"], abs=1e-6)
+    assert (y, align) == (want["y"], want["align"])
+
+
+def test_placement_vectors_are_tagged_like_the_plan_vectors():
+    order = PLAN_FIXTURE["stage_order"]
+    assert "B7" in order
+    for vector in PLAN_FIXTURE["placement_vectors"]:
         assert set(vector["stage"]) == {"pipeline", "model"}
         assert all(tag in order for tag in vector["stage"].values())
 
@@ -1413,3 +1445,95 @@ def test_the_contents_page_keeps_sound_fonts_beside_a_converted_docx(tmp_path, b
     for page in reader.pages:
         for _name, font in _used_fonts(page):
             assert font is not None and "/Subtype" in font and "/BaseFont" in font
+
+
+# ---------------------------------------------------------------------------
+# B7: where the number sits (design section 3.3 rule 7)
+# ---------------------------------------------------------------------------
+LANDSCAPE = (792.0, 612.0)
+
+
+def _extent(page, label):
+    """The stamped number's text as displayed: (left, right, baseline), from
+    the text matrix pypdf's visitor reports and Helvetica 10's advance widths.
+    The number must be upright as displayed."""
+    [(number, m)] = _numbers(page)
+    assert number == label
+    a_, b_, c_, d_, x, y = _shown(page, m)
+    assert (round(a_, 3), round(b_, 3), round(c_, 3), round(d_, 3)) == (1, 0, 0, 1)
+    return x, x + stringWidth(str(label), "Helvetica", 10), y
+
+
+@pytest.mark.parametrize("rot", [0, 90, 180, 270])
+@pytest.mark.parametrize("size", [LETTER, A4, LANDSCAPE], ids=["letter", "a4", "landscape"])
+@pytest.mark.parametrize("position", ["bottom-left", "bottom-center", "bottom-right"])
+def test_the_stamped_number_sits_where_rule_7_puts_it(tmp_path, position, size, rot):
+    src = _pdf(tmp_path / "s.pdf", pages=1, size=size)
+    packet = _packet(("", [_file("i1", "hs", pages=_refs((0, rot)), src_pages=1)]),
+                     number_position=position, start_number=128)
+    reader, _plan = _build(tmp_path, packet, {"hs": src})
+    page = reader.pages[0]
+    width, _height = _shown_size(page)
+    assert width == pytest.approx(size[1] if rot in (90, 270) else size[0], abs=0.01)
+    left, right, baseline = _extent(page, 128)
+    assert baseline == pytest.approx(30)
+    if position == "bottom-left":
+        assert left == pytest.approx(50)
+    elif position == "bottom-right":
+        assert left == pytest.approx(width - 50, abs=0.01)
+    else:
+        # [C10]: centred on the midline, within 1 pt.
+        assert abs((left + right) / 2 - width / 2) <= 1
+        assert left == pytest.approx(width / 2 - stringWidth("128", "Helvetica", 10) / 2,
+                                     abs=0.01)
+
+
+def test_bottom_center_is_centred_on_a_source_rotated_page_and_its_blank(tmp_path):
+    src = _pdf(tmp_path / "s.pdf", pages=1, size=A4, rotate=90)
+    packet = _packet(("", [_file("i1", "hs"), _blank("b1")]),
+                     number_position="bottom-center", start_number=7)
+    reader, _plan = _build(tmp_path, packet, {"hs": src})
+    for page, label in zip(reader.pages, (7, 8)):
+        assert page.rotation == 90
+        width, _height = _shown_size(page)
+        assert width == 841.89
+        left, right, baseline = _extent(page, label)
+        assert abs((left + right) / 2 - width / 2) <= 1 and baseline == pytest.approx(30)
+
+
+def _cropped(path, size, crop, media=None):
+    """A one-page PDF of ``size`` with its crop box set to ``crop``
+    ((x0, y0, x1, y1)), and its media box moved to ``media`` when given."""
+    _pdf(path, pages=1, size=size)
+    reader = PdfReader(str(path))
+    writer = PdfWriter()
+    page = writer.add_page(reader.pages[0])
+    if media:
+        page.mediabox.lower_left = media[:2]
+        page.mediabox.upper_right = media[2:]
+    page.cropbox.lower_left = crop[:2]
+    page.cropbox.upper_right = crop[2:]
+    with open(path, "wb") as fh:
+        writer.write(fh)
+    return str(path)
+
+
+def test_a_crop_box_larger_than_the_media_box_is_clipped_to_it(tmp_path):
+    """Viewers and pdfium show the crop box clipped to the media box, and the
+    stage's sizes say the same (section 4.2), so the stamp places by it."""
+    path = _cropped(tmp_path / "c.pdf", LETTER, (-100, -100, 700, 900))
+    packet = _packet(("", [_file("i1", "hc")]), number_position="bottom-center")
+    reader, _plan = _build(tmp_path, packet, {"hc": path})
+    [(_n, m)] = _numbers(reader.pages[0])
+    assert m[4] + stringWidth("1", "Helvetica", 10) / 2 == pytest.approx(306)
+    assert m[5] == pytest.approx(30)
+
+
+def test_a_blank_after_a_cropped_page_is_placed_by_the_media_box(tmp_path):
+    path = _cropped(tmp_path / "c.pdf", LETTER, (100, 150, 500, 700))
+    packet = _packet(("", [_file("i1", "hc"), _blank("b1")]), number_position="bottom-right")
+    reader, _plan = _build(tmp_path, packet, {"hc": path})
+    blank = reader.pages[1]
+    assert _size(blank) == (612.0, 792.0)
+    left, _right, baseline = _extent(blank, 2)
+    assert left == pytest.approx(562) and baseline == pytest.approx(30)

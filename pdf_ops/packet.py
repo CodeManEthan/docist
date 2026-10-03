@@ -393,17 +393,36 @@ _DISPLAY_TO_USER = {
 }
 
 
+def visible_box(page):
+    """The part of ``page`` a viewer shows: its crop box clipped to its media
+    box, as ``(left, bottom, width, height)`` in user space. pdfium renders
+    the same box, so the page images and the stamp agree (design packet-builder
+    §3.3 rule 7, §4.2 Convert ``sizes``). A crop box that misses the media box
+    entirely leaves the media box."""
+    media = page.mediabox
+    crop = page.cropbox
+    mx0, mx1 = sorted((float(media.left), float(media.right)))
+    my0, my1 = sorted((float(media.bottom), float(media.top)))
+    cx0, cx1 = sorted((float(crop.left), float(crop.right)))
+    cy0, cy1 = sorted((float(crop.bottom), float(crop.top)))
+    x0, x1 = max(mx0, cx0), min(mx1, cx1)
+    y0, y1 = max(my0, cy0), min(my1, cy1)
+    if x1 <= x0 or y1 <= y0:
+        x0, x1, y0, y1 = mx0, mx1, my0, my1
+    return x0, y0, x1 - x0, y1 - y0
+
+
 def _stamp_upright(page, label, position):
     """Stamp ``label`` with the merge overlay, upright in the page as displayed.
 
     Design section 4.8: the number goes in the displayed orientation. The page
     keeps its /Rotate and its content; the overlay is drawn at the displayed
-    size of the visible (crop) box and merged through the inverse of the
-    display rotation, so nothing already on the page moves, links and form
-    fields included.
+    size of the visible box (:func:`visible_box`) and merged through the
+    inverse of the display rotation, so nothing already on the page moves,
+    links and form fields included. Where in the displayed page is §3.3
+    rule 7 (``_number_xy``).
     """
-    box = page.cropbox
-    width, height = float(box.width), float(box.height)
+    left, bottom, width, height = visible_box(page)
     rotation = int(page.rotation) % 360
     if rotation not in _DISPLAY_TO_USER:
         rotation = 0   # not a quarter turn: viewers ignore it, so do we
@@ -413,7 +432,7 @@ def _stamp_upright(page, label, position):
         shown_w, shown_h = width, height
     overlay = _number_overlay(label, shown_w, position, shown_h)
     a, b, c, d, e, f = _DISPLAY_TO_USER[rotation](width, height)
-    ctm = (a, b, c, d, e + float(box.left), f + float(box.bottom))
+    ctm = (a, b, c, d, e + left, f + bottom)
     page.merge_transformed_page(overlay, Transformation(ctm))
 
 

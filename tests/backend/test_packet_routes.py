@@ -20,7 +20,7 @@ from routes import packet_build, packet_stage
 from utils import staging
 
 APP = flask_app_module.app
-STAGE = "B5"
+STAGE = "B7"
 CONSUMER = "pipeline"
 PLAN = json.loads((ph.FIXTURES / "packet-plan.json").read_text(encoding="utf-8"))
 

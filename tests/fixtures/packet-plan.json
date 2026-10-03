@@ -1,10 +1,14 @@
 {
   "about": "Shared page-plan vectors for the packet builder (design.md section 3.3). pdf_ops/packet.py page_plan and static/packet-model.js must both turn each vector's packet, page_counts and contents_pages into exactly its expect.",
   "version": 1,
-  "stage_order": ["B6", "B1", "B2", "B3", "B5", "B4"],
+  "stage_order": ["B6", "B1", "B2", "B3", "B5", "B4", "B7"],
   "consumers": {
     "pipeline": "pdf_ops/packet.py page_plan, run by tests/backend/test_packet_pipeline.py",
     "model": "static/packet-model.js, run by tests/frontend/packet-model.test.js"
+  },
+  "placement_consumers": {
+    "pipeline": "pdf_ops/merge.py _number_xy, run by tests/backend/test_packet_pipeline.py",
+    "model": "static/packet-model.js numberPlacement, run by tests/frontend/packet-model.test.js"
   },
   "rules": [
     "stage maps each consumer to the stage that builds the vector's feature in that consumer.",
@@ -14,7 +18,8 @@
     "contents_pages is the contents page count when options.contents is on; it defaults to 1.",
     "pages lists every physical page in order. index in entries is the 0-based physical page.",
     "label is the printed number or null for front matter; print says whether it is stamped.",
-    "entries list each planned section and each file item that gives a page, in plan order; blank items get none."
+    "entries list each planned section and each file item that gives a page, in plan order; blank items get none.",
+    "placement_vectors (design section 3.3 rule 7, from B7) have their own shape and are not page plans: each gives a number_position and the page's displayed width in points, and expect is the number's anchor x, its baseline y and its align ('left' or 'center'). They carry the same stage tags and follow the same stage_order rule. Compare x to within 1e-6."
   ],
   "option_defaults": {
     "paper": "letter",
@@ -686,5 +691,22 @@
         ]
       }
     }
+  ],
+  "placement_vectors": [
+    {"name": "bottom-left-letter", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 612.0, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-letter", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 612.0, "expect": {"x": 306.0, "y": 30, "align": "center"}},
+    {"name": "bottom-right-letter", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 612.0, "expect": {"x": 562.0, "y": 30, "align": "left"}},
+    {"name": "bottom-left-a4", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 595.276, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-a4", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 595.276, "expect": {"x": 297.638, "y": 30, "align": "center"}},
+    {"name": "bottom-right-a4", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 595.276, "expect": {"x": 545.276, "y": 30, "align": "left"}},
+    {"name": "bottom-left-letter-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 792.0, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-letter-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 792.0, "expect": {"x": 396.0, "y": 30, "align": "center"}},
+    {"name": "bottom-right-letter-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 792.0, "expect": {"x": 742.0, "y": 30, "align": "left"}},
+    {"name": "bottom-left-a4-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 841.89, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-a4-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 841.89, "expect": {"x": 420.945, "y": 30, "align": "center"}},
+    {"name": "bottom-right-a4-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 841.89, "expect": {"x": 791.89, "y": 30, "align": "left"}},
+    {"name": "bottom-left-crop-box", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 400.0, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-crop-box", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 400.0, "expect": {"x": 200.0, "y": 30, "align": "center"}},
+    {"name": "bottom-right-crop-box", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 400.0, "expect": {"x": 350.0, "y": 30, "align": "left"}}
   ]
 }
