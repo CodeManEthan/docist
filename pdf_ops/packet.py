@@ -52,6 +52,8 @@ _BOOL_OPTIONS = ('page_numbers', 'number_generated', 'bookmarks', 'contents', 'r
 
 # Phase 1's document, written under the caller's work_dir.
 PHASE1_NAME = 'packet-phase1.pdf'
+# The finished PDF is written here under work_dir, then moved to out_path.
+OUT_PART_NAME = 'packet-out.part.pdf'
 
 # Generated pages other than blanks and pads, keyed by plan kind. Each
 # renderer is ``render(writer, page, packet, planned, opts) -> None``: it
@@ -65,12 +67,13 @@ _RENDERERS = {}
 class PacketError(ValueError):
     """A build refusal (maps to HTTP 400 with ``code``).
 
-    ``code`` is one of ``invalid`` (malformed packet or options), ``expired``
-    (a file item's hash has no staged PDF), ``stale`` (refs made on a different
-    page count), ``out_of_range`` (a page ref outside its PDF), ``unreadable``
-    (a staged PDF pypdf can't read), ``encrypted`` (a staged PDF that needs a
-    password), ``empty`` (no page to build), ``too_large`` (over the output page
-    cap) or ``unsupported`` (a generated page whose renderer isn't built yet).
+    ``code`` is one of ``invalid`` (malformed packet, options or staged map, or
+    two items with one id), ``expired`` (a file item's hash has no staged PDF),
+    ``stale`` (refs made on a different page count), ``out_of_range`` (a page
+    ref outside its PDF), ``unreadable`` (a staged PDF pypdf can't read),
+    ``encrypted`` (a staged PDF that needs a password), ``empty`` (no page to
+    build), ``too_large`` (over the output page cap) or ``unsupported`` (a
+    generated page whose renderer isn't built yet).
     ``items`` lists ``{'id': item_id, 'code': code}`` for each bad item, so a
     refusal can mark every one; the first item's code is ``code``.
     """
@@ -123,6 +126,7 @@ def _check_shape(packet):
         raise PacketError('invalid', 'The packet has no section list.')
 
     bad = []
+    seen = set()
     for section in sections:
         if not (isinstance(section, dict) and isinstance(section.get('id'), str)
                 and isinstance(section.get('title', ''), str)
@@ -132,6 +136,11 @@ def _check_shape(packet):
         for item in section['items']:
             if not isinstance(item, dict) or not isinstance(item.get('id'), str):
                 raise PacketError('invalid', 'An item is malformed.')
+            if item['id'] in seen:
+                # Entries and refusals name items by id, so ids must be unique.
+                raise PacketError('invalid', f"Two items share the id '{item['id']}'.",
+                                  [{'id': item['id'], 'code': 'invalid'}])
+            seen.add(item['id'])
             if not _item_shape_ok(item):
                 bad.append({'id': item['id'], 'code': 'invalid'})
     if bad:
@@ -153,7 +162,9 @@ def _item_shape_ok(item):
     pages = item.get('pages')
     if pages is None:
         return True
-    if not isinstance(pages, list):
+    # Design section 4.3: explicit refs carry the page count they were made
+    # on, so the fit check below always has one to compare.
+    if not isinstance(pages, list) or 'src_pages' not in item:
         return False
     for ref in pages:
         if not isinstance(ref, dict) or not _is_index(ref.get('src')):
@@ -178,7 +189,7 @@ def _item_pages(section, item, page_counts, errors):
     else:
         # Fit (design section 3.1): refs are only good on the page count they
         # were made on. The server re-checks what the client reset.
-        if 'src_pages' in item and item['src_pages'] != count:
+        if item['src_pages'] != count:
             errors.append({'id': item['id'], 'code': 'stale'})
             return []
         if any(not 0 <= ref['src'] < count for ref in refs):
@@ -447,12 +458,20 @@ def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
     ``plan`` is the validated packet document (design section 3.1).
     ``staged_paths`` maps each file item's ``hash`` to its staged PDF's path.
     ``options`` are the packet's output options (``plan['options']`` when
-    None). Phase 1's document is written under ``work_dir``; nothing else is
-    written but ``out_path``.
+    None); when given they replace the packet's options as a whole, and keys
+    they leave out take :data:`DEFAULT_OPTIONS`, not the packet's values.
+
+    Phase 1's document is written under ``work_dir`` and left there. The
+    finished PDF is written under ``work_dir`` too and moved to ``out_path``
+    with ``os.replace``, so ``out_path`` appears whole or not at all;
+    ``work_dir`` and ``out_path`` must be on one file system. Nothing else is
+    written.
 
     Returns the page plan the PDF was built from (see :func:`page_plan`).
     Raises :class:`PacketError` for every refusal.
     """
+    if not isinstance(staged_paths, dict):
+        raise PacketError('invalid', 'The staged files must be a map of hash to path.')
     _check_shape(plan)
     opts = normalize_options(plan.get('options') if options is None else options)
     by_hash = _file_items(plan)
@@ -499,6 +518,13 @@ def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
                 _stamp_upright(new_page, info['label'], opts['number_position'])
     if opts['bookmarks']:
         _add_outline(writer, planned)
-    with _reading([]), open(out_path, 'wb') as fh:
-        writer.write(fh)
+    part_path = os.path.join(work_dir, OUT_PART_NAME)
+    try:
+        with _reading([]), open(part_path, 'wb') as fh:
+            writer.write(fh)
+        os.replace(part_path, out_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(part_path)
+        raise
     return planned

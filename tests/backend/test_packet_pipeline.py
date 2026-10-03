@@ -626,10 +626,13 @@ def test_refs_made_on_another_page_count_are_stale(tmp_path):
 
 
 @pytest.mark.parametrize("bad_item", [
-    {"id": "i1", "kind": "file", "hash": "ha", "pages": [{"src": 0, "rot": 45}]},
-    {"id": "i1", "kind": "file", "hash": "ha", "pages": [{"src": 0, "rot": 90.0}]},
-    {"id": "i1", "kind": "file", "hash": "ha", "pages": [{"src": "0", "rot": 0}]},
-    {"id": "i1", "kind": "file", "hash": "ha", "pages": [{"src": True, "rot": 0}]},
+    {"id": "i1", "kind": "file", "hash": "ha", "src_pages": 1, "pages": [{"src": 0, "rot": 45}]},
+    {"id": "i1", "kind": "file", "hash": "ha", "src_pages": 1,
+     "pages": [{"src": 0, "rot": 90.0}]},
+    {"id": "i1", "kind": "file", "hash": "ha", "src_pages": 1, "pages": [{"src": "0", "rot": 0}]},
+    {"id": "i1", "kind": "file", "hash": "ha", "src_pages": 1, "pages": [{"src": True, "rot": 0}]},
+    # Explicit refs without the page count they were made on can't be fit.
+    {"id": "i1", "kind": "file", "hash": "ha", "pages": [{"src": 0, "rot": 0}]},
     {"id": "i1", "kind": "file", "hash": "", "pages": None},
     {"id": "i1", "kind": "file", "hash": "ha", "pages": "all"},
     {"id": "i1", "kind": "text"},
@@ -638,6 +641,41 @@ def test_malformed_items_are_invalid(tmp_path, bad_item):
     a = _pdf(tmp_path / "a.pdf", pages=1)
     err = _refusal(tmp_path, _packet(("", [bad_item])), {"ha": a})
     assert err.code == "invalid" and err.items == [{"id": "i1", "code": "invalid"}]
+
+
+def test_duplicate_item_ids_are_invalid(tmp_path):
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("A", [_file("i1", "ha")]), ("B", [_blank("i1")]))
+    err = _refusal(tmp_path, packet, {"ha": a})
+    assert err.code == "invalid" and err.items == [{"id": "i1", "code": "invalid"}]
+
+
+@pytest.mark.parametrize("staged", [None, [], "ha"])
+def test_staged_paths_that_are_not_a_map_are_invalid(tmp_path, staged):
+    assert _refusal(tmp_path, _packet(("", [_blank("b")])), staged).code == "invalid"
+
+
+@pytest.mark.parametrize("error", [OSError("disk full"), ValueError("pypdf broke")])
+def test_a_failed_final_write_leaves_no_out_path(tmp_path, monkeypatch, error):
+    """The finished PDF is written under work_dir and moved into place, so a
+    failure leaves neither a partial out_path nor the part file."""
+    a = _pdf(tmp_path / "a.pdf", pages=2)
+    real_write = PdfWriter.write
+    calls = []
+
+    def write(self, stream):
+        calls.append(stream)
+        if len(calls) == 2:   # phase 1 succeeds, the final write fails part way
+            stream.write(b"%PDF-1.7 partial")
+            raise error
+        return real_write(self, stream)
+
+    monkeypatch.setattr(PdfWriter, "write", write)
+    with pytest.raises((OSError, PacketError)):
+        _build(tmp_path, _packet(("", [_file("i1", "ha")])), {"ha": a})
+    assert len(calls) == 2
+    assert not (tmp_path / "out.pdf").exists()
+    assert os.listdir(tmp_path / "work") == [PHASE1_NAME]
 
 
 @pytest.mark.parametrize("packet", [
