@@ -850,17 +850,20 @@ function initPacket() {
 
     // ---- Generated pages: cover and dividers are flags, drawn from text ----
     // What a cover or divider sheet shows, as the server draws it
-    // (pdf_ops/packet.py): the section title, or the cover's fields.
+    // (pdf_ops/packet.py): the section title, or the cover's fields, with
+    // a box for each character the PDF's fonts can't print (PM.pdfText).
     function genSheetInner(kind, section) {
         if (kind === 'divider') {
-            return '<span class="pk-gs pk-gs-divider"><b>' + escapeHtml(PM.sectionName(section)) + '</b></span>';
+            const title = PM.pdfText(section.title) || PM.UNTITLED_SECTION;
+            return '<span class="pk-gs pk-gs-divider"><b>' + escapeHtml(title) + '</b></span>';
         }
         const c = S.packet.cover || {};
+        const t = k => PM.pdfText(c[k]);
         return '<span class="pk-gs pk-gs-cover">'
-            + (c.title ? '<b>' + escapeHtml(c.title) + '</b>' : '')
-            + (c.subtitle ? '<span>' + escapeHtml(c.subtitle) + '</span>' : '')
-            + (c.date ? '<small>' + escapeHtml(c.date) + '</small>' : '')
-            + (c.note ? '<i>' + escapeHtml(c.note) + '</i>' : '') + '</span>';
+            + (t('title') ? '<b>' + escapeHtml(t('title')) + '</b>' : '')
+            + (t('subtitle') ? '<span>' + escapeHtml(t('subtitle')) + '</span>' : '')
+            + (t('date') ? '<small>' + escapeHtml(t('date')) + '</small>' : '')
+            + (t('note') ? '<i>' + escapeHtml(t('note')) + '</i>' : '') + '</span>';
     }
     function genSheet(kind, section, extraClass) {
         return '<span class="pk-sheet pk-sheet-gen ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '">'
@@ -1894,6 +1897,21 @@ function initPacket() {
         if (key === 'g:cover') openCoverForm(opener);
         else openDividerForm(key.slice('g:div:'.length), opener);
     }
+    // The forms say which typed characters the PDF can't print (m2): the
+    // preview draws them as boxes, as the PDF does.
+    const coverInputs = ['#pkCoverTitle', '#pkCoverSubtitle', '#pkCoverDate', '#pkCoverNote'];
+    function printNote(note, values) {
+        const bad = PM.unprintable(values);
+        note.hidden = !bad.length;
+        note.textContent = bad.length
+            ? "The PDF can't print " + bad.slice(0, 8).join(' ') + (bad.length > 8 ? ' …' : '')
+                + '. ' + (bad.length === 1 ? 'It shows' : 'They show') + ' as ' + PM.PDF_BOX + ' on the page.'
+            : '';
+    }
+    const coverNote = () => printNote($('#pkCoverPrint'), coverInputs.map(id => $(id).value));
+    const dividerNote = () => printNote($('#pkDividerPrint'), [$('#pkDividerTitle').value]);
+    coverInputs.forEach(id => $(id).addEventListener('input', coverNote));
+    $('#pkDividerTitle').addEventListener('input', dividerNote);
     function openCoverForm(opener) {
         genOpenerKey = opener && opener.dataset.fkey;
         genFocusKey = null;
@@ -1905,6 +1923,7 @@ function initPacket() {
         $('#pkCoverNote').value = c ? c.note : '';
         $('#pkCoverRemove').hidden = !c;
         $('#pkCoverHead').textContent = c ? 'Edit the cover page' : 'Add a cover page';
+        coverNote();
         coverDialog.showModal();
         $('#pkCoverTitle').focus();
     }
@@ -1932,6 +1951,7 @@ function initPacket() {
         genOpenerKey = opener && opener.dataset.fkey;
         genFocusKey = null;
         $('#pkDividerTitle').value = found.section.title || '';
+        dividerNote();
         dividerDialog.showModal();
         $('#pkDividerTitle').focus();
         $('#pkDividerTitle').select();

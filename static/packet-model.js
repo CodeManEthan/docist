@@ -163,6 +163,72 @@ function cleanText(value, max) {
     return max ? text.slice(0, max).trim() : text;
 }
 
+// ---- Text on generated pages: what the PDF prints (verification-b3 m2) ----
+// pdf_ops/packet.py draws cover and divider text in ReportLab's Helvetica,
+// which falls back to Symbol (Greek, maths) and ZapfDingbats and draws a
+// box (ZapfDingbats "n", ■) for any other character. These are the code
+// points that print, after the server's cleaning. The table is pinned to
+// ReportLab by tests/backend/test_packet_pipeline.py.
+const PDF_TEXT_RANGES = [
+    [0x20, 0x7E], [0xA1, 0xAC], [0xAE, 0xFF], [0x152, 0x153], [0x160, 0x161], [0x178, 0x178],
+    [0x17D, 0x17E], [0x192, 0x192], [0x2C6, 0x2C6], [0x2DC, 0x2DC], [0x391, 0x3A1],
+    [0x3A3, 0x3A9], [0x3B1, 0x3C9], [0x3D1, 0x3D2], [0x3D5, 0x3D6], [0x2013, 0x2014],
+    [0x2018, 0x201A], [0x201C, 0x201E], [0x2020, 0x2022], [0x2026, 0x2026], [0x2030, 0x2030],
+    [0x2032, 0x2033], [0x2039, 0x203A], [0x2044, 0x2044], [0x20AC, 0x20AC], [0x2111, 0x2111],
+    [0x2118, 0x2118], [0x211C, 0x211C], [0x2122, 0x2122], [0x2126, 0x2126], [0x2135, 0x2135],
+    [0x2190, 0x2195], [0x21B5, 0x21B5], [0x21D0, 0x21D4], [0x2200, 0x2200], [0x2202, 0x2203],
+    [0x2205, 0x2209], [0x220B, 0x220B], [0x220F, 0x220F], [0x2211, 0x2212], [0x2217, 0x2217],
+    [0x221A, 0x221A], [0x221D, 0x221E], [0x2220, 0x2220], [0x2227, 0x222B], [0x2234, 0x2234],
+    [0x223C, 0x223C], [0x2245, 0x2245], [0x2248, 0x2248], [0x2260, 0x2261], [0x2264, 0x2265],
+    [0x2282, 0x2284], [0x2286, 0x2287], [0x2295, 0x2295], [0x2297, 0x2297], [0x22A5, 0x22A5],
+    [0x22C5, 0x22C5], [0x2320, 0x2321], [0x2329, 0x232A], [0x2460, 0x2469], [0x25A0, 0x25A0],
+    [0x25B2, 0x25B2], [0x25BC, 0x25BC], [0x25C6, 0x25C6], [0x25CA, 0x25CA], [0x25CF, 0x25CF],
+    [0x25D7, 0x25D7], [0x2605, 0x2605], [0x260E, 0x260E], [0x261B, 0x261B], [0x261E, 0x261E],
+    [0x2660, 0x2660], [0x2663, 0x2663], [0x2665, 0x2666], [0x2701, 0x2704], [0x2706, 0x2709],
+    [0x270C, 0x2727], [0x2729, 0x274B], [0x274D, 0x274D], [0x274F, 0x2752], [0x2756, 0x2756],
+    [0x2758, 0x275E], [0x2761, 0x2794], [0x2798, 0x27AF], [0x27B1, 0x27BE]
+];
+const PDF_BOX = '\u25a0';
+
+function pdfPrints(cp) {
+    let lo = 0;
+    let hi = PDF_TEXT_RANGES.length - 1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const [a, b] = PDF_TEXT_RANGES[mid];
+        if (cp < a) hi = mid - 1;
+        else if (cp > b) lo = mid + 1;
+        else return true;
+    }
+    return false;
+}
+
+// The server's _clean: every character Python counts as not printable
+// (categories C and Z, but the plain space) is a space; runs of spaces are
+// one; the ends are trimmed.
+function pdfClean(value) {
+    return String(value == null ? '' : value).replace(/[\p{C}\p{Z}]/gu, ' ').replace(/ +/g, ' ').trim();
+}
+
+// `value` as the generated page prints it: cleaned, and each character the
+// fonts can't draw a box. The preview draws this, so it matches the PDF.
+function pdfText(value) {
+    let out = '';
+    for (const ch of pdfClean(value)) out += pdfPrints(ch.codePointAt(0)) ? ch : PDF_BOX;
+    return out;
+}
+
+// The distinct characters in `values` that would print as a box, in order.
+function unprintable(values) {
+    const seen = [];
+    (values || []).forEach(v => {
+        for (const ch of pdfClean(v)) {
+            if (!pdfPrints(ch.codePointAt(0)) && !seen.includes(ch)) seen.push(ch);
+        }
+    });
+    return seen;
+}
+
 // Insert a generated page or flag. 'blank' is an item at the slot. 'divider'
 // turns the slot's section divider on. 'cover' sets the packet's one cover
 // (the plan always puts it first, §3.3).
@@ -1256,6 +1322,7 @@ const PacketModelApi = {
     UNDO_CAP, PAPERS, NUMBER_POSITIONS, STATUSES, DRAFT_PREFIX, DRAFTS_KEPT,
     DRAFT_MAX_AGE_MS, COVER_FIELDS, TEXT_MAX, UNTITLED_SECTION,
     clone, itemOrder, findItem, findSection, newItemIds, fileType, cleanText,
+    PDF_BOX, pdfText, unprintable,
     defaultOptions, emptyPacket, emptyState,
     addFiles, insertGenerated, setCover, removeCover, setDivider, addDividers, sectionName,
     removeItems, clearPacket, duplicateItems, setLabel,

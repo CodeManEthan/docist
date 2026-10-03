@@ -1151,3 +1151,15 @@ test('m1: after Delete section, focus goes to the receiving section or the moved
     const empty = M.addSection(M.emptyPacket(), 'Two');
     assert.equal(C.sectionDeleteFocus(M.deleteSection(empty, 's2'), empty, 's2'), null);
 });
+
+test('m2: the preview draws cover and divider text as the PDF prints it', () => {
+    assert.equal(M.pdfText('申請書 Ünïcödé — “quotes” €'), '■■■ Ünïcödé — “quotes” €');
+    assert.equal(M.pdfText('Ελληνικά'), 'Ελληνικ■', 'Greek prints through Symbol; the accented ά does not');
+    assert.equal(M.pdfText('Łódź'), '■ód■');
+    assert.equal(M.pdfText('Ölçü 😀 end'), 'Ölçü ■ end', 'one box per character, not per UTF-16 unit');
+    assert.equal(M.pdfText('  a​b c d\t '), 'a b c d', 'what the server cleans to a space');
+    assert.equal(M.pdfText('lone \ud800 surrogate'), 'lone surrogate');
+    assert.equal(M.pdfText(null), '');
+    assert.deepEqual(M.unprintable(['Łódź', 'Łuk', 'plain', '申']), ['Ł', 'ź', '申']);
+    assert.deepEqual(M.unprintable(['Café “ok” – €5']), []);
+});

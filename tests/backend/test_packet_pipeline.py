@@ -986,6 +986,58 @@ def test_long_text_wraps_inside_the_margins_and_is_cut_with_an_ellipsis(tmp_path
     assert all(set(line.rstrip("…")) == {"X"} for line in divider_lines)
 
 
+def _reportlab_prints():
+    """The code points ReportLab draws (not as a box) in the cover and divider
+    fonts, after the server's cleaning: Helvetica, then its Symbol and
+    ZapfDingbats fallbacks."""
+    from reportlab.pdfbase import pdfmetrics
+    encodings = None
+    for name in ("Helvetica", "Helvetica-Bold", "Helvetica-Oblique"):
+        font = pdfmetrics.getFont(name)
+        these = [font.encName] + [f.encName for f in font.substitutionFonts]
+        assert encodings in (None, these)
+        encodings = these
+    prints = set()
+    for cp in range(0x110000):
+        if 0xD800 <= cp < 0xE000 or not chr(cp).isprintable():
+            continue
+        for enc in encodings:
+            try:
+                chr(cp).encode(enc)
+            except UnicodeEncodeError:
+                continue
+            prints.add(cp)
+            break
+    return prints
+
+
+def test_the_page_scripts_printable_table_is_what_reportlab_prints():
+    """Verification-b3 m2: the preview draws a box for each character the PDF
+    can't print, from static/packet-model.js's PDF_TEXT_RANGES. That table
+    must be exactly the set ReportLab prints."""
+    source = (Path(__file__).resolve().parents[2] / "static" / "packet-model.js").read_text(encoding="utf-8")
+    block = re.search(r"const PDF_TEXT_RANGES = \[(.*?)\n\];", source, re.S)
+    assert block, "PDF_TEXT_RANGES not found in packet-model.js"
+    table = set()
+    for lo, hi in re.findall(r"\[0x([0-9A-F]+), 0x([0-9A-F]+)\]", block.group(1)):
+        table.update(range(int(lo, 16), int(hi, 16) + 1))
+    assert table == _reportlab_prints()
+
+
+def test_a_character_the_fonts_cannot_draw_prints_as_a_box(tmp_path):
+    """What PDF_BOX in the page script stands for: ReportLab draws ZapfDingbats
+    "n" (a filled square) for ł and the like, and Greek through Symbol."""
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    packet = _packet(("", [_file("i1", "ha")]), cover=_cover("\u0141\u00f3d\u017a \u0395\u03bb", "", "", ""))
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    data = reader.pages[0].get_contents().get_data()
+    fonts = {str(f["/BaseFont"]) for f in reader.pages[0]["/Resources"]["/Font"].values()}
+    assert {"/Helvetica-Bold", "/ZapfDingbats", "/Symbol"} <= fonts
+    # Ł and ź are boxes; ó is WinAnsi \363; Ε and λ print through Symbol.
+    shows = re.findall(rb"\((.*?)\) Tj", data)
+    assert shows == [b"n", b"\\363d", b"n", b" ", b"El"]
+
+
 @pytest.mark.parametrize("cover", [
     {"title": 3}, {"title": "T", "subtitle": None}, {"date": ["2026"]}, {"note": {"a": 1}},
 ])
