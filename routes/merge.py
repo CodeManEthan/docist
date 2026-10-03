@@ -19,7 +19,7 @@ from pdf_ops.merge import OptionsError, SourceError, convert_and_merge, parse_op
 from utils.identity import current_user, owner_tag
 from utils.naming import display_name, owner_of, result_name
 from utils.render_opts import RenderOptionsError, from_form, run_in_job, take_notes, with_notes
-from utils.uploads import charge_uploads, merge_large_ok, upload_ext
+from utils.uploads import charge_uploads, merge_large_ok, merge_plan, upload_ext
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('merge', __name__)
@@ -63,19 +63,21 @@ def upload_files():
 
     output_folder = current_app.config['OUTPUT_FOLDER']
 
+    # Every file's extension is checked before any is saved; one that is
+    # neither a PDF nor convertible refuses the whole request (§13).
+    try:
+        plan = merge_plan(files, get_converter)
+    except UploadValidationError as e:
+        return jsonify({'error': str(e)}), 400
+
     with tempfile.TemporaryDirectory() as tmpdir:
         items = []  # (path, ext, bookmark title, name shown in errors)
         first_filename = None
-        for file in files:
-            if not file or not file.filename:
-                continue
-            filename = secure_filename(file.filename)
-            ext = os.path.splitext(filename)[1].lower()
-            if ext != '.pdf' and not get_converter(ext):
-                continue
-
-            filepath = os.path.join(tmpdir, filename)
-            title = os.path.splitext(filename)[0]  # original name without extension
+        for file, relative, ext, title, filename in plan:
+            # Each upload in its own directory: same-named files can't
+            # overwrite each other.
+            filepath = os.path.join(tmpdir, relative)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             file.save(filepath)
             try:
                 validate_upload(filepath, ext)

@@ -59,7 +59,13 @@ from utils.render_opts import (
     run_in_job,
     take_notes,
 )
-from utils.uploads import charge_uploads, convert_large_ok, merge_large_ok, upload_ext
+from utils.uploads import (
+    charge_uploads,
+    convert_large_ok,
+    merge_large_ok,
+    merge_plan,
+    upload_ext,
+)
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('api', __name__)
@@ -206,24 +212,22 @@ def api_merge():
     except UploadValidationError as exc:
         raise ApiError(str(exc))
 
+    # Every file's extension is checked before any is saved; one that is
+    # neither a PDF nor convertible refuses the whole request (§13).
+    try:
+        plan = merge_plan(files, get_converter)
+    except UploadValidationError as exc:
+        raise ApiError(str(exc))
+
     with tempfile.TemporaryDirectory() as tmpdir:
         items = []  # (path, ext, bookmark title, name shown in errors)
         first_filename = None
 
-        for index, upload in enumerate(files):
-            if not upload or not upload.filename:
-                continue
-            filename = secure_filename(upload.filename) or f'file{index}'
-            ext = os.path.splitext(filename)[1].lower()
-            if ext != '.pdf' and not get_converter(ext):
-                continue
-
-            # secure_filename can collapse distinct names to the same string;
-            # nest each upload so one can't overwrite another.
-            slot = os.path.join(tmpdir, str(index))
-            os.makedirs(slot, exist_ok=True)
-            path = os.path.join(slot, filename)
-            title = os.path.splitext(filename)[0]
+        for upload, relative, ext, title, filename in plan:
+            # Each upload in its own directory: secure_filename can collapse
+            # distinct names to the same string.
+            path = os.path.join(tmpdir, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             upload.save(path)
             try:
                 validate_upload(path, ext)

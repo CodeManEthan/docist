@@ -91,8 +91,48 @@ def limit_bytes(user, endpoint=None):
 
 
 def upload_ext(upload):
-    """An upload's extension, as the routes derive it from its filename."""
-    return os.path.splitext(secure_filename(upload.filename or ''))[1].lower()
+    """An upload's extension, from the name the user sent.
+
+    Not from ``secure_filename``, which turns ``отчёт.pdf`` into ``pdf``
+    with no extension (design launch-hardening §13).
+    """
+    return os.path.splitext(upload.filename or '')[1].lower()
+
+
+def merge_plan(files, convertible):
+    """Where each of a merge request's files is saved, checked before any is.
+
+    ``files`` are the request's ``files[]`` uploads; ``convertible(ext)``
+    says whether a non-PDF extension has a converter. An empty file part
+    (no filename) is ignored, since the browser sends one when nothing is
+    chosen. Returns ``[(upload, relative path, ext, bookmark title, name
+    shown), ...]`` with each file in its own ``<index>/`` directory, so
+    same-named uploads can't overwrite each other. Raises
+    :class:`UploadValidationError` naming every file, by the name the user
+    sent, that is neither a PDF nor convertible: the whole request is
+    refused, nothing is skipped.
+    """
+    plan = []
+    unsupported = []
+    for index, upload in enumerate(files):
+        if not upload or not upload.filename:
+            continue
+        raw = upload.filename
+        ext = upload_ext(upload)
+        if ext != '.pdf' and not convertible(ext):
+            unsupported.append(raw)
+            continue
+        safe = secure_filename(raw)
+        stem = safe[:-len(ext)] if ext and safe.lower().endswith(ext) else ''
+        if stem:
+            name, title = f'{stem}{ext}', stem
+        else:
+            name = f'file{index}{ext}'
+            title = os.path.splitext(os.path.basename(raw))[0] or f'file{index}'
+        plan.append((upload, os.path.join(str(index), name), ext, title, name))
+    if unsupported:
+        raise UploadValidationError(limits.merge_unsupported_message(unsupported))
+    return plan
 
 
 def merge_large_ok(ext, render_opts):
