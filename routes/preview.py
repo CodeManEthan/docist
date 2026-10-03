@@ -13,7 +13,9 @@ import tempfile
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 
+from pdf_ops.limits import LimitError
 from pdf_ops.preview import MAX_THUMBS, render_thumbnails
+from utils.render_opts import run_in_job
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('preview', __name__)
@@ -44,7 +46,10 @@ def thumbs():
                 return jsonify({'error': str(exc)}), 400
 
             try:
-                result = render_thumbnails(input_path, max_pages=MAX_THUMBS)
+                result = run_in_job(
+                    lambda: render_thumbnails(input_path, max_pages=MAX_THUMBS), tmpdir)
+            except LimitError as exc:
+                return jsonify({'error': str(exc)}), 400
             except Exception:
                 # Unreadable, corrupt or password-locked: the client only
                 # needs to know the preview is unavailable.

@@ -37,7 +37,8 @@ from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from converters import get_converter, supported_extensions
-from pdf_ops.merge import OptionsError, merge_pipeline, parse_options
+from pdf_ops.limits import LimitError
+from pdf_ops.merge import OptionsError, SourceError, convert_and_merge, parse_options
 from pdf_ops.pages import extract_pages, parse_page_ranges, split_pdf
 from pdf_ops.watermark import apply_text_watermark
 from transforms import (
@@ -53,7 +54,13 @@ from converters.options import PAPER_SIZES
 from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr_langs import language_choices
 from utils.identity import current_user
-from utils.render_opts import RenderOptionsError, from_form, notes_header
+from utils.render_opts import (
+    RenderOptionsError,
+    from_form,
+    notes_header,
+    run_in_job,
+    take_notes,
+)
 from utils.uploads import charge_uploads, convert_large_ok, merge_large_ok, upload_ext
 from utils.validation import UploadValidationError, validate_upload
 
@@ -159,10 +166,13 @@ def _save_pdf(upload, tmpdir):
 
 
 def _page_count(path):
+    """Pages in the PDF at ``path``; runs inside the request's job."""
     try:
         return len(PdfReader(path).pages)
+    except MemoryError:
+        raise
     except Exception:
-        raise ApiError('Could not read the PDF file.')
+        raise ValueError('Could not read the PDF file.')
 
 
 @bp.errorhandler(ApiError)
@@ -222,7 +232,7 @@ def api_merge():
         raise ApiError(str(exc))
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        sources = []  # (pdf_path, bookmark_title)
+        items = []  # (path, ext, bookmark title, name shown in errors)
         first_filename = None
 
         for index, upload in enumerate(files):
@@ -244,42 +254,31 @@ def api_merge():
                 validate_upload(path, ext)
             except UploadValidationError as exc:
                 raise ApiError(f'{filename}: {exc}')
-
-            if ext == '.pdf':
-                sources.append((path, title))
-            else:
-                converted = path + '.converted.pdf'
-                try:
-                    get_converter(ext)(path, converted, render_opts)
-                except Exception as exc:
-                    raise ApiError(f'Could not convert {filename}: {exc}')
-                sources.append((converted, title))
+            items.append((path, ext, title, filename))
 
             if first_filename is None:
                 first_filename = filename
 
-        if not sources:
+        if not items:
             raise ApiError('No supported files provided.')
 
         # Interleave pairs exactly two sources (fronts + backs).
-        if options.get('mode') == 'interleave' and len(sources) != 2:
+        if options.get('mode') == 'interleave' and len(items) != 2:
             raise ApiError(
                 'Interleave mode requires exactly 2 files (a fronts file and '
-                f'a backs file); got {len(sources)}.'
+                f'a backs file); got {len(items)}.'
             )
-
-        try:
-            writer = merge_pipeline(sources, options)
-        except OptionsError as exc:
-            raise ApiError(str(exc))
-        except Exception as exc:  # pragma: no cover - defensive
-            raise ApiError(str(exc), status=500)
 
         base = os.path.splitext(first_filename)[0] or 'document'
         merged = os.path.join(tmpdir, 'merged.pdf')
-        with open(merged, 'wb') as out:
-            writer.write(out)
-        del writer
+        try:
+            done = run_in_job(
+                lambda: convert_and_merge(items, options, render_opts, merged), tmpdir)
+        except (LimitError, SourceError, OptionsError) as exc:
+            raise ApiError(str(exc))
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ApiError(str(exc), status=500)
+        take_notes(render_opts, done['notes'])
         return notes_header(_stream_path(merged, f'{base}-merged.pdf'), render_opts)
 
 
@@ -345,14 +344,20 @@ def api_convert():
             raise ApiError(str(exc))
 
         requested_output = os.path.join(tmpdir, f'{stem}{target}')
+
+        def work():
+            path = transform(input_path, requested_output, render_opts)
+            return {'path': path, 'notes': list(render_opts.notes)}
+
         try:
-            actual_path = transform(input_path, requested_output, render_opts)
-        except TransformError as exc:
+            done = run_in_job(work, tmpdir)
+        except (LimitError, TransformError) as exc:
             raise ApiError(str(exc))
         except Exception as exc:  # pragma: no cover - defensive
             raise ApiError(f'Unexpected error: {exc}', status=500)
 
-        return notes_header(_stream_path(actual_path), render_opts)
+        take_notes(render_opts, done['notes'])
+        return notes_header(_stream_path(done['path']), render_opts)
 
 
 # ---------------------------------------------------------------------------
@@ -365,15 +370,16 @@ def api_pages_extract():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path, base = _save_pdf(upload, tmpdir)
-        count = _page_count(input_path)
-        try:
-            indices = parse_page_ranges(request.form.get('ranges'), count)
-        except ValueError as exc:
-            raise ApiError(str(exc))
-
+        ranges = request.form.get('ranges')
         out_path = os.path.join(tmpdir, f'{base}_extracted.pdf')
-        try:
+
+        def work():
+            count = _page_count(input_path)
+            indices = parse_page_ranges(ranges, count)
             extract_pages(input_path, out_path, indices)
+
+        try:
+            run_in_job(work, tmpdir)
         except ValueError as exc:
             raise ApiError(str(exc))
 
@@ -403,19 +409,20 @@ def api_pages_split():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path, base = _save_pdf(upload, tmpdir)
-        _page_count(input_path)
+        zip_path = os.path.join(tmpdir, f'{base}_split.zip')
 
-        parts_dir = os.path.join(tmpdir, 'parts')
-        os.makedirs(parts_dir, exist_ok=True)
-        try:
+        def work():
+            _page_count(input_path)
+            parts_dir = tempfile.mkdtemp(prefix='parts-')   # in the job directory
             parts = split_pdf(input_path, parts_dir, mode, value)
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for part in parts:
+                    zf.write(part, arcname=os.path.basename(part))
+
+        try:
+            run_in_job(work, tmpdir)
         except ValueError as exc:
             raise ApiError(str(exc))
-
-        zip_path = os.path.join(tmpdir, f'{base}_split.zip')
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for part in parts:
-                zf.write(part, arcname=os.path.basename(part))
 
         return _send_path(zip_path)
 
@@ -441,11 +448,11 @@ def api_watermark():
         input_path, base = _save_pdf(upload, tmpdir)
         out_path = os.path.join(tmpdir, f'{base}-watermarked.pdf')
         try:
-            apply_text_watermark(
+            run_in_job(lambda: apply_text_watermark(
                 input_path, out_path, text,
                 position=position, opacity=opacity,
                 font_size=font_size, rotation=rotation,
-            )
+            ), tmpdir)
         except ValueError as exc:
             raise ApiError(str(exc))
         except Exception as exc:  # pragma: no cover - defensive

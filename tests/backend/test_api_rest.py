@@ -578,11 +578,11 @@ class TestPaperAndLanguage:
         assert response.status_code == 200
 
     def test_convert_image_to_text_takes_language(self, client, tmp_path, builders,
-                                                  monkeypatch):
+                                                  monkeypatch, shared_list):
         import pytesseract
         from pdf_ops import ocr as ocr_ops
         from transforms import ocr_text
-        seen = []
+        seen = shared_list()
         monkeypatch.setattr(ocr_text, "is_available", lambda: True)
         monkeypatch.setattr(ocr_ops, "is_available", lambda: True)
         monkeypatch.setattr(ocr_ops, "installed_languages", lambda: ["eng", "spa"])

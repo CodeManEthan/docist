@@ -6,6 +6,7 @@ merge request). Results are written to OUTPUT_FOLDER and served by the shared
 /download endpoint (from routes/merge.py).
 """
 import os
+import shutil
 import tempfile
 
 from flask import Blueprint, current_app, render_template, request, jsonify
@@ -13,7 +14,7 @@ from werkzeug.utils import secure_filename
 
 from pdf_ops.imposition import nup_pdf, booklet_pdf
 from utils.naming import result_name
-from utils.render_opts import RenderOptionsError, from_form
+from utils.render_opts import RenderOptionsError, from_form, run_in_job
 from pypdf import PdfReader
 
 bp = Blueprint('print', __name__)
@@ -55,41 +56,48 @@ def run_print():
     output_folder = current_app.config['OUTPUT_FOLDER']
 
     try:
+        if operation == 'nup':
+            try:
+                n = int(request.form.get('n', ''))
+            except (TypeError, ValueError):
+                raise ValueError("Pages per sheet must be 2 or 4.")
+
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = os.path.join(tmpdir, filename)
             upload.save(input_path)
+            out_path = os.path.join(tmpdir, 'result.pdf')   # moved after the job
 
-            # Validate it is a readable PDF (and confirm it has pages).
-            try:
-                page_count = len(PdfReader(input_path).pages)
-            except Exception:
-                return jsonify({'error': 'Could not read the PDF file.'}), 400
-            if page_count < 1:
-                return jsonify({'error': 'The PDF has no pages to impose.'}), 400
-
-            if operation == 'nup':
+            def work():
+                # Validate it is a readable PDF (and confirm it has pages).
                 try:
-                    n = int(request.form.get('n', ''))
-                except (TypeError, ValueError):
-                    raise ValueError("Pages per sheet must be 2 or 4.")
-                out_name = result_name(f"{base}_{n}up.pdf")
-                out_path = os.path.join(output_folder, out_name)
-                nup_pdf(input_path, out_path, n=n, paper=paper)
-                sheets = (page_count + n - 1) // n
-                message = (
-                    f"Imposed {page_count} page(s) as {n}-up "
-                    f"into {sheets} sheet(s)."
-                )
+                    page_count = len(PdfReader(input_path).pages)
+                except MemoryError:
+                    raise
+                except Exception:
+                    raise ValueError('Could not read the PDF file.')
+                if page_count < 1:
+                    raise ValueError('The PDF has no pages to impose.')
 
-            else:  # booklet
-                out_name = result_name(f"{base}_booklet.pdf")
-                out_path = os.path.join(output_folder, out_name)
+                if operation == 'nup':
+                    nup_pdf(input_path, out_path, n=n, paper=paper)
+                    sheets = (page_count + n - 1) // n
+                    return (
+                        f"Imposed {page_count} page(s) as {n}-up "
+                        f"into {sheets} sheet(s)."
+                    )
                 booklet_pdf(input_path, out_path, paper=paper)
                 padded = page_count + (-page_count % 4)
-                message = (
+                return (
                     f"Built a {padded}-page booklet ({padded // 2} sheet(s)). "
                     "Print duplex, flip on the short edge, and fold in half."
                 )
+
+            message = run_in_job(work, tmpdir)
+            if operation == 'nup':
+                out_name = result_name(f"{base}_{n}up.pdf")
+            else:
+                out_name = result_name(f"{base}_booklet.pdf")
+            shutil.move(out_path, os.path.join(output_folder, out_name))
 
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
