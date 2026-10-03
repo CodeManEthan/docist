@@ -399,6 +399,9 @@
 /* ---- Page sheets: the image sits on paper of the packet's shape ---- */
 .pk-sheet {
     display: block;
+    position: relative;
+    container-type: inline-size;
+    --ar: 8.5 / 11;
     width: 100%;
     aspect-ratio: 8.5 / 11;
     overflow: hidden;
@@ -409,6 +412,7 @@
 }
 
 .pk-sheet.pk-a4 {
+    --ar: 210 / 297;
     aspect-ratio: 210 / 297;
 }
 
@@ -446,6 +450,37 @@
     color: var(--paper);
     font-size: 0.9em;
     text-align: center;
+}
+
+/* ---- Page numbers on the page images ([B7], design §2.1) ----
+   packet.js numberLayer: a layer the size of the image's drawn box, centred
+   on the sheet, that undoes the sheet's turn and scale, so the number stays
+   upright and its pixels are screen pixels. The number is drawn as an SVG
+   text so its baseline sits exactly where the stamp's does. */
+.pk-num {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    pointer-events: none;
+    user-select: none;
+}
+
+.pk-num-at {
+    position: absolute;
+    display: block;
+    overflow: visible;
+    font-family: Helvetica, Arial, sans-serif;
+    font-weight: 400;
+    font-style: normal;
+    letter-spacing: 0;
+    fill: #000;
+}
+
+/* No number over an image still loading or over the too-large tile, whose
+   shape is not the page's. */
+.pk-sheet:has(img:not([src])) .pk-num,
+.pk-sheet:has(img.pk-ph) .pk-num {
+    display: none;
 }
 
 /* ---- Page tiles ---- */
@@ -976,10 +1011,18 @@
     height: min(68vh, 640px);
 }
 
+/* The page fits the box at its own shape ([B7]): a landscape blank or pad
+   sheet is as wide as the box allows, never wider, and never squashed, since
+   the number layer is placed by the sheet's shape. --ar is the sheet's width
+   over its height. */
+.pk-pv-page {
+    container-type: size;
+    min-width: 0;
+}
+
 .pk-pv-page .pk-sheet {
-    width: auto;
-    height: 100%;
-    max-width: 100%;
+    width: min(100cqw, calc(100cqh * var(--ar)));
+    height: auto;
 }
 
 .pk-pv-status {

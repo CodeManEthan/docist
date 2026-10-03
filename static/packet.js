@@ -428,6 +428,82 @@ function resultName(packet) {
     return (safe || 'packet') + '.pdf';
 }
 
+// ---- Page numbers on the page images ([B7]) ----
+// Design §2.1 "Page numbers on the page images", §3.3 rule 7. A page's
+// number is a layer over its image, placed in PDF points of the page as
+// displayed (PM.pageGeometry, PM.numberPlacement) and scaled to the box the
+// image is drawn in. The layer sits inside the sheet but undoes the sheet's
+// turn and its .77 scale, so it is upright and its pixels are screen pixels
+// (verification v0.20 m2). Lengths are in cqw, hundredths of the sheet's
+// own width, so no layout is measured. The number is an SVG text in a 1 px
+// SVG (a 0 px one is not drawn) whose bottom edge is the baseline.
+const NUMBER_FLOOR_PX = 9;        // tiles and card thumbnails: never smaller
+const SHEET_TURN_SCALE = 0.77;    // sheet(): a quarter-turned sheet shrinks to fit
+const DIGIT_EM = 0.556;           // Helvetica's and Arial's digit advance
+const PLACEHOLDER_MARK = 'docist\u0000placeholder';   // utils/staging.py PLACEHOLDER_TEXT
+
+// The layer's box and the number's place in it, in hundredths of the sheet
+// width. `geo` is a PM.pageGeometry entry; `sheetRatio` the sheet's height
+// over its width. The image (geo.image, or the page itself for a drawn
+// page) is contained in the sheet, then turned by the user's turn.
+function numberBox(geo, position, sheetRatio) {
+    const image = geo.image || [geo.w, geo.h];
+    const aspect = image[0] / image[1];
+    let bw = 100;
+    let bh = 100 / aspect;
+    if (bh > 100 * sheetRatio) {
+        bh = 100 * sheetRatio;
+        bw = bh * aspect;
+    }
+    const turn = geo.turn || 0;
+    const quarter = turn % 180 !== 0;
+    const scale = quarter ? SHEET_TURN_SCALE : 1;
+    const [width, height] = quarter ? [bh * scale, bw * scale] : [bw, bh];
+    const at = PM.numberPlacement(position, geo.w);
+    return {
+        width, height, turn, scale, align: at.align,
+        x: at.x * width / geo.w,
+        baseline: at.y * height / geo.h,
+        size: PM.NUMBER_SIZE * width / geo.w,
+    };
+}
+
+// The number layer's HTML, or '' when the page shows no number. `small` is
+// a tile or a card thumbnail: the number is at least 9 px there, and a
+// left-aligned number that would pass the image's right edge is moved left
+// to end inside it (verification v0.20 M1); the pop-up draws it to scale.
+function numberLayer(geo, label, position, sheetRatio, small) {
+    if (!geo || label == null) return '';
+    const b = numberBox(geo, position, sheetRatio);
+    const n = v => String(+v.toFixed(4));
+    const cq = v => n(v) + 'cqw';
+    const text = String(label);
+    const turn = b.turn ? ' rotate(' + (-b.turn) + 'deg)' + (b.scale !== 1 ? ' scale(' + n(1 / b.scale) + ')' : '') : '';
+    const size = small ? 'max(' + NUMBER_FLOOR_PX + 'px, ' + cq(b.size) + ')' : cq(b.size);
+    let left = cq(b.x);
+    if (small && b.align === 'left') {
+        left = 'min(' + left + ', calc(' + cq(b.width) + ' - ' + n(text.length * DIGIT_EM) + 'em - 1px))';
+    }
+    return '<span class="pk-num" aria-hidden="true" style="width:' + cq(b.width) + ';height:' + cq(b.height)
+        + ';transform:translate(-50%,-50%)' + turn + '">'
+        + '<svg class="pk-num-at" width="1" height="1" focusable="false" style="left:' + left + ';bottom:' + cq(b.baseline)
+        + ';font-size:' + size + '"><text y="1"' + (b.align === 'center' ? ' text-anchor="middle"' : '') + '>'
+        + escapeHtml(text) + '</text></svg></span>';
+}
+
+// Is this the server's "too large to preview" tile? It carries a PNG text
+// chunk before its image data; its shape is not the page's, so a page shown
+// by it gets no number (verification v0.20 m4). `bytes` is the image's start.
+function isPlaceholderPng(bytes) {
+    const want = Array.from(PLACEHOLDER_MARK, c => c.charCodeAt(0));
+    for (let i = 0; i + want.length <= bytes.length; i++) {
+        let k = 0;
+        while (k < want.length && bytes[i + k] === want[k]) k++;
+        if (k === want.length) return true;
+    }
+    return false;
+}
+
 // ============================ Browser wiring ==============================
 
 function initPacket() {
@@ -778,6 +854,7 @@ function initPacket() {
 
     // ---- Thumbnails: lazy, one render request in flight, retry on busy ----
     const thumbUrls = new Map();        // url -> object URL
+    const thumbPlaceholders = new Set(); // urls answered with the too-large tile ([B7])
     const thumbSizes = new Map();       // url -> [width, height] once an image loaded
     document.addEventListener('load', e => {
         const img = e.target;
@@ -811,8 +888,10 @@ function initPacket() {
             const response = await fetch(url);
             const c = classify(response.status, null);
             if (c.kind === 'ok') {
-                thumbUrls.set(url, URL.createObjectURL(await response.blob()));
-                document.querySelectorAll('img[data-src="' + url + '"]').forEach(img => { img.src = thumbUrls.get(url); });
+                const blob = await response.blob();
+                if (isPlaceholderPng(new Uint8Array(await blob.slice(0, 256).arrayBuffer()))) thumbPlaceholders.add(url);
+                thumbUrls.set(url, URL.createObjectURL(blob));
+                document.querySelectorAll('img[data-src="' + url + '"]').forEach(img => showImage(img, url));
             } else if (c.kind === 'expired') {
                 const sid = url.split('/')[3];
                 updateExpiring(s => PM.expireStages(s, [sid]));
@@ -828,10 +907,16 @@ function initPacket() {
     function thumbUrl(row, src, w) {
         return '/packet/stage/' + encodeURIComponent(row.stage_id) + '/' + (w > 320 ? 'page' : 'thumb') + '/' + src + '?w=' + w;
     }
+    // Show a loaded render; the too-large tile is marked, so the page's
+    // number layer hides over it (packet.css).
+    function showImage(img, url) {
+        img.src = thumbUrls.get(url);
+        img.classList.toggle('pk-ph', thumbPlaceholders.has(url));
+    }
     function loadImages(root) {
         root.querySelectorAll('img[data-src]').forEach(img => {
             const url = img.dataset.src;
-            if (thumbUrls.has(url)) img.src = thumbUrls.get(url);
+            if (thumbUrls.has(url)) showImage(img, url);
             else if (observer) observer.observe(img);
             else wantThumb(url, false);
         });
@@ -856,14 +941,46 @@ function initPacket() {
         const last = info.label + (info.last - info.first);
         return info.first === info.last ? 'p. ' + info.label : 'pp. ' + info.label + '–' + last;
     }
-    function sheet(rot, img, extraClass) {
-        const turn = rot ? ' style="transform:rotate(' + rot + 'deg)' + (rot % 180 ? ' scale(.77)' : '') + '"' : '';
-        return '<span class="pk-sheet ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '"' + turn + '>' + (img || '') + '</span>';
+    // A page sheet: paper of the packet's shape, the image contained in it,
+    // turned by the user's rotation. `num` is the page's number layer
+    // (numberHtml). `shape` gives a drawn blank or pad sheet its own size
+    // ([w, h] in points), which its number is placed against.
+    function sheet(rot, img, extraClass, num, shape) {
+        const style = (rot ? 'transform:rotate(' + rot + 'deg)' + (rot % 180 ? ' scale(' + SHEET_TURN_SCALE + ')' : '') + ';' : '')
+            + (shape ? 'aspect-ratio:' + shape[0] + ' / ' + shape[1] + ';--ar:' + shape[0] + ' / ' + shape[1] + ';' : '');
+        return '<span class="pk-sheet ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '"' + (style ? ' style="' + style + '"' : '') + '>'
+            + (img || '') + (num || '') + '</span>';
     }
     function imgTag(row, src, w, alt) {
         const url = thumbUrl(row, src, w);
         return '<img alt="' + escapeHtml(alt) + '" data-src="' + escapeHtml(url) + '"'
-            + (thumbUrls.has(url) ? ' src="' + thumbUrls.get(url) + '"' : '') + ' draggable="false">';
+            + (thumbUrls.has(url) ? ' src="' + thumbUrls.get(url) + '"' + (thumbPlaceholders.has(url) ? ' class="pk-ph"' : '') : '')
+            + ' draggable="false">';
+    }
+    // Page numbers for one render ([B7]): each planned page's displayed size
+    // and the number it shows (PM.pageGeometry, PM.shownNumbers), and where
+    // each item page sits in the plan.
+    function numbersFor(plan) {
+        const geo = PM.pageGeometry(S.packet, S.table, plan);
+        const shown = PM.shownNumbers(plan, geo);
+        const at = new Map();
+        plan.pages.forEach((p, i) => { if (p.item) at.set(p.item + ':' + p.index, i); });
+        return { plan, geo, shown, at };
+    }
+    // The number layer for physical page `i` (numberLayer). A file page's
+    // sheet is the packet's paper; a drawn page's sheet is its own size.
+    function numberHtml(nums, i, small) {
+        if (i == null || i < 0 || !nums.geo[i] || nums.shown[i] == null) return '';
+        const geo = nums.geo[i];
+        const paper = PM.PAPER_POINTS[S.packet.options.paper] || PM.PAPER_POINTS.letter;
+        const ratio = geo.image ? paper[1] / paper[0] : geo.h / geo.w;
+        return numberLayer(geo, nums.shown[i], S.packet.options.number_position, ratio, small);
+    }
+    // A blank or pad sheet takes its computed size (§2.1 Insert pages;
+    // verification v0.20 m5), or the paper while it isn't known.
+    function drawnShape(nums, i) {
+        const geo = i == null || i < 0 ? null : nums.geo[i];
+        return geo ? [geo.w, geo.h] : null;
     }
     function selected(key) {
         return ui.sel.has(key);
@@ -886,9 +1003,9 @@ function initPacket() {
             + (t('date') ? '<small>' + escapeHtml(t('date')) + '</small>' : '')
             + (t('note') ? '<i>' + escapeHtml(t('note')) + '</i>' : '') + '</span>';
     }
-    function genSheet(kind, section, extraClass) {
+    function genSheet(kind, section, extraClass, num) {
         return '<span class="pk-sheet pk-sheet-gen ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '">'
-            + genSheetInner(kind, section) + '</span>';
+            + genSheetInner(kind, section) + (num || '') + '</span>';
     }
     // The contents page ([B5]): its rows from the plan, laid out as the
     // server lays them out (pdf_ops/packet.py _render_contents): a heading,
@@ -922,7 +1039,7 @@ function initPacket() {
         if (page.label == null) return 'not numbered';
         return page.print ? 'p. ' + page.label : 'counts as p. ' + page.label;
     }
-    function flagCardHtml(kind, section, plan) {
+    function flagCardHtml(kind, section, plan, nums) {
         const key = kind === 'cover' ? 'g:cover' : kind === 'contents' ? 'g:contents' : 'g:div:' + section.id;
         const what = { cover: 'cover page', contents: 'contents page' }[kind] || 'divider page of ' + PM.sectionName(section);
         const name = { cover: 'Cover page', contents: 'Contents page' }[kind] || 'Divider · ' + PM.sectionName(section);
@@ -934,7 +1051,8 @@ function initPacket() {
             + '<div class="pk-card-head"><span class="pk-flag-gap" aria-hidden="true"></span>'
             + '<button type="button" class="pk-open" data-act="open" data-fkey="' + key + ':open" aria-label="' + verb + ' ' + escapeHtml(what)
             + (where ? ', ' + escapeHtml(where) : '') + '">'
-            + '<span class="pk-thumb">' + (kind === 'contents' ? contentsSheet(plan, 0) : genSheet(kind, section)) + '</span>'
+            + '<span class="pk-thumb">' + (kind === 'contents' ? contentsSheet(plan, 0)
+                : genSheet(kind, section, '', kind === 'divider' ? numberHtml(nums, plan.pages.findIndex(p => p.kind === 'divider' && p.section === section.id), true) : '')) + '</span>'
             + '<span class="pk-meta"><span class="pk-name">' + escapeHtml(name) + '</span><span class="pk-sub">'
             + '<span class="pk-badge">' + { cover: 'COVER', contents: 'CONTENTS', divider: 'DIVIDER' }[kind] + '</span><span class="pk-gen">generated</span>'
             + (where ? '<span>' + escapeHtml(where) + '</span>' : '') + '<span class="pk-edit">' + (kind === 'contents' ? 'Preview' : 'Edit text') + '</span></span></span></button>'
@@ -960,7 +1078,7 @@ function initPacket() {
             + '</div>';
     }
 
-    function cardHtml(entry, filePos, fileCount, plan, cnt) {
+    function cardHtml(entry, filePos, fileCount, plan, cnt, nums) {
         const { item, section, i } = entry;
         const key = 'c:' + item.id;
         const info = plan.items[item.id];
@@ -976,9 +1094,11 @@ function initPacket() {
         const text = statusText(status, row, S.packet.options.paper, !isBlank && files.has(item.hash));
         const ctx = isBlank ? 'blank page' : name;
         const type = isBlank ? 'NEW' : ((row && row.type) || PM.fileType(item.label) || 'file').toUpperCase();
+        // The thumbnail shows the item's first page, with its number ([B7]).
+        const first = nums.at.get(item.id + ':0');
         let thumb;
-        if (isBlank) thumb = sheet(0, '', 'pk-sheet-blank');
-        else if (status === 'ready' && refs.length) thumb = sheet(refs[0].rot, imgTag(row, refs[0].src, 160, pageName(item, refs[0])));
+        if (isBlank) thumb = sheet(0, '', 'pk-sheet-blank', numberHtml(nums, first, true), drawnShape(nums, first));
+        else if (status === 'ready' && refs.length) thumb = sheet(refs[0].rot, imgTag(row, refs[0].src, 160, pageName(item, refs[0])), '', numberHtml(nums, first, true));
         else thumb = '<span class="pk-sheet pk-sheet-wait pk-' + S.packet.options.paper + '"></span>';
         const sub = [
             '<span class="pk-badge">' + escapeHtml(type) + '</span>',
@@ -1005,7 +1125,7 @@ function initPacket() {
         let pages = '';
         if (expanded) {
             pages = '<div class="pk-pages" data-item="' + item.id + '" role="group" aria-label="Pages of ' + escapeHtml(name) + '">'
-                + refs.map((ref, index) => tileHtml(item, row, ref, index, plan)).join('') + '</div>';
+                + refs.map((ref, index) => tileHtml(item, row, ref, index, plan, nums)).join('') + '</div>';
         }
         const position = 'file ' + filePos + ' of ' + fileCount;
         return '<div class="pk-card' + (isBlank ? ' pk-card-gen' : '') + (selected(key) ? ' pk-sel' : '')
@@ -1032,9 +1152,10 @@ function initPacket() {
             + '</div>';
     }
 
-    function tileHtml(item, row, ref, index, plan) {
+    function tileHtml(item, row, ref, index, plan, nums) {
         const key = 'p:' + item.id + ':' + index;
-        const physical = plan.pages.findIndex(p => p.item === item.id && p.index === index);
+        const at = nums.at.get(item.id + ':' + index);
+        const physical = at == null ? -1 : at;
         const label = physical === -1 ? null : plan.pages[physical].label;
         const src = pageName(item, ref);
         const ctx = 'page ' + (ref.src + 1) + ' of ' + item.label;
@@ -1042,7 +1163,7 @@ function initPacket() {
         return '<div class="pk-tile' + (selected(key) ? ' pk-sel' : '') + (held ? ' pk-held' : '') + '" data-item="' + item.id + '" data-index="' + index + '" data-key="' + key + '">'
             + '<button type="button" class="pk-tile-open" data-act="open" data-fkey="' + key + ':open" aria-label="Preview ' + escapeHtml(ctx)
             + (label != null ? ', packet page ' + label : '') + (ref.rot ? ', rotated ' + ref.rot + ' degrees' : '') + '">'
-            + sheet(ref.rot, imgTag(row, ref.src, 160, src)) + '</button>'
+            + sheet(ref.rot, imgTag(row, ref.src, 160, src), '', numberHtml(nums, physical, true)) + '</button>'
             + '<input type="checkbox" class="pk-check" data-fkey="' + key + ':check"' + (selected(key) ? ' checked' : '') + ' aria-label="Select ' + escapeHtml(ctx) + '">'
             + '<span class="pk-tile-foot">'
             + '<span class="pk-handle" role="application" tabindex="0" data-fkey="' + key + ':handle" aria-roledescription="drag handle" aria-label="Move ' + escapeHtml(ctx) + '. Space picks it up, arrow keys move it, Space drops.">'
@@ -1064,6 +1185,7 @@ function initPacket() {
 
         const cnt = counts();
         const plan = PM.pagePlan(S.packet, cnt);
+        const nums = numbersFor(plan);
         const order = PM.itemOrder(S.packet);
         const showSections = S.packet.sections.length > 1;
         const fileCount = order.length;
@@ -1074,16 +1196,16 @@ function initPacket() {
         $('#pkWork').hidden = order.length === 0;
 
         const sectionCount = S.packet.sections.length;
-        list.innerHTML = (S.packet.cover ? flagCardHtml('cover', null, plan) : '')
-            + (S.packet.options.contents ? flagCardHtml('contents', null, plan) : '')
+        list.innerHTML = (S.packet.cover ? flagCardHtml('cover', null, plan, nums) : '')
+            + (S.packet.options.contents ? flagCardHtml('contents', null, plan, nums) : '')
             + S.packet.sections.map((section, n) => {
                 const entries = order.filter(e => e.section === section);
                 const collapsed = showSections && ui.collapsed.has(section.id);
-                const cards = entries.map(e => cardHtml(e, ++filePos, fileCount, plan, cnt));
+                const cards = entries.map(e => cardHtml(e, ++filePos, fileCount, plan, cnt, nums));
                 const heading = showSections
                     ? sectionHeadHtml(section, entries.length, collapsed, plan, n + 1, sectionCount) : '';
                 const name = showSections ? PM.sectionName(section) : 'Packet';
-                const body = collapsed ? '' : (section.divider ? flagCardHtml('divider', section, plan) : '')
+                const body = collapsed ? '' : (section.divider ? flagCardHtml('divider', section, plan, nums) : '')
                     + '<button type="button" class="pk-plus pk-plus-top" data-act="plus" data-section="' + section.id + '" data-index="0" data-fkey="s:' + section.id + ':plus" aria-haspopup="menu" aria-label="Insert at the start' + (showSections ? ' of ' + escapeHtml(name) : ' of the packet') + '">+</button>'
                     + '<div class="pk-items" data-section="' + section.id + '">' + cards.join('') + '</div>';
                 return '<section class="pk-section' + (collapsed ? ' pk-collapsed' : '') + '" data-section="' + section.id + '" aria-label="' + escapeHtml(name) + '">'
@@ -2191,6 +2313,9 @@ function initPacket() {
         if (!seq.length) { closePreview(); return; }
         pv.pos = Math.max(0, Math.min(pv.pos, seq.length - 1));
         const p = seq[pv.pos];
+        // The page's number, drawn to scale over the image ([B7]).
+        const nums = numbersFor(PM.pagePlan(S.packet, counts()));
+        const num = numberHtml(nums, pv.pos, false);
         const found = p.item ? PM.findItem(S.packet, p.item) : null;
         let what;
         if (p.kind === 'file') {
@@ -2198,13 +2323,13 @@ function initPacket() {
             const ref = PM.itemRefs(item, counts())[p.index];
             what = pageName(item, ref);
             const row = S.table[item.hash];
-            page.innerHTML = sheet(ref.rot, imgTag(row, ref.src, 1200, what), 'pk-sheet-large');
+            page.innerHTML = sheet(ref.rot, imgTag(row, ref.src, 1200, what), 'pk-sheet-large', num);
             const url = thumbUrl(row, ref.src, 1200);
             if (!thumbUrls.has(url)) {
                 // Show the small render at once while the large one loads.
                 const small = thumbUrl(row, ref.src, 160);
                 const img = page.querySelector('img');
-                if (thumbUrls.has(small)) img.src = thumbUrls.get(small);
+                if (thumbUrls.has(small)) showImage(img, small);
                 wantThumb(url, true);
             }
         } else if (p.kind === 'contents') {
@@ -2219,12 +2344,18 @@ function initPacket() {
         } else if (p.kind === 'cover' || p.kind === 'divider') {
             const section = p.kind === 'divider' ? PM.findSection(S.packet, p.section).section : null;
             what = p.kind === 'cover' ? 'Cover page' : 'Divider · ' + PM.sectionName(section);
-            page.innerHTML = genSheet(p.kind, section, 'pk-sheet-large');
+            page.innerHTML = genSheet(p.kind, section, 'pk-sheet-large', num);
         } else {
             what = { blank: 'Blank page', pad: 'Blank page added for double-sided printing' }[p.kind];
-            page.innerHTML = sheet(0, '<span class="pk-sheet-note">' + escapeHtml(what) + '</span>', 'pk-sheet-large pk-sheet-blank');
-            const shape = (p.kind === 'blank' || p.kind === 'pad') && shapeBefore(seq, pv.pos);
-            if (shape) page.firstElementChild.style.aspectRatio = shape;
+            const shape = drawnShape(nums, pv.pos);
+            page.innerHTML = sheet(0, '<span class="pk-sheet-note">' + escapeHtml(what) + '</span>', 'pk-sheet-large pk-sheet-blank', num, shape);
+            // A row staged before [B7] has no sizes: the page before's
+            // image gives the shape, as it did before.
+            const before = !shape && shapeBefore(seq, pv.pos);
+            if (before) {
+                page.firstElementChild.style.aspectRatio = before;
+                page.firstElementChild.style.setProperty('--ar', before);
+            }
         }
         title.textContent = 'Page ' + (pv.pos + 1) + ' of ' + seq.length + ' · ' + what;
         sub.textContent = (p.label == null ? 'Not numbered' : (p.print || !S.packet.options.page_numbers ? 'Numbered ' : 'Counts as page ') + p.label)
@@ -2237,10 +2368,10 @@ function initPacket() {
         $('#pkPvPrev').disabled = pv.pos === 0;
         $('#pkPvNext').disabled = pv.pos === seq.length - 1;
     }
-    // A blank or padding page is sized like the nearest body page before it
-    // (§2.1, pdf_ops/merge.py _add_padding_blank). The client knows a staged
-    // page's shape only from a render that has loaded; without one, the
-    // packet's paper stands in.
+    // The shape a blank or padding page had before [B7], from the nearest
+    // file page's loaded render; only a row without sizes still needs it
+    // (drawnShape gives everything else). Without a render, the packet's
+    // paper stands in.
     function shapeBefore(seq, pos) {
         for (let k = pos - 1; k >= 0; k--) {
             const q = seq[k];
@@ -2582,6 +2713,9 @@ if (typeof module !== 'undefined' && module.exports) {
         sectionDeleteFocus,
         createPending,
         itemCodeText,
+        numberBox,
+        numberLayer,
+        isPlaceholderPng,
         CSRF_MESSAGE,
     };
 }

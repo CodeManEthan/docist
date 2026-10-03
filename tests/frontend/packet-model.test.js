@@ -1468,3 +1468,64 @@ test('a draft keeps a bound row\'s sizes and drops bad ones', () => {
     d.table[HA].sizes = '<img>';
     assert.equal(M.parseDraft(JSON.stringify(d)).table[HA].sizes, undefined);
 });
+
+// The page script's layer: its box and the number's place, in hundredths of
+// the sheet width.
+const LETTER_RATIO = 792 / 612;
+test('the number layer is the image\'s drawn box, and the number sits by rule 7', () => {
+    // A Letter page on a Letter sheet fills it.
+    const geo = { w: 612, h: 792, image: [612, 792], turn: 0 };
+    let b = C.numberBox(geo, 'bottom-right', LETTER_RATIO);
+    assert.ok(Math.abs(b.width - 100) < 1e-9 && Math.abs(b.height - 100 * LETTER_RATIO) < 1e-9);
+    assert.ok(Math.abs(b.x - 562 / 612 * 100) < 1e-9);
+    assert.ok(Math.abs(b.baseline - 30 / 612 * 100) < 1e-9);
+    assert.ok(Math.abs(b.size - 10 / 612 * 100) < 1e-9);
+    assert.equal(b.align, 'left');
+    b = C.numberBox(geo, 'bottom-center', LETTER_RATIO);
+    assert.equal(b.align, 'center');
+    assert.ok(Math.abs(b.x - 50) < 1e-9);
+    // A landscape page sits letterboxed in the Letter sheet: full width, 612/792 of it high.
+    b = C.numberBox({ w: 792, h: 612, image: [792, 612], turn: 0 }, 'bottom-left', LETTER_RATIO);
+    assert.ok(Math.abs(b.width - 100) < 1e-9 && Math.abs(b.height - 100 * 612 / 792) < 1e-9);
+    assert.ok(Math.abs(b.x - 50 / 792 * 100) < 1e-9);
+    // A portrait page turned 90: the sheet turns and shrinks to .77, so the
+    // layer, upright, is the turned box at that scale.
+    b = C.numberBox({ w: 792, h: 612, image: [612, 792], turn: 90 }, 'bottom-right', LETTER_RATIO);
+    assert.equal(b.turn, 90);
+    assert.ok(Math.abs(b.width - 100 * LETTER_RATIO * 0.77) < 1e-9);
+    assert.ok(Math.abs(b.height - 100 * 0.77) < 1e-9);
+    assert.ok(Math.abs(b.x - 742 / 792 * b.width) < 1e-9);
+    // A drawn blank's sheet is its own shape.
+    b = C.numberBox({ w: 792, h: 612 }, 'bottom-center', 612 / 792);
+    assert.ok(Math.abs(b.width - 100) < 1e-9 && Math.abs(b.height - 100 * 612 / 792) < 1e-9);
+});
+
+test('the layer stays upright: it undoes the sheet\'s turn and scale', () => {
+    const html = C.numberLayer({ w: 792, h: 612, image: [612, 792], turn: 270 }, 12, 'bottom-center', LETTER_RATIO, false);
+    assert.match(html, /transform:translate\(-50%,-50%\) rotate\(-270deg\) scale\(1\.2987\)/);
+    assert.match(html, /<text y="1" text-anchor="middle">12</);
+    assert.match(html, /font-size:1\.2582cqw/, 'to scale in the pop-up');
+    const flat = C.numberLayer({ w: 612, h: 792, image: [612, 792], turn: 180 }, 3, 'bottom-left', LETTER_RATIO, false);
+    assert.match(flat, /rotate\(-180deg\)"/);
+    assert.doesNotMatch(flat, /scale\(/);
+    assert.equal(C.numberLayer(null, 3, 'bottom-left', LETTER_RATIO, false), '');
+    assert.equal(C.numberLayer({ w: 612, h: 792 }, null, 'bottom-left', LETTER_RATIO, false), '');
+});
+
+test('on small images the number is at least 9 px and ends inside the image', () => {
+    const geo = { w: 612, h: 792, image: [612, 792], turn: 0 };
+    const right = C.numberLayer(geo, 123, 'bottom-right', LETTER_RATIO, true);
+    assert.match(right, /font-size:max\(9px, 1\.634cqw\)/);
+    assert.match(right, /left:min\(91\.8301cqw, calc\(100cqw - 1\.668em - 1px\)\)/);
+    const centre = C.numberLayer(geo, 123, 'bottom-center', LETTER_RATIO, true);
+    assert.match(centre, /left:50cqw;/);
+    // The pop-up is never shifted.
+    assert.match(C.numberLayer(geo, 123, 'bottom-right', LETTER_RATIO, false), /left:91\.8301cqw;/);
+});
+
+test('the too-large tile is told apart by its PNG text chunk', () => {
+    const bytes = s => Uint8Array.from(Array.from(s, c => c.charCodeAt(0)));
+    assert.equal(C.isPlaceholderPng(bytes('\x89PNG\r\n\x1a\n....tEXtdocist\x00placeholder....IDAT')), true);
+    assert.equal(C.isPlaceholderPng(bytes('\x89PNG\r\n\x1a\n....IDAT docist placeholder')), false);
+    assert.equal(C.isPlaceholderPng(new Uint8Array(0)), false);
+});
