@@ -1135,3 +1135,19 @@ test('M1: a drop into a collapsed section opens it so the new cards show', () =>
     assert.equal(C.dropTarget(775, dropLayout()).open, 's3');
     assert.equal(C.dropTarget(390, dropLayout()).open, null);
 });
+
+test('m1: after Delete section, focus goes to the receiving section or the moved items', () => {
+    let p = M.addSection(M.addSection(M.emptyPacket(), 'Two'), 'Three');
+    p = M.addFiles(p, [{ hash: HA, label: 'a.pdf' }], { section: 's3', index: 0 });
+    // Three sections left two: the receiving section's menu.
+    const twoLeft = M.deleteSection(p, 's3');
+    assert.equal(C.sectionDeleteFocus(twoLeft, p, 's3'), 's:s2:menu');
+    // One section left: no headings, so the first item that moved.
+    const pair = M.deleteSection(p, 's2');
+    const one = M.deleteSection(pair, 's3');
+    assert.equal(one.sections.length, 1);
+    assert.equal(C.sectionDeleteFocus(one, pair, 's3'), 'c:' + p.sections[2].items[0].id + ':open');
+    // One section left and nothing moved: the first card (null).
+    const empty = M.addSection(M.emptyPacket(), 'Two');
+    assert.equal(C.sectionDeleteFocus(M.deleteSection(empty, 's2'), empty, 's2'), null);
+});

@@ -374,6 +374,22 @@ function dropTarget(y, layout) {
     return { slot: { section: sec.id, index: sec.count }, line: last ? last.bottom + 10 : sec.start, open: null };
 }
 
+// The focus key after section `deletedId` of `before` was deleted, giving
+// `after` (§2.2: focus stays with what was acted on). While headings show,
+// the section that took its contents keeps focus on its menu. With one
+// section left there are no headings, so focus goes to the first item that
+// moved; null when none did (the caller focuses the first card).
+function sectionDeleteFocus(after, before, deletedId) {
+    const i = before.sections.findIndex(s => s.id === deletedId);
+    if (i === -1) return null;
+    if (after.sections.length > 1) {
+        const into = i > 0 ? before.sections[i - 1] : before.sections[1];
+        return 's:' + into.id + ':menu';
+    }
+    const moved = before.sections[i].items[0];
+    return moved ? 'c:' + moved.id + ':open' : null;
+}
+
 // The text a card shows for its row (empty when ready).
 function statusText(status, row, paper, haveFile) {
     switch (status) {
@@ -1400,10 +1416,12 @@ function initPacket() {
             const count = found.section.items.length;
             const next = PM.deleteSection(S.packet, sectionId);
             if (next === S.packet) return;
-            ui.focusKey = next.sections.length > 1 ? 's:' + into.id + ':menu' : null;
+            // render() consumes ui.focusKey, so keep the target here.
+            const target = sectionDeleteFocus(next, S.packet, sectionId);
+            ui.focusKey = target;
             ui.collapsed.delete(into.id);
             change(next);
-            if (!ui.focusKey) focusFirstCard();
+            if (!target) focusFirstCard();
             showToast('Deleted section ' + name + (count ? '. Its ' + plural(count, 'item') + ' moved to ' + PM.sectionName(into) + '.' : '.'), true);
         }
     }
@@ -2415,6 +2433,7 @@ if (typeof module !== 'undefined' && module.exports) {
         resultName,
         plusEntries,
         dropTarget,
+        sectionDeleteFocus,
         itemCodeText,
         CSRF_MESSAGE,
     };
