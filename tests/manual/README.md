@@ -1,7 +1,7 @@
 ---
 type: repo-doc
 project: docist
-description: "Index and operating instructions for Docist's manual hand-test suite: what hand-testing covers that the automated suites cannot, per-session fixture setup, the two server modes and why their overrides exist, the seven checklists in order, and the smoke subset."
+description: "Index and operating instructions for Docist's manual hand-test suite: what hand-testing covers that the automated suites cannot, per-session fixture setup, the two server modes and why their overrides exist, the eight checklists in order, and the smoke subset."
 tags: [index, testing, checklist]
 updated: 2026-09-25
 ---
@@ -50,6 +50,7 @@ fires without 30 rapid submits.
 5. `05-security.md` — Watermark & Security (10 checks)
 6. `06-api.md` — REST API via curl (8 checks)
 7. `07-auth-hardening.md` — accounts, daily limits, API keys, owner-bound downloads, CSRF, throttles (16 checks)
+8. `08-packet.md` — Packet Builder at /packet: drag, touch, keyboard, screen reader, card states, drafts (12 checks; runs against `packet_fake_server.py` until the packet endpoints land)
 
 Roughly 2–2.5 hours for a full pass.
 
