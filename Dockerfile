@@ -5,6 +5,10 @@ FROM python:3.12-slim
 # OCR language packs: English (with OSD) comes with tesseract-ocr; the rest are
 # the 14-language set (round prelaunch-fixes [Q2], ruled 2026-10-02), about
 # 30 MB. Names for each are in pdf_ops/ocr_langs.py.
+# The Word engine (pdf_ops/office.py, paid): LibreOffice Writer without the
+# GUI, plus Carlito and Caladea, metric-compatible with Calibri and Cambria.
+# Liberation covers Arial, Times New Roman and Courier New. Microsoft's own
+# fonts can't be redistributed in an image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-spa \
@@ -22,6 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-fil \
     ghostscript \
     fonts-liberation \
+    libreoffice-writer-nogui \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -23,6 +23,7 @@ class RenderOptions:
     ocr_language: str = 'eng'      # Tesseract code(s), '+'-joined, already validated
     word_engine: str = 'reflow'    # 'reflow' | 'libreoffice'
     deadline: float | None = None  # time.monotonic() value rendering must finish by
+    reflow_max_bytes: int | None = None  # bytes of Word files this request may still re-flow
     notes: list = field(default_factory=list)   # user-facing notes a renderer appends
 
 

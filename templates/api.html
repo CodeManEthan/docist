@@ -122,7 +122,8 @@
                     <td>Image to <code>.txt</code> only: the OCR language code from <code>ocr_languages</code> (default <code>eng</code>), or two joined with <code>+</code>, e.g. <code>eng+spa</code>.</td></tr>
             </table>
             <p>If the server has to tell you something about how it made the file,
-               the response carries an <code>X-Docist-Notes</code> header (plain ASCII text).</p>
+               the response carries an <code>X-Docist-Notes</code> header (plain ASCII text),
+               for example when a Word file was converted with the basic converter.</p>
 <pre class="api-curl">curl -X POST http://localhost:5010/api/v1/convert \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@diagram.png" \
@@ -258,9 +259,12 @@
                     (seconds until midnight UTC) and
                     <code>{"error": "…", "code": "daily_limit", "limit": N,
                     "used": N, "signup_url": "/signup"}</code>.</li>
-                <li><strong>Upload size:</strong> a request larger than
-                    <code>DOCIST_MAX_UPLOAD_MB</code> (default <strong>50 MB</strong>,
-                    total request body) is rejected with <code>413</code>.</li>
+                <li><strong>Upload size:</strong> a request whose total body is
+                    larger than your account's upload limit
+                    (<code>DOCIST_MAX_UPLOAD_MB</code>, default <strong>50 MB</strong>)
+                    is rejected with <code>413</code> and
+                    <code>{"error": "…", "code": "upload_too_large", "limit_mb": N}</code>,
+                    where <code>limit_mb</code> is the limit that applied to the request.</li>
                 <li><strong>Nothing is stored:</strong> API uploads and results
                     live in a temporary directory for the length of the request
                     only — unlike the web UI, no file is left in the server's

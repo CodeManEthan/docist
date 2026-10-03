@@ -30,8 +30,10 @@ from transforms import (
 )
 from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr_langs import language_choices
+from utils.identity import current_user
 from utils.naming import display_name, result_name
 from utils.render_opts import RenderOptionsError, from_form, with_notes
+from utils.uploads import charge_uploads, convert_large_ok
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('convert', __name__)
@@ -120,9 +122,14 @@ def run_convert():
         return jsonify({'error': f"No converter for {src_ext} -> {target}."}), 400
 
     try:
-        render_opts = from_form(request.form, paper=renders_pages(src_ext, target),
+        render_opts = from_form(request.form, current_user(),
+                                paper=renders_pages(src_ext, target),
                                 ocr=uses_ocr(src_ext, target))
     except RenderOptionsError as exc:
+        return jsonify({'error': str(exc)}), 400
+    try:
+        charge_uploads([(upload, convert_large_ok(src_ext, target, render_opts))])
+    except UploadValidationError as exc:
         return jsonify({'error': str(exc)}), 400
 
     stem = os.path.splitext(filename)[0] or 'document'

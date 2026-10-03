@@ -1,8 +1,9 @@
 """RenderOptions and utils.render_opts.from_form (round prelaunch-fixes, design §2).
 
 from_form validates a field only on a path that consumes it: ``paper`` when
-``paper=True`` (the default), ``language`` only with ``ocr=True``. In B1
-``deadline`` stays ``None``.
+``paper=True`` (the default), ``language`` only with ``ocr=True``. Outside a
+request stamped by ``utils.uploads.apply_limit``, ``deadline`` stays ``None``
+(B2 sets it inside one; tests/backend/test_office.py covers that).
 """
 import pytest
 from werkzeug.datastructures import MultiDict
@@ -13,6 +14,7 @@ from converters.options import PAPER_SIZES, RenderOptions, paper_css, paper_size
 from pdf_ops import ocr as ocr_ops
 from utils import render_opts
 from utils.render_opts import RenderOptionsError, from_form, notes_header, with_notes
+from pdf_ops import office
 
 
 @pytest.fixture
@@ -58,8 +60,8 @@ def test_from_form_defaults(no_probe):
     assert opts == RenderOptions()
 
 
-def test_deadline_is_none_in_b1(langs):
-    """Nothing in B1 consumes a deadline, so from_form never sets one."""
+def test_deadline_is_none_outside_a_request(langs):
+    """No request, no g.request_started: from_form sets no deadline."""
     assert from_form(MultiDict({'paper': 'a4'})).deadline is None
     assert from_form(MultiDict({'language': 'spa'}), ocr=True).deadline is None
 
@@ -253,3 +255,21 @@ def test_keyword_only_opts_is_wrapped():
     opts = RenderOptions(paper='a4')
     converters.with_opts(kw_only)('in', 'out', opts)
     assert seen == [opts]
+
+
+class _User:
+    def __init__(self, verified, paid):
+        self.is_verified = verified
+        self.is_paid = paid
+
+
+@pytest.mark.parametrize('user,installed,engine', [
+    (None, True, 'reflow'),
+    (_User(False, True), True, 'reflow'),     # unverified, even on a paid plan
+    (_User(True, False), True, 'reflow'),
+    (_User(True, True), True, 'libreoffice'),
+    (_User(True, True), False, 'reflow'),     # paid, but LibreOffice missing
+])
+def test_word_engine_follows_the_tier(monkeypatch, no_probe, user, installed, engine):
+    monkeypatch.setattr(office, 'available', lambda: installed)
+    assert from_form(MultiDict(), user).word_engine == engine

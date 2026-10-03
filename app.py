@@ -23,7 +23,18 @@ local development):
     DOCIST_API_ANONYMOUS           set to 1 to let /api/v1 POSTs run without an
                                    API key (metered as anonymous)
     DOCIST_HOST / DOCIST_PORT      dev-server bind (default 127.0.0.1:5010)
-    DOCIST_MAX_UPLOAD_MB           request size cap (default 50)
+    DOCIST_MAX_UPLOAD_MB           request body cap in MiB for every tier but
+                                   paid (default 50)
+    DOCIST_MAX_UPLOAD_MB_PAID      request body cap in MiB for paid accounts
+                                   on Merge and Convert, for PDFs and Word
+                                   files (default 90; keep it at least 5 MB
+                                   under a proxy's own cap; utils/uploads.py)
+    DOCIST_RENDER_BUDGET           seconds from the start of a request by which
+                                   Word-engine work must end (default 90)
+    DOCIST_OFFICE_TIMEOUT          seconds one LibreOffice call may run
+                                   (default 60)
+    DOCIST_OFFICE_MEM_MB           address-space cap for LibreOffice, in MiB
+                                   (default 1536)
     DOCIST_RATE_LIMIT              POSTs allowed per window per IP (default 30)
     DOCIST_RATE_WINDOW             rate-limit window in seconds (default 60)
     DOCIST_OUTPUT_MAX_AGE_MINUTES  results older than this are pruned (default
@@ -60,7 +71,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import routes
 from models import User, database_url, db, utcnow
-from utils import csrf, identity, metering
+from pdf_ops import office
+from utils import csrf, identity, metering, uploads
 from utils.cleanup import OutputJanitor
 from utils.ratelimit import RateLimiter
 
@@ -126,6 +138,8 @@ else:
     )
 
 app.config['MAX_CONTENT_LENGTH'] = _env_int('DOCIST_MAX_UPLOAD_MB', 50) * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH_PAID'] = _env_int('DOCIST_MAX_UPLOAD_MB_PAID', 90) * 1024 * 1024
+app.config['RENDER_BUDGET'] = _env_int('DOCIST_RENDER_BUDGET', 90)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = _env_flag('DOCIST_COOKIE_SECURE')
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
@@ -161,8 +175,11 @@ if _trusted_proxies > 0:
     )
 
 identity.init_app(app)
+uploads.init_app(app)
 csrf.init_app(app)
 metering.init_app(app)
+# The Merge and Convert pages' Word hint (templates/_word_hint.html).
+app.jinja_env.globals['word_engine_available'] = lambda: office.available()
 
 for _removed in ('DOCIST_PASSWORD', 'DOCIST_PUBLIC_DEMO'):
     if os.environ.get(_removed):
@@ -226,9 +243,12 @@ def _before_request():
                 return response
 
     # 3. g.user from the session, or from the API key on /api/v1 (may 401).
-    # 4. CSRF on state-changing browser requests (may 400).
-    # 5. The daily limit on metered operations (may 429).
-    for step in (identity.load_identity, csrf.check_csrf, metering.check):
+    # 4. The body limit for g.user's tier, before anything reads the body
+    #    (may 413 on a declared length); stamps g.request_started.
+    # 5. CSRF on state-changing browser requests (may 400; may parse the form).
+    # 6. The daily limit on metered operations (may 429).
+    for step in (identity.load_identity, uploads.apply_limit, csrf.check_csrf,
+                 metering.check):
         response = step()
         if response is not None:
             return response

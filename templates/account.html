@@ -66,6 +66,14 @@
             {% else %}
             <p>Today: <strong>{{ usage.used }}</strong> operations. Your plan has no daily limit.</p>
             {% endif %}
+            {% if usage.tier == 'paid' %}
+            <p>Your plan includes:</p>
+            <ul>
+                <li>The Word engine: Word files keep their own layout and page size{% if not word_engine_available() %} (not installed on this server right now, so Word files are re-flowed){% endif %}.</li>
+                <li>Merge takes up to {{ paid_upload_limit_mb }} MB per request of PDFs{% if word_engine_available() %} and Word files{% endif %}.</li>
+                {% if word_engine_available() %}<li>Convert takes a Word file up to {{ paid_upload_limit_mb }} MB when converting it to PDF.</li>{% endif %}
+            </ul>
+            {% endif %}
         </section>
 
         <section class="account-section">

@@ -253,3 +253,120 @@ def test_upload_csv_merges_successfully(client):
     # A single short CSV -> 1 content page, padded to an even count (2) by
     # the app's blank-page logic. Sanity-check it produced pages.
     assert len(reader.pages) >= 1
+
+
+# --------------------------------------------------------------------------
+# The Word engine through the converter and the API (prelaunch-fixes B2, §5.4)
+# --------------------------------------------------------------------------
+import word_fixtures as wf  # noqa: E402
+from converters import docx_converter  # noqa: E402
+from converters.options import RenderOptions  # noqa: E402
+from pdf_ops import office  # noqa: E402
+
+_A4 = (595.3, 841.9)
+_LETTER = (612.0, 792.0)
+
+
+def _size(path):
+    box = PdfReader(str(path)).pages[0].mediabox
+    return float(box.width), float(box.height)
+
+
+def _near(a, b, tol=1.0):
+    return abs(a[0] - b[0]) <= tol and abs(a[1] - b[1]) <= tol
+
+
+@pytest.mark.skipif(not office.available(), reason='LibreOffice not installed')
+def test_word_engine_keeps_the_documents_own_page_size(tmp_path):
+    src = wf.a4_header_footer(tmp_path / 'a4.docx')
+    out = tmp_path / 'out.pdf'
+    opts = RenderOptions(paper='letter', word_engine='libreoffice')
+    get_converter('.docx')(str(src), str(out), opts)
+    assert _near(_size(out), _A4)
+    assert opts.notes == []
+
+
+def test_reflow_follows_the_paper(tmp_path):
+    src = wf.a4_header_footer(tmp_path / 'a4.docx')
+    out = tmp_path / 'out.pdf'
+    get_converter('.docx')(str(src), str(out), RenderOptions(paper='letter'))
+    assert _near(_size(out), _LETTER)
+
+
+def test_office_error_falls_back_to_reflow_with_the_note(tmp_path, monkeypatch):
+    def fail(*_a, **_k):
+        raise office.OfficeError('boom')
+    monkeypatch.setattr(office, 'docx_to_pdf', fail)
+    src = wf.a4_header_footer(tmp_path / 'a4.docx')
+    out = tmp_path / 'out.pdf'
+    opts = RenderOptions(paper='a4', word_engine='libreoffice')
+    get_converter('.docx')(str(src), str(out), opts)
+    assert _near(_size(out), _A4)
+    assert opts.notes == [docx_converter.FALLBACK_NOTE]
+    # A second file in the same request doesn't repeat the note.
+    get_converter('.docx')(str(src), str(tmp_path / 'two.pdf'), opts)
+    assert opts.notes == [docx_converter.FALLBACK_NOTE]
+
+
+def test_reflow_engine_never_calls_libreoffice(tmp_path, monkeypatch):
+    def boom(*_a, **_k):
+        raise AssertionError('LibreOffice was called')
+    monkeypatch.setattr(office, 'docx_to_pdf', boom)
+    out = tmp_path / 'out.pdf'
+    get_converter('.docx')(str(wf.letter_1page(tmp_path / 'l.docx')), str(out),
+                           RenderOptions())
+    assert PdfReader(str(out)).pages
+
+
+def _paid_key(make_user):
+    import app as flask_app_module
+    from models import ApiKey, User, db
+    user = make_user(email='paid@x.io', plan='monthly')
+    with flask_app_module.app.app_context():
+        raw, _ = ApiKey.issue(db.session.get(User, user.id), 'test')
+        db.session.commit()
+    return raw
+
+
+def test_api_convert_sends_the_note_header(client, make_user, tmp_path, monkeypatch):
+    monkeypatch.setattr(office, 'available', lambda: True)
+
+    def fail(*_a, **_k):
+        raise office.OfficeError('boom')
+    monkeypatch.setattr(office, 'docx_to_pdf', fail)
+    raw = _paid_key(make_user)
+    src = wf.letter_1page(tmp_path / 'l.docx')
+    response = client.post('/api/v1/convert', data={
+        'file': (open(src, 'rb'), 'l.docx'), 'target': '.pdf',
+    }, content_type='multipart/form-data', headers={'Authorization': f'Bearer {raw}'})
+    assert response.status_code == 200
+    assert response.headers['X-Docist-Notes'] == docx_converter.FALLBACK_NOTE
+    assert response.data.startswith(b'%PDF-')
+
+
+@pytest.mark.skipif(not office.available(), reason='LibreOffice not installed')
+def test_api_convert_paid_key_gets_the_engine(client, make_user, tmp_path):
+    raw = _paid_key(make_user)
+    src = wf.a4_header_footer(tmp_path / 'a4.docx')
+    response = client.post('/api/v1/convert', data={
+        'file': (open(src, 'rb'), 'a4.docx'), 'target': '.pdf', 'paper': 'letter',
+    }, content_type='multipart/form-data', headers={'Authorization': f'Bearer {raw}'})
+    assert response.status_code == 200
+    assert 'X-Docist-Notes' not in response.headers
+    reader = PdfReader(io.BytesIO(response.data))
+    box = reader.pages[0].mediabox
+    assert _near((float(box.width), float(box.height)), _A4)
+
+
+def test_free_user_merge_reflows_without_a_note(client, make_user, login, tmp_path,
+                                                monkeypatch):
+    def boom(*_a, **_k):
+        raise AssertionError('LibreOffice was called for a free user')
+    monkeypatch.setattr(office, 'docx_to_pdf', boom)
+    monkeypatch.setattr(office, 'available', lambda: True)
+    login(client, make_user(plan='free'))
+    src = wf.a4_header_footer(tmp_path / 'a4.docx')
+    response = client.post('/upload', data={'files[]': (open(src, 'rb'), 'a4.docx')},
+                           content_type='multipart/form-data')
+    assert response.status_code == 200
+    assert docx_converter.FALLBACK_NOTE not in response.get_json()['message']

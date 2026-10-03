@@ -1,0 +1,9 @@
+{#- Which engine renders Word files for this visitor (design prelaunch-fixes
+    §5.5). Keyed on usage_today.tier, which every GET's context carries; the
+    server decides the engine per request, so a stale page shows only a stale
+    hint. Neutral wording for everyone else until checkout exists ([Q5]). -#}
+{% if usage_today and usage_today.tier == 'paid' and word_engine_available() %}
+<div class="upload-hint" id="wordHint">Word files keep their own layout and page size.</div>
+{% else %}
+<div class="upload-hint" id="wordHint">Word files are re-flowed onto your paper size.</div>
+{% endif %}

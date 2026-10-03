@@ -1,20 +1,35 @@
 """Converter plugin: Word documents (.docx) -> PDF.
 
-Converts DOCX to HTML with ``mammoth`` (which handles headings, lists, tables,
+Two engines. With ``opts.word_engine == 'libreoffice'`` (paid users, design
+prelaunch-fixes v0.4 §5) LibreOffice renders the file and keeps its own
+layout and page size (:mod:`pdf_ops.office`). When that raises
+:class:`pdf_ops.office.OfficeError` (a file it can't open, a file that isn't
+Word, a timeout, or no time left in the request), the reflow below runs on
+``opts.paper`` and :data:`FALLBACK_NOTE` is appended to ``opts.notes``.
+
+The reflow (everyone else): converts DOCX to HTML with ``mammoth`` (which handles headings, lists, tables,
 bold/italic and inlines images as data URIs), wraps that fragment in a minimal
 styled HTML document, and renders it to PDF with ``xhtml2pdf`` (pisa).
 """
+import logging
+import os
 import zipfile
 
 import mammoth
 from xhtml2pdf import pisa
 
 from . import ConversionError
-from .options import paper_css
+from .options import paper_css, resolve
 from .safe_links import link_callback
+from pdf_ops import office
+
+log = logging.getLogger(__name__)
 
 
 EXTENSIONS = ['.docx']
+
+FALLBACK_NOTE = ("The Word engine couldn't convert this file, so it was converted "
+                 "with the basic converter.")
 
 # Minimal document CSS for clean, readable typography in the PDF.
 _CSS = """
@@ -111,7 +126,44 @@ def _page_css(opts):
 
 
 def convert(input_path, output_path, opts=None):
-    """Convert a DOCX file to a PDF written to ``output_path``.
+    """Convert a DOCX file to a PDF written to ``output_path``, with the
+    engine ``opts.word_engine`` names (see the module docstring)."""
+    opts = resolve(opts)
+    if opts.word_engine == 'libreoffice':
+        # Rule: nothing B2 adds opens a Word file before it passes the
+        # archive-expansion check, and one that fails it is refused, not
+        # handed to the reflow (which has no such check of its own).
+        try:
+            office.check_package(input_path)
+        except office.ArchiveError as exc:
+            raise ConversionError(
+                f"This Word file can't be converted: {exc}.") from exc
+        except office.OfficeError:
+            pass   # not a zip: docx_to_pdf refuses it, and the reflow says why
+        try:
+            office.docx_to_pdf(input_path, output_path, opts.deadline)
+            return
+        except office.ArchiveError as exc:
+            raise ConversionError(
+                f"This Word file can't be converted: {exc}.") from exc
+        except office.OfficeError as exc:
+            log.warning('Word engine failed on %s: %s', os.path.basename(input_path), exc)
+            if opts.reflow_max_bytes is not None:
+                # The reflow takes only what a free user could send, counted
+                # across every Word file it re-flows in this request.
+                size = os.path.getsize(input_path)
+                if size > opts.reflow_max_bytes:
+                    raise ConversionError(
+                        "The Word engine couldn't convert this file, and it is too "
+                        "large for the basic converter.") from exc
+                opts.reflow_max_bytes -= size
+            if FALLBACK_NOTE not in opts.notes:
+                opts.notes.append(FALLBACK_NOTE)
+    _reflow(input_path, output_path, opts)
+
+
+def _reflow(input_path, output_path, opts):
+    """Convert a DOCX file to a PDF written to ``output_path`` with mammoth.
 
     Raises ``ConversionError`` with a helpful message on failure, including for
     corrupt files or non-DOCX files masquerading as ``.docx`` (e.g. a legacy
