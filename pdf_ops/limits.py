@@ -125,6 +125,14 @@ def merge_unsupported_message(names):
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
+def archive_refusal(cause):
+    """The :class:`LimitError` for a package the archive check refused, chained
+    to the check's own error so the detail survives for logs and tests."""
+    error = LimitError(archive_message(), kind='archive')
+    error.__cause__ = cause
+    return error
+
+
 def frame_ok(width, height):
     """True when a ``width`` x ``height`` frame is within ``FRAME_PIXELS``."""
     return int(width) * int(height) <= FRAME_PIXELS

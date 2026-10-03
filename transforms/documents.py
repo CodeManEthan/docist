@@ -166,7 +166,11 @@ def _html_to_plain_text(html):
 
 
 def _read_docx_result(input_path, mammoth_func):
-    """Run a mammoth reader on a DOCX path, translating bad input to error."""
+    """Run a mammoth reader on a DOCX path, translating bad input to error.
+
+    The archive check runs first (design launch-hardening §4.2)."""
+    from converters.docx_converter import check_docx
+    check_docx(input_path, TransformError)
     try:
         with open(input_path, 'rb') as docx_file:
             return mammoth_func(docx_file)

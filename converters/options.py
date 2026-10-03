@@ -25,6 +25,8 @@ class RenderOptions:
     deadline: float | None = None  # time.monotonic() value rendering must finish by
     reflow_max_bytes: int | None = None  # bytes of Word files this request may still re-flow
     notes: list = field(default_factory=list)   # user-facing notes a renderer appends
+    cells_read: int = 0            # spreadsheet cells this request has read (limits.TABLE_CELLS_READ)
+    written: int = 0               # bytes this request's export or split has written (limits.RESULT_BYTES)
 
 
 def resolve(opts):

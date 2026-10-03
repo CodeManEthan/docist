@@ -38,12 +38,15 @@ import re
 import resource
 import shutil
 import signal
+import struct
 import subprocess
 import tempfile
 import time
 import zipfile
 import zlib
 from xml.etree import ElementTree as ET
+
+from pdf_ops import limits
 
 log = logging.getLogger(__name__)
 
@@ -187,7 +190,53 @@ def _parse(data, name):
         raise OfficeError(f'{name} is not well-formed XML') from exc
 
 
+_EOCD = b'PK\x05\x06'
+_EOCD64_LOCATOR = b'PK\x06\x07'
+_EOCD64 = b'PK\x06\x06'
+_EOCD_SIZE = 22
+_EOCD64_LOCATOR_SIZE = 20
+_EOCD64_SIZE = 56
+
+
+def check_central_directory(path):
+    """Refuse a zip whose central directory is over ``MAX_CENTRAL_DIR_BYTES``,
+    before ``zipfile`` reads it (design launch-hardening §4.1, Rule B(b)).
+
+    Reads the end-of-central-directory record the way ``zipfile`` finds it
+    (the last 64 KiB plus 22 bytes, the last signature), and the Zip64 record
+    just before it when its locator is there. ``zipfile`` reads exactly the
+    declared directory size and builds one ``ZipInfo`` per entry in it, so
+    this bounds the entry list before it is built. Raises
+    :class:`ArchiveError`; a file with no record is left for ``zipfile`` to
+    refuse.
+    """
+    try:
+        size = os.path.getsize(path)
+        with open(path, 'rb') as fh:
+            span = min(size, 65536 + _EOCD_SIZE)
+            fh.seek(size - span)
+            tail = fh.read(span)
+            at = tail.rfind(_EOCD)
+            if at < 0 or len(tail) - at < _EOCD_SIZE:
+                return
+            directory = struct.unpack('<4s4H2LH', tail[at:at + _EOCD_SIZE])[5]
+            eocd = size - span + at
+            if eocd >= _EOCD64_LOCATOR_SIZE + _EOCD64_SIZE:
+                fh.seek(eocd - _EOCD64_LOCATOR_SIZE)
+                locator = fh.read(_EOCD64_LOCATOR_SIZE)
+                if locator[:4] == _EOCD64_LOCATOR:
+                    fh.seek(eocd - _EOCD64_LOCATOR_SIZE - _EOCD64_SIZE)
+                    record = fh.read(_EOCD64_SIZE)
+                    if record[:4] == _EOCD64:
+                        directory = struct.unpack('<4sqhhLLQQQQ', record)[8]
+    except OSError:
+        return
+    if directory > limits.MAX_CENTRAL_DIR_BYTES:
+        raise ArchiveError('the central directory is too large')
+
+
 def _open_zip(path):
+    check_central_directory(path)
     try:
         zin = zipfile.ZipFile(path)
     except (zipfile.BadZipFile, OSError) as exc:

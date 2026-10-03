@@ -21,7 +21,7 @@ from xhtml2pdf import pisa
 from . import ConversionError
 from .options import paper_css, resolve
 from .safe_links import link_callback
-from pdf_ops import office
+from pdf_ops import limits, office
 
 log = logging.getLogger(__name__)
 
@@ -136,16 +136,14 @@ def convert(input_path, output_path, opts=None):
         try:
             office.check_package(input_path)
         except office.ArchiveError as exc:
-            raise ConversionError(
-                f"This Word file can't be converted: {exc}.") from exc
+            raise ConversionError(limits.archive_message()) from limits.archive_refusal(exc)
         except office.OfficeError:
             pass   # not a zip: docx_to_pdf refuses it, and the reflow says why
         try:
             office.docx_to_pdf(input_path, output_path, opts.deadline)
             return
         except office.ArchiveError as exc:
-            raise ConversionError(
-                f"This Word file can't be converted: {exc}.") from exc
+            raise ConversionError(limits.archive_message()) from limits.archive_refusal(exc)
         except office.OfficeError as exc:
             log.warning('Word engine failed on %s: %s', os.path.basename(input_path), exc)
             if opts.reflow_max_bytes is not None:
@@ -162,6 +160,24 @@ def convert(input_path, output_path, opts=None):
     _reflow(input_path, output_path, opts)
 
 
+def check_docx(input_path, error_type):
+    """Run the archive check on a ``.docx`` before mammoth opens it.
+
+    Raises ``error_type`` with the archive refusal (chained to a
+    :class:`pdf_ops.limits.LimitError`, so a job reports the limit) or with
+    the "not a valid .docx file" message for a damaged or non-zip file.
+    """
+    try:
+        office.check_package(input_path)
+    except office.ArchiveError as exc:
+        raise error_type(limits.archive_message()) from limits.archive_refusal(exc)
+    except office.OfficeError as exc:
+        raise error_type(
+            f"'{os.path.basename(input_path)}' is not a valid .docx file. It may be "
+            f"corrupt, empty, or an older .doc file renamed to .docx."
+        ) from exc
+
+
 def _reflow(input_path, output_path, opts):
     """Convert a DOCX file to a PDF written to ``output_path`` with mammoth.
 
@@ -169,6 +185,12 @@ def _reflow(input_path, output_path, opts):
     corrupt files or non-DOCX files masquerading as ``.docx`` (e.g. a legacy
     ``.doc`` renamed).
     """
+    # Rule: nothing opens a Word file before it passes the archive check
+    # (B2's check_package, after the central-directory check), on every
+    # engine (design launch-hardening §4.2). What mammoth and xhtml2pdf then
+    # build is held by the request's job.
+    check_docx(input_path, ConversionError)
+
     # A .docx is a ZIP archive of OOXML parts. mammoth surfaces a variety of
     # exceptions for bad input; catch broadly and translate to ConversionError
     # with a message that hints at the most common cause (wrong format).

@@ -29,6 +29,18 @@ app = flask_app_module.app
 MIB = 1024 * 1024
 
 
+ARCHIVE_REFUSAL = 'This file unpacks to more than Docist can open'
+
+
+def archive_detail(exc):
+    """The archive check's own text, under the ruled refusal (launch-hardening
+    §16 puts one sentence on every archive refusal; the detail is chained)."""
+    while exc is not None and not isinstance(exc, office.ArchiveError):
+        exc = exc.__cause__
+    assert exc is not None, 'no ArchiveError in the chain'
+    return str(exc)
+
+
 @pytest.fixture
 def no_reflow(monkeypatch):
     def boom(*_a, **_k):
@@ -61,9 +73,10 @@ def test_the_critics_bomb_is_refused_before_anything_opens_it(tmp_path, no_reflo
                                                               no_libreoffice):
     src = bomb_docx(tmp_path / 'bomb.docx')
     assert os.path.getsize(src) < 100 * 1024
-    with pytest.raises(ConversionError, match='compressed too far'):
+    with pytest.raises(ConversionError, match=ARCHIVE_REFUSAL) as info:
         get_converter('.docx')(str(src), str(tmp_path / 'out.pdf'),
                                RenderOptions(word_engine='libreoffice'))
+    assert 'compressed too far' in archive_detail(info.value)
     assert no_libreoffice == []
 
 
@@ -76,9 +89,10 @@ def test_each_archive_limit_refuses(tmp_path, monkeypatch, no_reflow, no_libreof
                                     limit, value, match):
     monkeypatch.setattr(office, limit, value)
     src = wf.a4_header_footer(tmp_path / 'hf.docx')   # 5 entries, a few KB
-    with pytest.raises(ConversionError, match=match):
+    with pytest.raises(ConversionError, match=ARCHIVE_REFUSAL) as info:
         get_converter('.docx')(str(src), str(tmp_path / 'out.pdf'),
                                RenderOptions(word_engine='libreoffice'))
+    assert match in archive_detail(info.value)
 
 
 def test_an_archive_that_lies_about_its_sizes_is_caught_while_read(tmp_path, monkeypatch):
@@ -128,8 +142,9 @@ def test_out_of_time_still_checks_the_archive_first(tmp_path, no_reflow, no_libr
     import time
     src = bomb_docx(tmp_path / 'bomb.docx')
     opts = RenderOptions(word_engine='libreoffice', deadline=time.monotonic() - 1)
-    with pytest.raises(ConversionError, match='compressed too far'):
+    with pytest.raises(ConversionError, match=ARCHIVE_REFUSAL) as info:
         get_converter('.docx')(str(src), str(tmp_path / 'out.pdf'), opts)
+    assert 'compressed too far' in archive_detail(info.value)
 
 
 def test_a_normal_word_file_passes_the_check(tmp_path):
@@ -341,9 +356,10 @@ def test_a_lying_archive_is_refused_not_re_flowed(tmp_path, monkeypatch, no_refl
                 info.file_size = 1000
         return infos
     monkeypatch.setattr(zipfile.ZipFile, 'infolist', lying_infolist)
-    with pytest.raises(ConversionError, match="can't be converted"):
+    with pytest.raises(ConversionError, match=ARCHIVE_REFUSAL) as info:
         get_converter('.docx')(str(src), str(tmp_path / 'out.pdf'),
                                RenderOptions(word_engine='libreoffice'))
+    assert 'misstates its sizes' in archive_detail(info.value)
 
 
 def test_convert_page_meta_without_the_engine_is_the_free_limit(client, paid, monkeypatch):
