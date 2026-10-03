@@ -14,7 +14,8 @@ step that may parse the form. It also records ``g.request_started``, the
 moment the request's render budget counts from (utils/render_opts.py).
 
 Rule: the paid limit raises a request's limit only where B2 bounds the work
-it lets through: Merge and Convert, in the browser and on the API
+it lets through: Merge and Convert, in the browser and on the API, and the
+packet builder's stage, which charges its one file as Merge does
 (``PAID_ENDPOINTS``). There, only a PDF or a Word file the Word engine will
 render may be over the free limit (the routes check each file with
 :func:`file_limit`), and form text fields never take more memory than the
@@ -47,9 +48,11 @@ MIB = 1024 * 1024
 # The endpoints a paid request may send more than the free limit to.
 PAID_ENDPOINTS = frozenset({
     'merge.upload_files', 'api.api_merge', 'convert.run_convert', 'api.api_convert',
+    'packet_stage.stage',
 })
 # A tool page's own uploads go to this endpoint (for the page's meta tag).
-_PAGE_UPLOADS = {'merge.index': 'merge.upload_files', 'convert.convert_index': 'convert.run_convert'}
+_PAGE_UPLOADS = {'merge.index': 'merge.upload_files', 'convert.convert_index': 'convert.run_convert',
+                 'packet.index': 'packet_stage.stage'}
 
 
 class LimitedRequest(Request):
