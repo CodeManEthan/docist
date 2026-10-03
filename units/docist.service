@@ -50,8 +50,10 @@ WorkingDirectory=%h/projects/Docist
 # no DOCIST_SECRET_KEY set, that key is generated once into instance/secret_key (mode
 # 0600) and read back on every later start, so sessions, anonymous IP hashes and result
 # owner tags survive a restart. Delete that file and everyone is signed out. Without
-# --preload each worker would race to create it; the O_EXCL create keeps them agreeing,
-# but the schema step still belongs in one process.
+# --preload each worker would race to create it; a new key is written to a temporary
+# file and os.replace()d into place under a flock on secret_key.lock, so they still
+# agree, but the schema step still belongs in one process. The master also runs the
+# job-limit canary once at start (/healthz reports "job_limits").
 ExecStart=%h/projects/Docist/.venv/bin/gunicorn --preload --workers 2 --timeout 120 --bind 127.0.0.1:5010 app:app
 
 # `-` prefix: the file need not exist, and a missing credentials file must not be the
