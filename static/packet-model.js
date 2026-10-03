@@ -1210,6 +1210,23 @@ function draftPacketOk(packet) {
         }));
 }
 
+// A draft's section and cover text as the page writes it: a missing or null
+// title, divider or cover field becomes '' or false, since the server
+// refuses null (verification-b3 n1). draftPacketOk has checked the types.
+function draftText(packet) {
+    const next = clone(packet);
+    next.sections.forEach(sec => {
+        sec.title = cleanText(sec.title, TEXT_MAX.section);
+        sec.divider = sec.divider === true;
+    });
+    if (next.cover != null) {
+        const cover = {};
+        COVER_FIELDS.forEach(k => { cover[k] = cleanText(next.cover[k], TEXT_MAX[k]); });
+        next.cover = cover;
+    }
+    return next;
+}
+
 function parseDraft(text) {
     try {
         const d = JSON.parse(text);
@@ -1220,7 +1237,7 @@ function parseDraft(text) {
             if (!HASH_RE.test(hash) || !row || typeof row !== 'object') return;
             rows[hash] = STAGE_ID_RE.test(row.stage_id || '') ? row : Object.assign({}, row, { stage_id: null });
         });
-        return { saved: d.saved, packet: d.packet, table: draftTable(rows) };
+        return { saved: d.saved, packet: draftText(d.packet), table: draftTable(rows) };
     } catch (e) {
         return null;
     }

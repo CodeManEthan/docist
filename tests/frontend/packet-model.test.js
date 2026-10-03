@@ -1163,3 +1163,19 @@ test('m2: the preview draws cover and divider text as the PDF prints it', () => 
     assert.deepEqual(M.unprintable(['Łódź', 'Łuk', 'plain', '申']), ['Ł', 'ź', '申']);
     assert.deepEqual(M.unprintable(['Café “ok” – €5']), []);
 });
+
+test('n1: a draft with null or missing section and cover text restores as text', () => {
+    const s = twoFiles();
+    const good = JSON.parse(M.serializeDraft(s.packet, s.table, 5));
+    good.packet.sections[0].title = null;
+    delete good.packet.sections[0].divider;
+    good.packet.cover = { title: 'T', subtitle: null };
+    const back = M.parseDraft(JSON.stringify(good));
+    assert.ok(back);
+    assert.equal(back.packet.sections[0].title, '');
+    assert.equal(back.packet.sections[0].divider, false);
+    assert.deepEqual(back.packet.cover, { title: 'T', subtitle: '', date: '', note: '' });
+    const typed = JSON.parse(JSON.stringify(good));
+    typed.packet.sections[0].title = 5;
+    assert.equal(M.parseDraft(JSON.stringify(typed)), null, 'a wrong type is still refused');
+});
