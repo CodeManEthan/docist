@@ -1117,15 +1117,26 @@ function latestDraft(storage, exceptTabId) {
     return found || null;
 }
 
-// Restore a draft into a fresh state. Returns {state, keep}: keep is the
-// stage ids to hold under this tab (POST /packet/hold), every stage the
-// draft's packet names; the answer's gone list then turns rows expired.
+// Restore a draft into a fresh state (§3.2 Drafts). The restoring tab keeps
+// every stage in the draft's table, then lets go of those the packet doesn't
+// name, in one POST /packet/hold. Returns {state, keep, release}: keep is
+// the stages the packet names, release the rest of the draft's stages. The
+// two lists are disjoint, so the request means the same whichever order the
+// server applies them in. The release matters on a reload of the same tab:
+// the holder is the same, and the stages only the lost undo history named
+// are still held by it and would otherwise sit outside quota relief's reach
+// until their TTL. For another tab's draft it releases nothing. The answer's
+// gone list then turns rows expired.
 function restoreDraft(draft) {
     const named = packetHashes(draft.packet);
     const table = {};
-    Object.keys(draft.table).forEach(hash => { if (named.has(hash)) table[hash] = draft.table[hash]; });
+    const release = [];
+    Object.keys(draft.table).forEach(hash => {
+        if (named.has(hash)) table[hash] = draft.table[hash];
+        else if (draft.table[hash].stage_id) release.push(draft.table[hash].stage_id);
+    });
     const state = { packet: draft.packet, past: [], future: [], table };
-    return { state, keep: keepIds(state) };
+    return { state, keep: keepIds(state), release };
 }
 
 // A tab id: 22 characters of the urlsafe alphabet (the holder, §4.2).

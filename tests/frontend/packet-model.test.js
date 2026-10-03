@@ -686,6 +686,68 @@ test('a fresh tab restores from the draft alone, with live and expired stages', 
     assert.equal(two.past.length, 0, 'undo stacks are not saved');
 });
 
+test('a reload of the same tab releases the stages only its lost undo history named', async () => {
+    // §3.2: a tab holds only stages its packet, past or future names. The
+    // undo stacks aren't saved, so after a reload the stages only they named
+    // must be released, or quota relief can never reach them.
+    const server = createFakeServer({ capBytes: 2500 });
+    const store = new MemoryStorage();
+    const tab = 'TABsameTABsameTABsame1';
+    let s = M.emptyState('letter');
+    const { io } = ioFor(server, tab, () => s, v => { s = v; });
+    const fa = fileOf('a.pdf', 1000, 1);
+    const fb = fileOf('b.pdf', 1000, 2);
+    const ha = await M.sha256Hex(await fa.arrayBuffer(), crypto.subtle);
+    const hb = await M.sha256Hex(await fb.arrayBuffer(), crypto.subtle);
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: ha, label: 'a.pdf' }, { hash: hb, label: 'b.pdf' }]));
+    assert.equal(await C.stageWithRelief(io, ha, fa), 'ok');
+    assert.equal(await C.stageWithRelief(io, hb, fb), 'ok');
+    s = M.commit(s, M.removeItems(s.packet, ['i2']));
+    assert.equal(M.releaseUnnamed(s).release.length, 0, 'b is undo-only, still held');
+    M.saveDraft(store, tab, s.packet, s.table, Date.now());
+    const sa = s.table[ha].stage_id;
+    const sb = s.table[hb].stage_id;
+
+    // Reload: the same tab id restores its own draft.
+    const r = M.restoreDraft(M.loadDraft(store, tab));
+    assert.deepEqual(Object.keys(r.state.table), [ha], 'the restored table holds only rows the packet names');
+    assert.deepEqual(r.keep, [sa]);
+    assert.deepEqual(r.release, [sb]);
+    const answer = await C.postHold(server.fetch, tab, r.keep, r.release);
+    s = M.applyHold(r.state, answer);
+    assert.deepEqual(server.heldBy(tab), [sa], 'b is no longer held by this tab');
+
+    // So a new file fits under the cap with no refusal.
+    const fc = fileOf('c.pdf', 1000, 3);
+    const hc = await M.sha256Hex(await fc.arrayBuffer(), crypto.subtle);
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: hc, label: 'c.pdf' }]));
+    const second = ioFor(server, tab, () => s, v => { s = v; });
+    assert.equal(await C.stageWithRelief(second.io, hc, fc), 'ok');
+    assert.equal(second.toasts.length, 0, 'no relief was needed');
+});
+
+test('restoring another tab\'s draft releases nothing it holds', async () => {
+    const server = createFakeServer();
+    const store = new MemoryStorage();
+    const one = 'TABoneTABoneTABone0003';
+    let s = M.emptyState('letter');
+    const { io } = ioFor(server, one, () => s, v => { s = v; });
+    const fa = fileOf('a.pdf', 50, 1);
+    const fb = fileOf('b.pdf', 50, 2);
+    const ha = await M.sha256Hex(await fa.arrayBuffer(), crypto.subtle);
+    const hb = await M.sha256Hex(await fb.arrayBuffer(), crypto.subtle);
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: ha, label: 'a.pdf' }, { hash: hb, label: 'b.pdf' }]));
+    await C.stageWithRelief(io, ha, fa);
+    await C.stageWithRelief(io, hb, fb);
+    s = M.commit(s, M.removeItems(s.packet, ['i2']));
+    M.saveDraft(store, one, s.packet, s.table, Date.now());
+    const two = 'TABtwoTABtwoTABtwo0004';
+    const r = M.restoreDraft(M.latestDraft(store, two).draft);
+    await C.postHold(server.fetch, two, r.keep, r.release);
+    assert.ok(server.heldBy(one).includes(s.table[hb].stage_id), 'tab one keeps its undo-only stage');
+    assert.deepEqual(server.heldBy(two), [s.table[ha].stage_id]);
+});
+
 test('old drafts are pruned at load, keeping the 10 newest', () => {
     const store = new MemoryStorage();
     const now = 100 * 3600 * 1000;

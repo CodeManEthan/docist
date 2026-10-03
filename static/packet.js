@@ -451,8 +451,8 @@ function initPacket() {
         const r = PM.restoreDraft(draft);
         S = r.state;
         render();
-        if (r.keep.length) {
-            const answer = await postHold(fetch, tabId, r.keep, []);
+        if (r.keep.length || r.release.length) {
+            const answer = await postHold(fetch, tabId, r.keep, r.release);
             if (answer) update(s => PM.applyHold(s, answer));
         }
         scheduleDraft();
