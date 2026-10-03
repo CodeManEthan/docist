@@ -1045,10 +1045,11 @@ function initPacket() {
         const next = PM.moveItems(S.packet, ids, dest);
         if (next === S.packet) return false;
         const text = (ids.length === 1 ? 'Moved ' + describeItem(ids[0]) : 'Moved ' + plural(ids.length, 'file'));
-        if (live) S = PM.replacePacket(S, next); else change(next);
+        // Set before the render that uses them, so no stale focus target
+        // is left for a later render to jump to.
         ui.focusKey = 'c:' + ids[0] + (live ? ':handle' : ':menu');
         ui.flashKey = 'c:' + ids[0];
-        if (live) render();
+        if (live) { S = PM.replacePacket(S, next); render(); } else change(next);
         say(text + ' to ' + itemPosition(ids[0]) + '.', !!live);
         return true;
     }
@@ -1172,7 +1173,6 @@ function initPacket() {
             return;
         }
         if (choice === 'position') { openMoveDialog(target.key ? [target.key] : null, menuOpener); return; }
-        if (target.key[0] === 'c') ui.focusKey = target.key + ':menu';
         stepMove(target.key, choice, false);
     });
 
@@ -1180,6 +1180,7 @@ function initPacket() {
     const moveDialog = $('#pkMoveDialog');
     let moveKeys = null;
     let moveOpener = null;
+    let moveDone = false;               // the move's own render placed focus
     function openMoveDialog(keys, opener) {
         moveKeys = keys || Array.from(ui.sel);
         moveOpener = opener;
@@ -1217,21 +1218,20 @@ function initPacket() {
         if (moveKeys[0][0] === 'c') {
             const ids = moveKeys.map(k => k.slice(2));
             const dest = PM.itemDestNear(S.packet, ids, target.slice(2), after);
-            if (dest) { ui.sel.clear(); moveItemsTo(ids, dest, false); }
+            if (dest) { ui.sel.clear(); moveDone = moveItemsTo(ids, dest, false); }
         } else {
             const targets = moveKeys.map(k => ({ item: k.split(':')[1], index: Number(k.split(':')[2]) }));
             const [, item, index] = target.split(':');
             const dest = PM.pageDestNear(S.packet, S.table, targets, { item, index: Number(index) }, after);
-            if (dest) movePagesTo(targets, dest, false);
+            if (dest) moveDone = movePagesTo(targets, dest, false);
         }
     });
     $('#pkMoveCancel').addEventListener('click', () => moveDialog.close());
     moveDialog.addEventListener('close', () => {
-        if (!ui.focusKey && moveOpener && document.contains(moveOpener)) moveOpener.focus();
-        else if (ui.focusKey) {
-            const el = document.querySelector('[data-fkey="' + ui.focusKey + '"]');
-            if (el) el.focus();
-        }
+        // After a move, focus is already on the moved item. Otherwise it
+        // goes back to whatever opened the dialog, if that still exists.
+        if (moveDone) { moveDone = false; return; }
+        if (moveOpener && document.contains(moveOpener)) moveOpener.focus();
     });
 
     // ---- Canvas clicks ----
