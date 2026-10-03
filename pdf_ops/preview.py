@@ -53,6 +53,20 @@ def _to_data_url(image):
     return "data:image/png;base64," + encoded
 
 
+# The tile shown for a page too large to render: a Letter-shaped neutral grey.
+_PLACEHOLDER_FILL = (226, 228, 232)
+
+
+def _placeholder(width):
+    """A plain thumbnail-sized PNG data URL, ``width`` wide and Letter-shaped."""
+    from PIL import Image
+    height = max(1, round(width * _LETTER_RATIO))
+    return _to_data_url(Image.new("RGB", (width, height), _PLACEHOLDER_FILL))
+
+
+_LETTER_RATIO = 792.0 / 612.0
+
+
 def render_thumbnails(input_path, max_pages=MAX_THUMBS, width=TARGET_WIDTH):
     """Render the first pages of a PDF as small PNG data URLs.
 
@@ -92,8 +106,10 @@ def render_thumbnails(input_path, max_pages=MAX_THUMBS, width=TARGET_WIDTH):
                         page, _scale_for(page.get_width(), width), page_number=i + 1)
                 except limits.LimitError:
                     # A page over FRAME_PIXELS at thumbnail scale (a very tall
-                    # or wide MediaBox) is skipped; the strip shows the rest
-                    # and the page count (design launch-hardening §7, [R7]).
+                    # or wide MediaBox) isn't rendered (design launch-hardening
+                    # §7, [R7]). A neutral tile keeps its slot, so every later
+                    # thumbnail keeps its position and its page label.
+                    thumbs.append(_placeholder(width))
                     continue
                 thumbs.append(_to_data_url(bitmap.to_pil().convert("RGB")))
                 del bitmap

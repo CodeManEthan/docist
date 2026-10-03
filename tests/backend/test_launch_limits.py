@@ -10,7 +10,6 @@ import os
 import tempfile
 import time
 import weakref
-import zipfile
 
 import pytest
 from PIL import Image
@@ -22,7 +21,6 @@ from converters import ConversionError, image_converter
 from models import ApiKey, User, db
 from pdf_ops import jobs, limits
 from routes import api as api_routes
-from transforms import TransformError
 
 app = flask_app_module.app
 MIB = 1024 * 1024
@@ -345,7 +343,27 @@ def test_ocr_fallback_refuses_a_tall_page_without_dpi(client, monkeypatch):
     assert 'DPI' not in error(response)
 
 
-def test_thumbnails_skip_a_tall_page(client):
+def test_thumbnails_put_a_placeholder_in_an_over_limit_pages_slot(client, monkeypatch):
+    from pdf_ops import preview
+    monkeypatch.setattr(limits, 'FRAME_PIXELS', 120 * 200)   # a Letter thumb is 120 x 156
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.add_blank_page(width=612, height=2400)              # 120 x 471 at thumbnail scale
+    writer.add_blank_page(width=612, height=792)
+    buf = io.BytesIO()
+    writer.write(buf)
+    response = post(client, '/preview/thumbs', {'file': (buf.getvalue(), 'mixed.pdf')})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['pages'] == 3
+    assert len(body['thumbs']) == 3
+    assert body['thumbs'][1] == preview._placeholder(preview.TARGET_WIDTH)
+    assert body['thumbs'][0] != body['thumbs'][1] != body['thumbs'][2]
+    tile = Image.open(io.BytesIO(base64.b64decode(body['thumbs'][1].split(',', 1)[1])))
+    assert tile.size == (120, 155)
+
+
+def test_thumbnails_of_a_huge_page_at_the_real_limit(client):
     writer = PdfWriter()
     writer.add_blank_page(width=612, height=792)
     writer.add_blank_page(width=TALL[0], height=TALL[1])
@@ -355,9 +373,10 @@ def test_thumbnails_skip_a_tall_page(client):
     response = post(client, '/preview/thumbs', {'file': (buf.getvalue(), 'mixed.pdf')})
     assert response.status_code == 200
     body = response.get_json()
-    assert body['pages'] == 3
-    assert body['rendered'] == 2
-    assert len(body['thumbs']) == 2
+    from pdf_ops import preview
+    assert body['pages'] == 3 and len(body['thumbs']) == 3
+    assert body['thumbs'][1] == preview._placeholder(preview.TARGET_WIDTH)
+    assert body['thumbs'][0] != body['thumbs'][1]
 
 
 def test_letter_at_600_dpi_still_exports(client):
