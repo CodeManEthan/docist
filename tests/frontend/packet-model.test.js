@@ -13,8 +13,8 @@ const { createFakeServer, API } = require(path.join(__dirname, 'fake-packet-serv
 const PLAN = require(path.join(__dirname, '..', 'fixtures', 'packet-plan.json'));
 
 // This file's stage: it runs page-plan vectors whose model tag is at or
-// before B2 in the fixture's stage order, and skips later ones by name.
-const STAGE = 'B2';
+// before B3 in the fixture's stage order, and skips later ones by name.
+const STAGE = 'B3';
 
 const HA = 'a'.repeat(64);
 const HB = 'b'.repeat(64);
@@ -94,6 +94,9 @@ test('every model function returns a new packet and leaves its input unchanged',
         p => M.renameSection(p, 's2', 'Renamed'),
         p => M.deleteSection(p, 's2'),
         p => M.moveSection(p, 's2', 0),
+        p => M.setCover(p, { title: 'Cover' }),
+        p => M.setDivider(p, 's1', true),
+        p => M.addDividers(p),
         p => M.setOption(p, 'page_numbers', false),
         p => M.toggleOption(p, 'recto_starts'),
         p => M.setPaper(p, 'a4'),
@@ -127,6 +130,143 @@ test('a change that changes nothing returns the same packet', () => {
     assert.equal(M.moveItems(s.packet, ['i1'], { section: 's1', index: 0 }), s.packet);
     assert.equal(M.removeItems(s.packet, ['nope']), s.packet);
     assert.equal(M.rotatePages(s.packet, s.table, [{ item: 'i1', index: 9 }], 90), s.packet);
+    assert.equal(M.removeCover(s.packet), s.packet);
+    assert.equal(M.setDivider(s.packet, 's1', false), s.packet);
+    assert.equal(M.setDivider(s.packet, 'nope', true), s.packet);
+    const covered = M.setCover(s.packet, { title: 'T' });
+    assert.equal(M.setCover(covered, { title: ' T ' }), covered);
+    const all = M.addDividers(s.packet);
+    assert.equal(M.addDividers(all), all);
+    assert.equal(M.renameSection(s.packet, 's1', ''), s.packet);
+});
+
+// ---------------------------------------------------------------------------
+// Sections, cover and dividers ([B3], §2.1, §3.1)
+// ---------------------------------------------------------------------------
+
+// Files a (3 pages), b (2) and c (1), bound, in sections s1 'One' (a, b)
+// and s2 'Two' (c).
+function threeInTwoSections() {
+    let s = twoFiles();
+    s = M.commit(s, M.renameSection(s.packet, 's1', 'One'));
+    s = M.commit(s, M.addSection(s.packet, 'Two'));
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: HC, label: 'c.pdf' }], { section: 's2' }));
+    s = M.bindStage(s, HC, stage(HC, 1)).state;
+    return s;
+}
+
+test('add, rename, reorder and delete sections', () => {
+    let p = M.emptyPacket('letter');
+    p = M.addSection(p, '  Exhibit\nA  ');
+    p = M.addSection(p, '');
+    assert.deepEqual(p.sections.map(x => [x.id, x.title]), [['s1', ''], ['s2', 'Exhibit A'], ['s3', 'New section']]);
+    p = M.addSection(p, 'First', 0);
+    assert.equal(p.sections[0].id, 's4', 'ids stay unique');
+    p = M.renameSection(p, 's2', 'x'.repeat(500));
+    assert.equal(p.sections[2].title.length, M.TEXT_MAX.section);
+    p = M.moveSection(p, 's4', 9);
+    assert.deepEqual(p.sections.map(x => x.id), ['s1', 's2', 's3', 's4']);
+    assert.equal(M.sectionName(p.sections[0]), 'Untitled section');
+    assert.equal(M.sectionName(p.sections[3]), 'First');
+});
+
+test('deleting a section moves its contents to the previous one, with undo', () => {
+    let s = threeInTwoSections();
+    const before = s.packet;
+    s = M.commit(s, M.deleteSection(s.packet, 's2'));
+    assert.deepEqual(s.packet.sections.map(x => x.id), ['s1']);
+    assert.deepEqual(s.packet.sections[0].items.map(i => i.id), ['i1', 'i2', 'i3']);
+    s = M.undo(s);
+    assert.equal(s.packet, before);
+    // The first section's contents go to the start of the next one.
+    const p = M.deleteSection(before, 's1');
+    assert.deepEqual(p.sections.map(x => x.id), ['s2']);
+    assert.deepEqual(p.sections[0].items.map(i => i.id), ['i1', 'i2', 'i3']);
+    assert.equal(M.deleteSection(p, 's2'), p, 'the last section stays');
+});
+
+test('Move to section puts items and pages at the end of that section', () => {
+    const s = threeInTwoSections();
+    const items = M.moveItems(s.packet, ['i1'], { section: 's2', index: null });
+    assert.deepEqual(items.sections.map(x => x.items.map(i => i.id)), [['i2'], ['i3', 'i1']]);
+    const pages = M.movePages(s.packet, s.table, [{ item: 'i1', index: 1 }, { item: 'i2', index: 0 }],
+        { section: 's2', index: null });
+    assert.equal(seq(s, pages), 'a0 a2 b1 c0 a1 b0');
+    assert.deepEqual(pages.sections[1].items.map(i => i.hash[0]), ['c', 'a', 'b']);
+    // A Move menu step crosses into the next section.
+    assert.deepEqual(M.itemStepDest(s.packet, 'i2', 'later'), { section: 's2', index: 0 });
+});
+
+test('the cover is one flag the plan always puts first', () => {
+    let p = M.insertGenerated(M.emptyPacket(), 'cover', { section: 's1', index: 0 },
+        { title: ' Application ', subtitle: 'J. Pluto', date: 'Oct 3', note: 'n'.repeat(400), extra: 'x' });
+    assert.deepEqual(Object.keys(p.cover), M.COVER_FIELDS);
+    assert.equal(p.cover.title, 'Application');
+    assert.equal(p.cover.note.length, M.TEXT_MAX.note);
+    p = M.setCover(p, { title: 'Again' });
+    assert.deepEqual(p.cover, { title: 'Again', subtitle: '', date: '', note: '' });
+    p = M.addFiles(p, [{ hash: HA, label: 'a.pdf' }]);
+    assert.deepEqual(M.pagePlan(p, { [HA]: 2 }).pages.map(x => x.kind), ['cover', 'file', 'file']);
+    assert.equal(M.removeCover(p).cover, null);
+    assert.equal(M.clearPacket(p).cover.title, 'Again', 'Clear packet keeps the cover');
+});
+
+test('dividers: one section, all sections, and a section that gives no page', () => {
+    const s = threeInTwoSections();
+    let p = M.insertGenerated(s.packet, 'divider', { section: 's2', index: 0 });
+    assert.deepEqual(p.sections.map(x => x.divider), [false, true]);
+    assert.equal(seq(s, p), 'a0 a1 a2 b0 b1 divider c0');
+    p = M.addDividers(p);
+    assert.deepEqual(p.sections.map(x => x.divider), [true, true]);
+    p = M.setDivider(p, 's1', false);
+    assert.deepEqual(p.sections.map(x => x.divider), [false, true]);
+    // A divider alone doesn't put a section in the plan.
+    const emptied = M.removeItems(p, ['i3']);
+    assert.equal(seq(s, emptied), 'a0 a1 a2 b0 b1');
+});
+
+test('the plan with a cover, dividers and recto starts gives the outline its numbers', () => {
+    let s = threeInTwoSections();
+    let p = M.setCover(M.addDividers(s.packet), { title: 'Cover' });
+    p = M.setOption(p, 'recto_starts', true);
+    const plan = M.pagePlan(p, M.readyCounts(s.table, p));
+    assert.deepEqual(plan.pages.map(x => x.kind + ':' + x.label + (x.print ? '*' : '')),
+        ['cover:null', 'pad:null', 'divider:1', 'file:2*', 'file:3*', 'file:4*', 'file:5*', 'file:6*',
+            'divider:7', 'file:8*']);
+    assert.deepEqual(plan.sections, { s1: { first: 3, label: 1 }, s2: { first: 9, label: 7 } });
+    assert.deepEqual(plan.entries.filter(e => e.kind === 'section').map(e => [e.id, e.title, e.index]),
+        [['s1', 'One', 2], ['s2', 'Two', 8]]);
+});
+
+test('a draft with a malformed cover or section is not used', () => {
+    const s = threeInTwoSections();
+    const good = JSON.parse(M.serializeDraft(M.setCover(s.packet, { title: 'T' }), s.table, 5));
+    assert.ok(M.parseDraft(JSON.stringify(good)));
+    const bad = fn => { const d = JSON.parse(JSON.stringify(good)); fn(d); return M.parseDraft(JSON.stringify(d)); };
+    assert.equal(bad(d => { d.packet.cover = 'yes'; }), null);
+    assert.equal(bad(d => { d.packet.cover.title = { html: '<b>' }; }), null);
+    assert.equal(bad(d => { d.packet.sections[1].title = 7; }), null);
+    assert.equal(bad(d => { d.packet.sections[1].divider = 'on'; }), null);
+    assert.ok(bad(d => { d.packet.cover = null; }));
+});
+
+test('the "+" menu offers dividers once sections show, and a cover while there is none', () => {
+    const one = twoFiles().packet;
+    const ids = (p, sid) => C.plusEntries(p, sid).map(e => e.id);
+    assert.deepEqual(ids(one, 's1'), ['blank', 'cover', 'files']);
+    const two = threeInTwoSections().packet;
+    assert.deepEqual(ids(two, 's2'), ['blank', 'divider', 'dividers', 'cover', 'files']);
+    const withDivider = M.setDivider(two, 's2', true);
+    assert.deepEqual(ids(withDivider, 's2'), ['blank', 'dividers', 'cover', 'files']);
+    assert.deepEqual(ids(M.setCover(M.addDividers(two), { title: 'T' }), 's1'), ['blank', 'files']);
+});
+
+test('a packet of only a cover and dividers is not ready to build', () => {
+    let s = M.emptyState('letter');
+    s = M.commit(s, M.setCover(s.packet, { title: 'T' }));
+    assert.equal(C.buildReadiness(s, null).ok, false);
+    s = M.commit(s, M.insertGenerated(s.packet, 'blank', null));
+    assert.equal(C.buildReadiness(s, null).ok, true);
 });
 
 // ---------------------------------------------------------------------------

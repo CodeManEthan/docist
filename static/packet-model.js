@@ -28,6 +28,11 @@ const ROTATIONS = [0, 90, 180, 270];
 const DRAFT_PREFIX = 'packet-draft:';
 const DRAFTS_KEPT = 10;
 const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;   // DOCIST_STAGING_MAX_HOURS
+// The cover's text fields (§3.1) and the longest text the page lets each
+// one hold. The server takes any length and cuts what doesn't fit its page.
+const COVER_FIELDS = ['title', 'subtitle', 'date', 'note'];
+const TEXT_MAX = { title: 120, subtitle: 160, date: 60, note: 200, section: 120 };
+const UNTITLED_SECTION = 'Untitled section';
 
 // Row statuses kept in the table. 'stale' is never stored: a ready non-PDF
 // row whose key has another paper reads as stale (rowStatus), so undoing a
@@ -152,6 +157,12 @@ function addFiles(packet, files, at) {
     return next;
 }
 
+// One line of text, trimmed and capped: the fields are short single lines.
+function cleanText(value, max) {
+    const text = String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+    return max ? text.slice(0, max).trim() : text;
+}
+
 // Insert a generated page or flag. 'blank' is an item at the slot. 'divider'
 // turns the slot's section divider on. 'cover' sets the packet's one cover
 // (the plan always puts it first, §3.3).
@@ -168,15 +179,50 @@ function insertGenerated(packet, kind, at, fields) {
         next.sections[slot.s].divider = true;
         return next;
     }
-    if (kind === 'cover') {
-        const f = fields || {};
-        next.cover = {
-            title: String(f.title || ''), subtitle: String(f.subtitle || ''),
-            date: String(f.date || ''), note: String(f.note || ''),
-        };
-        return next;
-    }
+    if (kind === 'cover') return setCover(packet, fields || {});
     return packet;
+}
+
+// ---- Cover and dividers (§2.1, §3.1: flags, not items) ----
+
+// Set the packet's one cover from {title, subtitle, date, note}. The same
+// text as now is no change.
+function setCover(packet, fields) {
+    const f = fields || {};
+    const cover = {};
+    COVER_FIELDS.forEach(k => { cover[k] = cleanText(f[k], TEXT_MAX[k]); });
+    if (packet.cover && COVER_FIELDS.every(k => packet.cover[k] === cover[k])) return packet;
+    const next = clone(packet);
+    next.cover = cover;
+    return next;
+}
+
+function removeCover(packet) {
+    if (!packet.cover) return packet;
+    const next = clone(packet);
+    next.cover = null;
+    return next;
+}
+
+function setDivider(packet, sectionId, on) {
+    const found = findSection(packet, sectionId);
+    if (!found || !!found.section.divider === !!on) return packet;
+    const next = clone(packet);
+    next.sections[found.s].divider = !!on;
+    return next;
+}
+
+// "Add dividers to all sections" is one action (§2.1).
+function addDividers(packet) {
+    if (sectionsOf(packet).every(sec => sec.divider)) return packet;
+    const next = clone(packet);
+    next.sections.forEach(sec => { sec.divider = true; });
+    return next;
+}
+
+// What a section is called on the page, its divider and in the outline.
+function sectionName(section) {
+    return (section && section.title) || UNTITLED_SECTION;
 }
 
 function removeItems(packet, itemIds) {
@@ -242,11 +288,11 @@ function moveItem(packet, itemId, at) {
     return moveItems(packet, [itemId], at);
 }
 
-// ---- Sections (the model has them all; the section UI is [B3]) ----
+// ---- Sections (§2.1; the page's section UI is [B3]) ----
 
 function addSection(packet, title, index) {
     const next = clone(packet);
-    const section = { id: idMaker(next, 's')(), title: String(title || 'New section'), divider: false, items: [] };
+    const section = { id: idMaker(next, 's')(), title: cleanText(title, TEXT_MAX.section) || 'New section', divider: false, items: [] };
     const at = index == null ? next.sections.length : Math.max(0, Math.min(next.sections.length, index));
     next.sections.splice(at, 0, section);
     return next;
@@ -254,7 +300,7 @@ function addSection(packet, title, index) {
 
 function renameSection(packet, sectionId, title) {
     const found = findSection(packet, sectionId);
-    const text = String(title || '').trim();
+    const text = cleanText(title, TEXT_MAX.section);
     if (!found || found.section.title === text) return packet;
     const next = clone(packet);
     next.sections[found.s].title = text;
@@ -1081,8 +1127,13 @@ const STAGE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 function draftPacketOk(packet) {
     if (!packet || typeof packet !== 'object' || !Array.isArray(packet.sections)) return false;
     if (!packet.options || !PAPERS.includes(packet.options.paper)) return false;
+    const cover = packet.cover;
+    if (cover != null && (typeof cover !== 'object'
+        || !COVER_FIELDS.every(k => cover[k] == null || typeof cover[k] === 'string'))) return false;
     const isCount = n => Number.isInteger(n) && n >= 0;
     return packet.sections.every(sec => sec && /^s\d+$/.test(sec.id) && Array.isArray(sec.items)
+        && (sec.title == null || typeof sec.title === 'string')
+        && (sec.divider == null || typeof sec.divider === 'boolean')
         && sec.items.every(item => {
             if (!item || !/^i\d+$/.test(item.id)) return false;
             if (item.kind === 'blank') return true;
@@ -1203,10 +1254,11 @@ function isTabId(value) {
 // The page script reads window.PacketModel; node:test requires the file.
 const PacketModelApi = {
     UNDO_CAP, PAPERS, NUMBER_POSITIONS, STATUSES, DRAFT_PREFIX, DRAFTS_KEPT,
-    DRAFT_MAX_AGE_MS,
-    clone, itemOrder, findItem, findSection, newItemIds, fileType,
+    DRAFT_MAX_AGE_MS, COVER_FIELDS, TEXT_MAX, UNTITLED_SECTION,
+    clone, itemOrder, findItem, findSection, newItemIds, fileType, cleanText,
     defaultOptions, emptyPacket, emptyState,
-    addFiles, insertGenerated, removeItems, clearPacket, duplicateItems, setLabel,
+    addFiles, insertGenerated, setCover, removeCover, setDivider, addDividers, sectionName,
+    removeItems, clearPacket, duplicateItems, setLabel,
     moveItems, moveItem, addSection, renameSection, deleteSection, moveSection,
     setOption, toggleOption, setPaper,
     itemRefs, materialize, rotatePages, deletePages, duplicatePages, rotateItems, movePages,

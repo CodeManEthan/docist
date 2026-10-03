@@ -170,16 +170,18 @@ function buildStages(state) {
     return out;
 }
 
-// Can the packet be built now? {ok, reason}.
+// Can the packet be built now? {ok, reason}. A cover and dividers alone
+// are not a packet: the server refuses one with no file or blank page.
 function buildReadiness(state, opsLeft) {
     const files = PM.itemOrder(state.packet).filter(e => e.item.kind === 'file');
     const notReady = files.filter(e => PM.rowStatus(state.table[e.item.hash], state.packet) !== 'ready');
     const plan = PM.pagePlan(state.packet, PM.readyCounts(state.table, state.packet));
-    if (!files.length && !plan.total) return { ok: false, reason: 'Add files to build a packet.' };
+    const body = plan.pages.some(p => p.kind === 'file' || p.kind === 'blank');
+    if (!files.length && !body) return { ok: false, reason: 'Add files to build a packet.' };
     if (notReady.length) {
         return { ok: false, reason: plural(notReady.length, 'file') + ' not ready yet.' };
     }
-    if (!plan.total) return { ok: false, reason: 'The packet has no pages.' };
+    if (!body) return { ok: false, reason: 'The packet has no pages.' };
     if (opsLeft === 0) return { ok: false, reason: 'No operations left today. Your arrangement is saved here.' };
     return { ok: true, reason: '' };
 }
@@ -326,6 +328,25 @@ function createStageQueue(io, files, hooks) {
         // A hash the user re-added or retried may be staged again.
         forget: hash => { stagedFor.delete(hash); },
     };
+}
+
+// What the "+" in a gap of section `sectionId` offers (§2.1). Dividers are
+// offered once sections show as headings (more than one section), since a
+// divider shows its section's title; the cover while the packet has none.
+function plusEntries(packet, sectionId) {
+    const sections = packet.sections || [];
+    const showSections = sections.length > 1;
+    const section = sections.find(sec => sec.id === sectionId);
+    const out = [{ id: 'blank', text: 'Blank page', note: 'Sized like the page before it' }];
+    if (showSections && section && !section.divider) {
+        out.push({ id: 'divider', text: 'Divider page', note: 'Starts “' + PM.sectionName(section) + '” with its title' });
+    }
+    if (showSections && sections.some(sec => !sec.divider)) {
+        out.push({ id: 'dividers', text: 'Add dividers to all sections' });
+    }
+    if (!packet.cover) out.push({ id: 'cover', text: 'Cover page', note: 'Title, subtitle and date, first in the packet' });
+    out.push({ id: 'files', text: 'Add files here…' });
+    return out;
 }
 
 // The text a card shows for its row (empty when ready).
@@ -1966,6 +1987,7 @@ if (typeof module !== 'undefined' && module.exports) {
         createStageQueue,
         statusText,
         resultName,
+        plusEntries,
         itemCodeText,
         CSRF_MESSAGE,
     };
