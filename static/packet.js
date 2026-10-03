@@ -410,6 +410,7 @@ function initPacket() {
     let accepted = null;                // extensions from /formats
     const ui = {
         expanded: new Set(),
+        collapsed: new Set(),           // section ids shown as headings only
         allPages: false,
         sel: new Set(),                 // 'c:<item>' or 'p:<item>:<index>'
         anchor: null,
@@ -795,6 +796,66 @@ function initPacket() {
         return ui.sel.has(key);
     }
 
+    // ---- Generated pages: cover and dividers are flags, drawn from text ----
+    // What a cover or divider sheet shows, as the server draws it
+    // (pdf_ops/packet.py): the section title, or the cover's fields.
+    function genSheetInner(kind, section) {
+        if (kind === 'divider') {
+            return '<span class="pk-gs pk-gs-divider"><b>' + escapeHtml(PM.sectionName(section)) + '</b></span>';
+        }
+        const c = S.packet.cover || {};
+        return '<span class="pk-gs pk-gs-cover">'
+            + (c.title ? '<b>' + escapeHtml(c.title) + '</b>' : '')
+            + (c.subtitle ? '<span>' + escapeHtml(c.subtitle) + '</span>' : '')
+            + (c.date ? '<small>' + escapeHtml(c.date) + '</small>' : '')
+            + (c.note ? '<i>' + escapeHtml(c.note) + '</i>' : '') + '</span>';
+    }
+    function genSheet(kind, section, extraClass) {
+        return '<span class="pk-sheet pk-sheet-gen ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '">'
+            + genSheetInner(kind, section) + '</span>';
+    }
+    // Where a cover or divider sits in the plan, for its card and the outline.
+    function genWhere(kind, sectionId, plan) {
+        const page = plan.pages.find(p => p.kind === kind && (kind === 'cover' || p.section === sectionId));
+        if (!page) return kind === 'divider' ? 'shows once its section has pages' : '';
+        if (page.label == null) return 'not numbered';
+        return page.print ? 'p. ' + page.label : 'counts as p. ' + page.label;
+    }
+    function flagCardHtml(kind, section, plan) {
+        const key = kind === 'cover' ? 'g:cover' : 'g:div:' + section.id;
+        const what = kind === 'cover' ? 'cover page' : 'divider page of ' + PM.sectionName(section);
+        const name = kind === 'cover' ? 'Cover page' : 'Divider · ' + PM.sectionName(section);
+        const where = genWhere(kind, section && section.id, plan);
+        return '<div class="pk-card pk-card-gen pk-card-flag" data-key="' + key + '">'
+            + '<div class="pk-card-head"><span class="pk-flag-gap" aria-hidden="true"></span>'
+            + '<button type="button" class="pk-open" data-act="open" data-fkey="' + key + ':open" aria-label="Edit ' + escapeHtml(what)
+            + (where ? ', ' + escapeHtml(where) : '') + '">'
+            + '<span class="pk-thumb">' + genSheet(kind, section) + '</span>'
+            + '<span class="pk-meta"><span class="pk-name">' + escapeHtml(name) + '</span><span class="pk-sub">'
+            + '<span class="pk-badge">' + (kind === 'cover' ? 'COVER' : 'DIVIDER') + '</span><span class="pk-gen">generated</span>'
+            + (where ? '<span>' + escapeHtml(where) + '</span>' : '') + '<span class="pk-edit">Edit text</span></span></span></button>'
+            + '<span class="pk-actions"><button type="button" class="pk-ibtn pk-remove" data-act="genremove" data-fkey="' + key + ':remove" aria-label="Remove ' + escapeHtml(what) + '" title="Remove">'
+            + '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span>'
+            + '</div></div>';
+    }
+    function sectionHeadHtml(section, count, collapsed, plan, n, total) {
+        const id = section.id;
+        const name = PM.sectionName(section);
+        const info = plan.sections[id];
+        const where = info && info.label != null ? 'from p. ' + info.label : (count ? 'no pages yet' : 'empty');
+        return '<div class="pk-sec-head">'
+            + '<h2 class="pk-sr">' + escapeHtml(name) + '</h2>'
+            + '<button type="button" class="pk-ibtn pk-sec-toggle" data-act="collapse" data-fkey="s:' + id + ':collapse" aria-expanded="' + !collapsed
+            + '" aria-label="' + (collapsed ? 'Show' : 'Hide') + ' the contents of ' + escapeHtml(name) + '" title="' + (collapsed ? 'Show contents' : 'Hide contents') + '">'
+            + '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"' + (collapsed ? ' class="pk-left-turn"' : '') + '><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
+            + '<input type="text" class="pk-sec-name" data-fkey="s:' + id + ':name" value="' + escapeHtml(section.title || '') + '" placeholder="' + escapeHtml(PM.UNTITLED_SECTION)
+            + '" maxlength="' + PM.TEXT_MAX.section + '" autocomplete="off" aria-label="Name of section ' + n + ' of ' + total + '">'
+            + '<span class="pk-sec-meta">' + plural(count, 'item') + ' · ' + where + '</span>'
+            + '<button type="button" class="pk-ibtn" data-act="secmenu" data-fkey="s:' + id + ':menu" aria-haspopup="menu" aria-label="Section actions for ' + escapeHtml(name) + '" title="Section actions">'
+            + '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><g fill="currentColor"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></g></svg></button>'
+            + '</div>';
+    }
+
     function cardHtml(entry, filePos, fileCount, plan, cnt) {
         const { item, section, i } = entry;
         const key = 'c:' + item.id;
@@ -891,6 +952,9 @@ function initPacket() {
     function render() {
         const active = document.activeElement;
         const keepFocus = ui.focusKey || (active && list.contains(active) && active.dataset.fkey) || null;
+        // A section name being typed survives a render (a stage finishing).
+        const typing = active && list.contains(active) && active.classList.contains('pk-sec-name')
+            ? { fkey: active.dataset.fkey, value: active.value, start: active.selectionStart, end: active.selectionEnd } : null;
         ui.focusKey = null;
         clearSortableSelection();
 
@@ -905,16 +969,21 @@ function initPacket() {
         $('#pkEmpty').hidden = order.length > 0;
         $('#pkWork').hidden = order.length === 0;
 
-        list.innerHTML = S.packet.sections.map(section => {
-            const cards = order.filter(e => e.section === section)
-                .map(e => cardHtml(e, ++filePos, fileCount, plan, cnt)).join('');
-            const heading = showSections
-                ? '<h2 class="pk-sec">' + escapeHtml(section.title || 'Untitled section') + '</h2>' : '';
-            return '<section class="pk-section" data-section="' + section.id + '" aria-label="' + escapeHtml(section.title || 'Packet') + '">'
-                + heading
-                + '<button type="button" class="pk-plus pk-plus-top" data-act="plus" data-section="' + section.id + '" data-index="0" data-fkey="s:' + section.id + ':plus" aria-haspopup="menu" aria-label="Insert at the start' + (showSections ? ' of ' + escapeHtml(section.title || 'this section') : ' of the packet') + '">+</button>'
-                + '<div class="pk-items" data-section="' + section.id + '">' + cards + '</div></section>';
-        }).join('');
+        const sectionCount = S.packet.sections.length;
+        list.innerHTML = (S.packet.cover ? flagCardHtml('cover', null, plan) : '')
+            + S.packet.sections.map((section, n) => {
+                const entries = order.filter(e => e.section === section);
+                const collapsed = showSections && ui.collapsed.has(section.id);
+                const cards = entries.map(e => cardHtml(e, ++filePos, fileCount, plan, cnt));
+                const heading = showSections
+                    ? sectionHeadHtml(section, entries.length, collapsed, plan, n + 1, sectionCount) : '';
+                const name = showSections ? PM.sectionName(section) : 'Packet';
+                const body = collapsed ? '' : (section.divider ? flagCardHtml('divider', section, plan) : '')
+                    + '<button type="button" class="pk-plus pk-plus-top" data-act="plus" data-section="' + section.id + '" data-index="0" data-fkey="s:' + section.id + ':plus" aria-haspopup="menu" aria-label="Insert at the start' + (showSections ? ' of ' + escapeHtml(name) : ' of the packet') + '">+</button>'
+                    + '<div class="pk-items" data-section="' + section.id + '">' + cards.join('') + '</div>';
+                return '<section class="pk-section' + (collapsed ? ' pk-collapsed' : '') + '" data-section="' + section.id + '" aria-label="' + escapeHtml(name) + '">'
+                    + heading + body + '</section>';
+            }).join('');
 
         renderOutline(plan, order);
         renderFooter(plan);
@@ -932,6 +1001,10 @@ function initPacket() {
             if (el) {
                 el.focus({ preventScroll: true });
                 el.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+                if (typing && typing.fkey === keepFocus) {
+                    el.value = typing.value;
+                    el.setSelectionRange(typing.start, typing.end);
+                }
             }
         }
         if (ui.flashKey) {
@@ -948,26 +1021,34 @@ function initPacket() {
     function renderOutline(plan, order) {
         const out = [];
         const showSections = S.packet.sections.length > 1;
-        let lastSection = null;
-        let padBefore = 0;
-        plan.pages.forEach(p => { if (p.kind === 'pad') padBefore++; });
-        order.forEach(({ item, section }) => {
-            if (showSections && section !== lastSection) {
+        const pad = plan.pages.filter(p => p.kind === 'pad').length;
+        const genLine = (key, name, where) => '<li><button type="button" class="pk-o-link pk-o-gen" data-gen="' + key + '">'
+            + '<span class="pk-o-name">' + escapeHtml(name) + '</span><span class="pk-o-pp">' + escapeHtml(where) + '</span></button></li>';
+        const label = page => (page && page.label != null ? String(page.label) : '–');
+        if (S.packet.cover) out.push(genLine('g:cover', 'Cover page', '–'));
+        S.packet.sections.forEach(section => {
+            const entries = order.filter(e => e.section === section);
+            if (showSections) {
                 const info = plan.sections[section.id];
-                out.push('<li class="pk-o-sec"><span class="pk-o-name">' + escapeHtml(section.title || 'Untitled section') + '</span>'
-                    + '<span class="pk-o-pp">' + (info && info.label != null ? info.label : '') + '</span></li>');
-                lastSection = section;
+                out.push('<li><button type="button" class="pk-o-link pk-o-sec" data-sec="' + section.id + '"><span class="pk-o-name">' + escapeHtml(PM.sectionName(section)) + '</span>'
+                    + '<span class="pk-o-pp">' + (info && info.label != null ? info.label : (entries.length ? '' : 'empty')) + '</span></button></li>');
             }
-            const info = plan.items[item.id];
-            const status = statusOf(item);
-            const name = item.kind === 'blank' ? 'Blank page' : item.label;
-            const pp = info ? (info.first === info.last ? String(info.label) : info.label + '–' + (info.label + info.last - info.first))
-                : '<span class="pk-o-wait">' + escapeHtml({ waiting: 'waiting', uploading: 'converting', failed: 'failed', expired: 'expired', stale: 'converting' }[status] || '') + '</span>';
-            out.push('<li><button type="button" class="pk-o-link" data-item="' + item.id + '"><span class="pk-o-name">' + escapeHtml(name) + '</span>'
-                + '<span class="pk-o-pp">' + pp + '</span></button></li>');
+            if (section.divider) {
+                const page = plan.pages.find(p => p.kind === 'divider' && p.section === section.id);
+                if (page) out.push(genLine('g:div:' + section.id, 'Divider', label(page)));
+            }
+            entries.forEach(({ item }) => {
+                const info = plan.items[item.id];
+                const status = statusOf(item);
+                const name = item.kind === 'blank' ? 'Blank page' : item.label;
+                const pp = info ? (info.first === info.last ? String(info.label) : info.label + '–' + (info.label + info.last - info.first))
+                    : '<span class="pk-o-wait">' + escapeHtml({ waiting: 'waiting', uploading: 'converting', failed: 'failed', expired: 'expired', stale: 'converting' }[status] || '') + '</span>';
+                out.push('<li' + (showSections ? ' class="pk-o-in"' : '') + '><button type="button" class="pk-o-link" data-item="' + item.id + '"><span class="pk-o-name">' + escapeHtml(name) + '</span>'
+                    + '<span class="pk-o-pp">' + pp + '</span></button></li>');
+            });
         });
-        if (padBefore) {
-            out.push('<li class="pk-o-pad">' + plural(padBefore, 'blank page') + ' added for double-sided printing</li>');
+        if (pad) {
+            out.push('<li class="pk-o-pad">' + plural(pad, 'blank page') + ' added for double-sided printing</li>');
         }
         $('#pkOutline').innerHTML = out.join('') || '<li class="pk-o-empty">Nothing yet.</li>';
     }
@@ -1018,7 +1099,7 @@ function initPacket() {
 
     // ---- Selection ----
     function viewKeys(kind) {
-        return Array.from(list.querySelectorAll(kind === 'p' ? '.pk-tile' : '.pk-card')).map(el => el.dataset.key);
+        return Array.from(list.querySelectorAll(kind === 'p' ? '.pk-tile' : '.pk-items > .pk-card')).map(el => el.dataset.key);
     }
     function selKind() {
         const first = ui.sel.values().next().value;
@@ -1029,6 +1110,7 @@ function initPacket() {
         PM.pageOrder(S.packet, counts()).forEach(p => valid.add('p:' + p.item + ':' + p.index));
         Array.from(ui.sel).forEach(k => { if (!valid.has(k)) ui.sel.delete(k); });
         Array.from(ui.expanded).forEach(id => { if (!valid.has('c:' + id)) ui.expanded.delete(id); });
+        Array.from(ui.collapsed).forEach(id => { if (!PM.findSection(S.packet, id)) ui.collapsed.delete(id); });
         if (!ui.sel.size) ui.selecting = false;
     }
     function toggleSel(key, range) {
@@ -1065,6 +1147,7 @@ function initPacket() {
         bar.hidden = !n && !ui.selecting;
         $('#pkBulkCount').textContent = n ? plural(n, selKind() === 'p' ? 'page' : 'file') + ' selected' : 'Tap items to select';
         bar.querySelectorAll('[data-bulk]').forEach(b => { if (b.dataset.bulk !== 'done') b.disabled = !n; });
+        $('#pkBulkSection').hidden = S.packet.sections.length < 2;
     }
 
     // ---- Moves ----
@@ -1083,6 +1166,7 @@ function initPacket() {
     function moveItemsTo(ids, dest, live) {
         const next = PM.moveItems(S.packet, ids, dest);
         if (next === S.packet) return false;
+        showItemSection(next, ids[0]);
         const text = (ids.length === 1 ? 'Moved ' + describeItem(ids[0]) : 'Moved ' + plural(ids.length, 'file'));
         // Set before the render that uses them, so no stale focus target
         // is left for a later render to jump to.
@@ -1101,6 +1185,7 @@ function initPacket() {
         const order = PM.pageOrder(S.packet, counts());
         const landed = order[first];
         if (landed) {
+            showItemSection(S.packet, landed.item);
             ui.expanded.add(landed.item);
             ui.focusKey = keyFor(landed) + ':' + (focusPart || 'menu');
             ui.flashKey = keyFor(landed);
@@ -1109,6 +1194,11 @@ function initPacket() {
         render();
         say('Moved ' + label + ' to position ' + (first + 1) + ' of ' + order.length + '.', !!live);
         return true;
+    }
+    // A move into a collapsed section opens it, so focus can follow the item.
+    function showItemSection(packet, itemId) {
+        const found = PM.findItem(packet, itemId);
+        if (found) ui.collapsed.delete(found.section.id);
     }
     function pageLabel(page) {
         const found = PM.findItem(S.packet, page.item);
@@ -1159,7 +1249,10 @@ function initPacket() {
         menu.hidden = true;
         if (menuOpener) {
             menuOpener.setAttribute('aria-expanded', 'false');
-            if (returnFocus && document.contains(menuOpener)) menuOpener.focus();
+            // A render while the menu was open may have replaced its opener.
+            const opener = document.contains(menuOpener) ? menuOpener
+                : menuOpener.dataset.fkey && list.querySelector('[data-fkey="' + menuOpener.dataset.fkey + '"]');
+            if (returnFocus && opener) opener.focus();
         }
     }
     menu.addEventListener('keydown', e => {
@@ -1177,12 +1270,7 @@ function initPacket() {
     });
     function plusMenu(opener) {
         menuTarget = { kind: 'plus', slot: { section: opener.dataset.section, index: Number(opener.dataset.index) } };
-        // Divider and cover pages are [B3]; the "+" offers them once their
-        // renderers exist.
-        openMenu(opener, [
-            { id: 'blank', text: 'Blank page', note: 'Sized like the page before it' },
-            { id: 'files', text: 'Add files here…' },
-        ], 'Insert here');
+        openMenu(opener, plusEntries(S.packet, opener.dataset.section), 'Insert here');
     }
     function moveMenu(opener, key) {
         menuTarget = { kind: 'move', key };
@@ -1193,7 +1281,100 @@ function initPacket() {
             { id: 'later', text: 'Later' },
             { id: 'end', text: 'Move to end' },
             { id: 'position', text: 'Move to position…' },
-        ], 'Move ' + name);
+        ].concat(S.packet.sections.length > 1 ? [{ id: 'tosection', text: 'Move to section…' }] : []), 'Move ' + name);
+    }
+    // The sections to move `keys` (cards or pages) to: each goes to the end
+    // of the section chosen. Cards already all in a section can't go there.
+    function sectionChooser(opener, keys) {
+        menuTarget = { kind: 'tosection', keys };
+        const cards = keys[0][0] === 'c';
+        const homes = new Set(keys.map(k => {
+            const found = PM.findItem(S.packet, cards ? k.slice(2) : k.split(':')[1]);
+            return found ? found.section.id : null;
+        }));
+        openMenu(opener, S.packet.sections.map(sec => ({
+            id: 'sec:' + sec.id, text: PM.sectionName(sec),
+            note: homes.has(sec.id) && homes.size === 1 ? (cards ? 'Already here' : 'To the end of this section') : '',
+            disabled: cards && homes.size === 1 && homes.has(sec.id),
+        })), 'Move to section');
+    }
+    function moveToSection(keys, sectionId) {
+        const found = PM.findSection(S.packet, sectionId);
+        if (!found || !keys.length) return;
+        const name = PM.sectionName(found.section);
+        ui.collapsed.delete(sectionId);
+        if (keys[0][0] === 'c') {
+            const ids = keys.map(k => k.slice(2));
+            ui.sel.clear();
+            if (moveItemsTo(ids, { section: sectionId, index: null }, false)) {
+                say('Moved ' + (ids.length === 1 ? describeItem(ids[0]) : plural(ids.length, 'file')) + ' to the end of ' + name + '.');
+            }
+            return;
+        }
+        const targets = keys.map(k => ({ item: k.split(':')[1], index: Number(k.split(':')[2]) }));
+        if (movePagesTo(targets, { section: sectionId, index: null }, false)) {
+            say('Moved ' + plural(targets.length, 'page') + ' to the end of ' + name + '.');
+        }
+    }
+    function sectionMenu(opener, sectionId) {
+        const found = PM.findSection(S.packet, sectionId);
+        if (!found) return;
+        const n = S.packet.sections.length;
+        const into = found.s > 0 ? S.packet.sections[found.s - 1] : S.packet.sections[1];
+        menuTarget = { kind: 'section', section: sectionId };
+        openMenu(opener, [
+            { id: 'rename', text: 'Rename' },
+            { id: 'up', text: 'Move section up', disabled: found.s === 0 },
+            { id: 'down', text: 'Move section down', disabled: found.s === n - 1 },
+            found.section.divider
+                ? { id: 'nodivider', text: 'Remove divider page' }
+                : { id: 'divider', text: 'Add divider page', note: 'Its title, large and centred' },
+            { id: 'delete', text: 'Delete section', note: 'Its contents move to ' + PM.sectionName(into) },
+        ], 'Section ' + PM.sectionName(found.section));
+    }
+    function sectionAction(sectionId, choice) {
+        const found = PM.findSection(S.packet, sectionId);
+        if (!found) return;
+        const name = PM.sectionName(found.section);
+        if (choice === 'rename') {
+            const input = list.querySelector('[data-fkey="s:' + sectionId + ':name"]');
+            if (input) { input.focus(); input.select(); }
+            return;
+        }
+        if (choice === 'up' || choice === 'down') {
+            const to = found.s + (choice === 'up' ? -1 : 1);
+            ui.focusKey = 's:' + sectionId + ':menu';
+            if (change(PM.moveSection(S.packet, sectionId, to))) {
+                say('Moved section ' + name + ' to position ' + (to + 1) + ' of ' + S.packet.sections.length + '.');
+            } else {
+                ui.focusKey = null;
+            }
+            return;
+        }
+        if (choice === 'divider' || choice === 'nodivider') {
+            const on = choice === 'divider';
+            ui.focusKey = on ? 'g:div:' + sectionId + ':open' : 's:' + sectionId + ':menu';
+            ui.collapsed.delete(sectionId);
+            change(PM.setDivider(S.packet, sectionId, on), on ? 'Divider page added to ' + name + '.' : null);
+            if (!on) showToast('Removed the divider page of ' + name + '.', true);
+            return;
+        }
+        if (choice === 'delete') {
+            const into = found.s > 0 ? S.packet.sections[found.s - 1] : S.packet.sections[1];
+            const count = found.section.items.length;
+            const next = PM.deleteSection(S.packet, sectionId);
+            if (next === S.packet) return;
+            ui.focusKey = next.sections.length > 1 ? 's:' + into.id + ':menu' : null;
+            ui.collapsed.delete(into.id);
+            change(next);
+            if (!ui.focusKey) focusFirstCard();
+            showToast('Deleted section ' + name + (count ? '. Its ' + plural(count, 'item') + ' moved to ' + PM.sectionName(into) + '.' : '.'), true);
+        }
+    }
+    function focusFirstCard() {
+        const el = list.querySelector('.pk-open') || $('#pkAddFiles');
+        if (el && !$('#pkWork').hidden) el.focus();
+        else $('#pkEmptyAdd').focus();
     }
     menu.addEventListener('click', e => {
         const b = e.target.closest('[data-menu]');
@@ -1201,9 +1382,23 @@ function initPacket() {
         e.stopPropagation();
         const choice = b.dataset.menu;
         const target = menuTarget;
+        const opener = menuOpener;
         closeMenu(false);
         if (target.kind === 'plus') {
+            const section = target.slot.section;
             if (choice === 'files') { pickFiles(target.slot); return; }
+            if (choice === 'cover') { openCoverForm(opener); return; }
+            if (choice === 'divider') {
+                ui.focusKey = 'g:div:' + section + ':open';
+                change(PM.setDivider(S.packet, section, true), 'Divider page added to ' + PM.sectionName(PM.findSection(S.packet, section).section) + '.');
+                return;
+            }
+            if (choice === 'dividers') {
+                ui.focusKey = opener.dataset.fkey;
+                const before = S.packet.sections.filter(sec => !sec.divider).length;
+                change(PM.addDividers(S.packet), 'Divider pages added to ' + plural(before, 'section') + '.');
+                return;
+            }
             const before = S.packet;
             const next = PM.insertGenerated(S.packet, choice, target.slot);
             const ids = PM.newItemIds(before, next);
@@ -1211,7 +1406,15 @@ function initPacket() {
             change(next, 'Blank page inserted.');
             return;
         }
-        if (choice === 'position') { openMoveDialog(target.key ? [target.key] : null, menuOpener); return; }
+        if (target.kind === 'section') { sectionAction(target.section, choice); return; }
+        if (target.kind === 'tosection') {
+            ui.focusKey = null;
+            moveToSection(target.keys, choice.slice(4));
+            if (!list.contains(document.activeElement) && opener && document.contains(opener)) opener.focus();
+            return;
+        }
+        if (choice === 'position') { openMoveDialog(target.key ? [target.key] : null, opener); return; }
+        if (choice === 'tosection') { sectionChooser(opener, [target.key]); return; }
         stepMove(target.key, choice, false);
     });
 
@@ -1284,8 +1487,13 @@ function initPacket() {
         const key = holder ? holder.dataset.key : null;
         const itemId = holder ? holder.dataset.item : null;
         e.stopPropagation();
+        const sectionEl = control.closest('.pk-section');
         if (act === 'plus') { plusMenu(control); return; }
         if (act === 'menu') { moveMenu(control, key); return; }
+        if (act === 'secmenu') { sectionMenu(control, sectionEl.dataset.section); return; }
+        if (act === 'collapse') { toggleSection(sectionEl.dataset.section); return; }
+        if (act === 'genremove') { removeGenerated(key); return; }
+        if (act === 'open' && key && key[0] === 'g') { openGenForm(key, control); return; }
         if (act === 'open') {
             if (e.shiftKey) { toggleSel(key, true); return; }
             if (e.ctrlKey || e.metaKey || ui.selecting) { toggleSel(key, false); return; }
@@ -1318,12 +1526,71 @@ function initPacket() {
         if (act === 'readd') { pickFiles(null, itemId); }
     });
     list.addEventListener('change', e => {
+        if (e.target.classList.contains('pk-sec-name')) { commitRename(e.target); return; }
         if (!e.target.classList.contains('pk-check')) return;
         const holder = e.target.closest('[data-key]');
         const key = holder.dataset.key;
         ui.focusKey = key + ':check';
         toggleSel(key, false);
     });
+    // ---- Sections: collapse, rename ----
+    function toggleSection(sectionId) {
+        const found = PM.findSection(S.packet, sectionId);
+        if (!found) return;
+        const hide = !ui.collapsed.has(sectionId);
+        if (hide) {
+            ui.collapsed.add(sectionId);
+            // Hidden items leave the selection, so a bulk action never acts
+            // on what can't be seen.
+            const ids = new Set(found.section.items.map(item => item.id));
+            Array.from(ui.sel).forEach(k => { if (ids.has(k.split(':')[1])) ui.sel.delete(k); });
+        } else {
+            ui.collapsed.delete(sectionId);
+        }
+        ui.focusKey = 's:' + sectionId + ':collapse';
+        render();
+        say((hide ? 'Hid the contents of ' : 'Showing the contents of ') + PM.sectionName(found.section) + '.');
+    }
+    // A rename is one undo step. Enter applies it at once. A rename that
+    // lands on a blur waits until focus has moved, so the re-render keeps
+    // focus where Tab took it; after a click it waits for the click, so the
+    // click still reaches the control it was aimed at.
+    let pointerDown = false;
+    let afterPointer = null;
+    document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+    const pointerDone = () => {
+        pointerDown = false;
+        if (afterPointer) { const fn = afterPointer; afterPointer = null; setTimeout(fn, 0); }
+    };
+    document.addEventListener('pointerup', pointerDone, true);
+    document.addEventListener('pointercancel', pointerDone, true);
+    function commitRename(input, now) {
+        const sectionId = input.closest('.pk-section').dataset.section;
+        const value = input.value;
+        const apply = () => {
+            const next = PM.renameSection(S.packet, sectionId, value);
+            if (next === S.packet) return;
+            change(next, 'Section renamed to ' + PM.sectionName(PM.findSection(next, sectionId).section) + '.');
+        };
+        if (now) apply();
+        else if (pointerDown) afterPointer = apply;
+        else setTimeout(apply, 0);
+    }
+    function removeGenerated(key) {
+        if (key === 'g:cover') {
+            change(PM.removeCover(S.packet));
+            showToast('Removed the cover page.', true);
+            focusFirstCard();
+            return;
+        }
+        const sectionId = key.slice('g:div:'.length);
+        const found = PM.findSection(S.packet, sectionId);
+        if (!found) return;
+        ui.focusKey = 's:' + sectionId + ':plus';
+        change(PM.setDivider(S.packet, sectionId, false));
+        showToast('Removed the divider page of ' + PM.sectionName(found.section) + '.', true);
+    }
+
     function focusNear(removedId) {
         const card = list.querySelector('.pk-card');
         if (card) ui.focusKey = card.dataset.key + ':open';
@@ -1334,6 +1601,19 @@ function initPacket() {
     // ---- Keyboard on the canvas: grab mode and arrow navigation ----
     list.addEventListener('keydown', e => {
         const t = e.target;
+        if (t.classList.contains('pk-sec-name')) {
+            // Enter keeps the name, Escape puts the old one back. Either
+            // way the key stops here.
+            if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitRename(t, true); }
+            else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                const found = PM.findSection(S.packet, t.closest('.pk-section').dataset.section);
+                t.value = found ? found.section.title || '' : t.value;
+                t.select();
+            }
+            return;
+        }
         if (t.classList.contains('pk-handle')) { handleKey(e, t); return; }
         if ((t.classList.contains('pk-open') || t.classList.contains('pk-tile-open')) && !e.ctrlKey && !e.metaKey && !e.altKey) {
             arrowNav(e, t);
@@ -1439,7 +1719,7 @@ function initPacket() {
         suppressClick = false;
         if (e.pointerType !== 'touch') return;
         const opener = e.target.closest('.pk-open, .pk-tile-open');
-        if (!opener || e.target.closest('.pk-handle')) return;
+        if (!opener || e.target.closest('.pk-handle') || opener.closest('.pk-card-flag')) return;
         const key = opener.closest('[data-key]').dataset.key;
         press = { x: e.clientX, y: e.clientY, timer: setTimeout(() => {
             press = null;
@@ -1469,6 +1749,7 @@ function initPacket() {
         const targets = selPages();
         const n = ui.sel.size;
         if (act === 'move') { openMoveDialog(null, b); return; }
+        if (act === 'tosection') { sectionChooser(b, Array.from(ui.sel)); return; }
         let next = S.packet;
         let text = '';
         if (act === 'rotl' || act === 'rotr') {
@@ -1499,6 +1780,15 @@ function initPacket() {
         const n = PM.itemOrder(S.packet).length;
         if (change(PM.clearPacket(S.packet))) showToast('Cleared the packet (' + plural(n, 'item') + ').', true);
     });
+    $('#pkAddSection').addEventListener('click', () => {
+        const n = S.packet.sections.length + 1;
+        const next = PM.addSection(S.packet, 'Section ' + n);
+        const added = next.sections[next.sections.length - 1];
+        ui.focusKey = 's:' + added.id + ':name';
+        change(next, 'Added ' + added.title + '. Type its name, then use Move to section on the files that belong in it.');
+        const input = list.querySelector('[data-fkey="s:' + added.id + ':name"]');
+        if (input) input.select();
+    });
     $('#pkAllPages').addEventListener('click', () => {
         ui.allPages = !ui.allPages;
         ui.focusKey = null;
@@ -1519,9 +1809,102 @@ function initPacket() {
     $('#pkOutline').addEventListener('click', e => {
         const b = e.target.closest('.pk-o-link');
         if (!b) return;
-        const el = list.querySelector('[data-fkey="c:' + b.dataset.item + ':open"]');
+        let fkey;
+        let section = b.dataset.sec || null;
+        if (b.dataset.item) {
+            fkey = 'c:' + b.dataset.item + ':open';
+            const found = PM.findItem(S.packet, b.dataset.item);
+            section = found ? found.section.id : null;
+        } else if (b.dataset.gen) {
+            fkey = b.dataset.gen + ':open';
+            if (b.dataset.gen.startsWith('g:div:')) section = b.dataset.gen.slice('g:div:'.length);
+        } else {
+            fkey = 's:' + section + ':name';
+            section = null;
+        }
+        if (section && ui.collapsed.has(section)) { ui.collapsed.delete(section); render(); }
+        const el = list.querySelector('[data-fkey="' + fkey + '"]');
         if (el) { el.focus(); el.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }
     });
+
+    // ---- Cover and divider forms (§2.1: a small form edits a generated
+    // page's text; each save is one undo step) ----
+    const coverDialog = $('#pkCoverDialog');
+    const dividerDialog = $('#pkDividerDialog');
+    let genOpenerKey = null;            // where focus goes back to on cancel
+    let genFocusKey = null;             // set by a save or remove
+    let dividerSection = null;
+    function openGenForm(key, opener) {
+        if (key === 'g:cover') openCoverForm(opener);
+        else openDividerForm(key.slice('g:div:'.length), opener);
+    }
+    function openCoverForm(opener) {
+        genOpenerKey = opener && opener.dataset.fkey;
+        genFocusKey = null;
+        const c = S.packet.cover;
+        $('#pkCoverTitle').value = c ? c.title : '';
+        $('#pkCoverSubtitle').value = c ? c.subtitle : '';
+        $('#pkCoverDate').value = c ? c.date
+            : new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+        $('#pkCoverNote').value = c ? c.note : '';
+        $('#pkCoverRemove').hidden = !c;
+        $('#pkCoverHead').textContent = c ? 'Edit the cover page' : 'Add a cover page';
+        coverDialog.showModal();
+        $('#pkCoverTitle').focus();
+    }
+    $('#pkCoverForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const had = !!S.packet.cover;
+        const next = PM.setCover(S.packet, {
+            title: $('#pkCoverTitle').value, subtitle: $('#pkCoverSubtitle').value,
+            date: $('#pkCoverDate').value, note: $('#pkCoverNote').value,
+        });
+        genFocusKey = 'g:cover:open';
+        coverDialog.close();
+        change(next, had ? 'Cover page updated.' : 'Cover page added. It comes first in the packet.');
+    });
+    $('#pkCoverRemove').addEventListener('click', () => {
+        genFocusKey = '';
+        coverDialog.close();
+        removeGenerated('g:cover');
+    });
+    $('#pkCoverCancel').addEventListener('click', () => coverDialog.close());
+    function openDividerForm(sectionId, opener) {
+        const found = PM.findSection(S.packet, sectionId);
+        if (!found) return;
+        dividerSection = sectionId;
+        genOpenerKey = opener && opener.dataset.fkey;
+        genFocusKey = null;
+        $('#pkDividerTitle').value = found.section.title || '';
+        dividerDialog.showModal();
+        $('#pkDividerTitle').focus();
+        $('#pkDividerTitle').select();
+    }
+    $('#pkDividerForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const next = PM.renameSection(S.packet, dividerSection, $('#pkDividerTitle').value);
+        genFocusKey = 'g:div:' + dividerSection + ':open';
+        dividerDialog.close();
+        if (next !== S.packet) change(next, 'Section renamed to ' + PM.sectionName(PM.findSection(next, dividerSection).section) + '.');
+    });
+    $('#pkDividerRemove').addEventListener('click', () => {
+        genFocusKey = '';
+        dividerDialog.close();
+        removeGenerated('g:div:' + dividerSection);
+    });
+    $('#pkDividerCancel').addEventListener('click', () => dividerDialog.close());
+    [coverDialog, dividerDialog].forEach(d => d.addEventListener('close', () => {
+        // A save focuses the page it saved; a remove has placed focus
+        // already; a cancel goes back to whatever opened the form.
+        const key = genFocusKey === null ? genOpenerKey : genFocusKey;
+        genFocusKey = null;
+        if (key === '') return;
+        if (key) {
+            const el = list.querySelector('[data-fkey="' + key + '"]');
+            if (el) { el.focus(); return; }
+        }
+        focusFirstCard();
+    }));
 
     // ---- Global keys (skip text inputs, selects and open dialogs) ----
     document.addEventListener('keydown', e => {
@@ -1642,14 +2025,19 @@ function initPacket() {
                 if (thumbUrls.has(small)) img.src = thumbUrls.get(small);
                 wantThumb(url, true);
             }
+        } else if (p.kind === 'cover' || p.kind === 'divider') {
+            const section = p.kind === 'divider' ? PM.findSection(S.packet, p.section).section : null;
+            what = p.kind === 'cover' ? 'Cover page' : 'Divider · ' + PM.sectionName(section);
+            page.innerHTML = genSheet(p.kind, section, 'pk-sheet-large');
         } else {
-            what = { blank: 'Blank page', pad: 'Blank page added for double-sided printing', cover: 'Cover page', contents: 'Contents page', divider: 'Divider page' }[p.kind];
+            what = { blank: 'Blank page', pad: 'Blank page added for double-sided printing', contents: 'Contents page' }[p.kind];
             page.innerHTML = sheet(0, '<span class="pk-sheet-note">' + escapeHtml(what) + '</span>', 'pk-sheet-large pk-sheet-blank');
             const shape = (p.kind === 'blank' || p.kind === 'pad') && shapeBefore(seq, pv.pos);
             if (shape) page.firstElementChild.style.aspectRatio = shape;
         }
         title.textContent = 'Page ' + (pv.pos + 1) + ' of ' + seq.length + ' · ' + what;
-        sub.textContent = (p.label != null ? 'Numbered ' + p.label : 'Not numbered') + (p.rot ? ' · rotated ' + p.rot + '°' : '');
+        sub.textContent = (p.label == null ? 'Not numbered' : (p.print || !S.packet.options.page_numbers ? 'Numbered ' : 'Counts as page ') + p.label)
+            + (p.rot ? ' · rotated ' + p.rot + '°' : '');
         const movable = p.kind === 'file' || p.kind === 'blank';
         $('#pkPvRotL').disabled = p.kind !== 'file';
         $('#pkPvRotR').disabled = p.kind !== 'file';

@@ -61,6 +61,7 @@
                 <button type="button" class="pk-btn pk-quiet" id="pkUndo" title="Ctrl+Z" disabled>Undo</button>
                 <button type="button" class="pk-btn pk-quiet" id="pkRedo" title="Ctrl+Shift+Z" disabled>Redo</button>
                 <button type="button" class="pk-btn pk-quiet" id="pkAddFiles">Add files</button>
+                <button type="button" class="pk-btn pk-quiet" id="pkAddSection">Add section</button>
                 <button type="button" class="pk-btn pk-quiet" id="pkAllPages" aria-pressed="false">All pages</button>
                 <button type="button" class="pk-btn pk-quiet" id="pkClear">Clear packet</button>
             </div>
@@ -93,7 +94,7 @@
                         <label class="pk-opt">Start numbering at
                             <input type="number" id="pkOptStart" min="1" step="1" value="1">
                         </label>
-                        <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptBookmarks"> <span>Add bookmarks (one per file)</span></label>
+                        <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptBookmarks"> <span>Add bookmarks <small>One per file, under its section when there are sections</small></span></label>
                         <label class="pk-opt pk-check-opt"><input type="checkbox" id="pkOptRecto"> <span>Start each section on a right-hand page <small>Adds a blank page where needed, for double-sided printing</small></span></label>
                     </fieldset>
                 </aside>
@@ -118,6 +119,7 @@
         <button type="button" class="pk-btn pk-small" data-bulk="rotr">Rotate right</button>
         <button type="button" class="pk-btn pk-small" data-bulk="delete">Delete</button>
         <button type="button" class="pk-btn pk-small" data-bulk="move">Move to position&hellip;</button>
+        <button type="button" class="pk-btn pk-small" data-bulk="tosection" id="pkBulkSection" hidden>Move to section&hellip;</button>
         <button type="button" class="pk-btn pk-small" data-bulk="duplicate">Duplicate</button>
         <button type="button" class="pk-btn pk-small pk-quiet" data-bulk="done">Done</button>
     </div>
@@ -158,6 +160,46 @@
             <div class="pk-movedlg-foot">
                 <button type="submit" class="pk-btn pk-primary pk-small">Move</button>
                 <button type="button" class="pk-btn pk-small pk-quiet" id="pkMoveCancel">Cancel</button>
+            </div>
+        </form>
+    </dialog>
+
+    {#- Generated pages: a small form to edit each one's text (§2.1). -#}
+    <dialog class="pk-movedlg pk-gendlg" id="pkCoverDialog" aria-labelledby="pkCoverHead">
+        <form id="pkCoverForm">
+            <h2 id="pkCoverHead">Cover page</h2>
+            <p class="pk-hint">The cover is the packet's first page. It has no page number.</p>
+            <label class="pk-field">Title
+                <input type="text" id="pkCoverTitle" maxlength="120" autocomplete="off">
+            </label>
+            <label class="pk-field">Subtitle
+                <input type="text" id="pkCoverSubtitle" maxlength="160" autocomplete="off">
+            </label>
+            <label class="pk-field">Date
+                <input type="text" id="pkCoverDate" maxlength="60" autocomplete="off">
+            </label>
+            <label class="pk-field">Short note <small>optional</small>
+                <input type="text" id="pkCoverNote" maxlength="200" autocomplete="off">
+            </label>
+            <div class="pk-movedlg-foot">
+                <button type="button" class="pk-btn pk-small pk-quiet pk-left" id="pkCoverRemove">Remove cover</button>
+                <button type="submit" class="pk-btn pk-primary pk-small">Save</button>
+                <button type="button" class="pk-btn pk-small pk-quiet" id="pkCoverCancel">Cancel</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="pk-movedlg pk-gendlg" id="pkDividerDialog" aria-labelledby="pkDividerHead">
+        <form id="pkDividerForm">
+            <h2 id="pkDividerHead">Divider page</h2>
+            <p class="pk-hint">A divider starts its section with the section's title, large and centred.</p>
+            <label class="pk-field">Section title
+                <input type="text" id="pkDividerTitle" maxlength="120" autocomplete="off" placeholder="Untitled section">
+            </label>
+            <div class="pk-movedlg-foot">
+                <button type="button" class="pk-btn pk-small pk-quiet pk-left" id="pkDividerRemove">Remove divider</button>
+                <button type="submit" class="pk-btn pk-primary pk-small">Save</button>
+                <button type="button" class="pk-btn pk-small pk-quiet" id="pkDividerCancel">Cancel</button>
             </div>
         </form>
     </dialog>

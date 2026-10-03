@@ -1137,3 +1137,190 @@
         animation: none;
     }
 }
+
+/* ---- Sections ([B3]): a heading row with its name field and actions ---- */
+.pk-sec-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 2px 6px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--line-strong);
+}
+
+.pk-sec-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink);
+    font: 600 1.05em/1.3 var(--font);
+}
+
+.pk-sec-name::placeholder {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.pk-sec-name:hover {
+    border-color: var(--line);
+}
+
+.pk-sec-name:focus {
+    border-color: var(--accent);
+    background: var(--paper);
+    outline: none;
+}
+
+.pk-sec-meta {
+    flex: none;
+    color: var(--muted);
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.pk-sec-toggle svg {
+    transition: transform 0.15s ease;
+}
+
+.pk-sec-toggle svg.pk-left-turn {
+    transform: rotate(-90deg);
+}
+
+.pk-section.pk-collapsed {
+    margin-bottom: 10px;
+}
+
+/* Cover and divider cards: flags, not items, so no grip, box or Move menu. */
+.pk-card-flag {
+    margin-bottom: 26px;
+}
+
+.pk-section > .pk-card-flag {
+    margin-bottom: 0;
+}
+
+.pk-flag-gap {
+    flex: none;
+    width: 50px;
+}
+
+.pk-edit {
+    color: var(--accent);
+}
+
+/* A generated sheet draws its text as the server does: sizes are fractions
+   of the page width (pt / 612), so thumbnail and preview match the PDF. */
+.pk-sheet-gen {
+    display: grid;
+    place-items: center;
+    container-type: inline-size;
+}
+
+.pk-gs {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2.4cqw;
+    width: 100%;
+    padding: 0 11.8cqw;
+    color: var(--paper);
+    text-align: center;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+}
+
+.pk-gs-cover {
+    margin-bottom: 16%;
+}
+
+.pk-gs b {
+    font-size: 5.2cqw;
+    font-weight: 700;
+}
+
+.pk-gs-divider b {
+    font-size: 5.9cqw;
+}
+
+.pk-gs span {
+    font-size: 3.3cqw;
+}
+
+.pk-gs small {
+    margin-top: 2cqw;
+    font-size: 2.1cqw;
+}
+
+.pk-gs i {
+    margin-top: 1.4cqw;
+    font-size: 2cqw;
+}
+
+.pk-o-in .pk-o-link {
+    padding-left: 14px;
+}
+
+.pk-o-gen .pk-o-name {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.pk-o-link.pk-o-sec {
+    margin-top: 8px;
+    color: var(--ink);
+    font-weight: 600;
+}
+
+/* Generated-page forms */
+.pk-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--ink-soft);
+    font-size: 0.88em;
+}
+
+.pk-field small {
+    color: var(--faint);
+}
+
+.pk-field input {
+    padding: 7px 9px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--paper);
+    color: var(--ink);
+    font: inherit;
+    font-size: 1.05em;
+}
+
+.pk-field input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.pk-movedlg-foot .pk-left {
+    margin-right: auto;
+}
+
+.pk-movedlg-foot [hidden] {
+    display: none;
+}
+
+@media (max-width: 640px) {
+    .pk-sec-meta {
+        display: none;
+    }
+
+    .pk-flag-gap {
+        width: 22px;
+    }
+}
+
+.pk-bulk [hidden] {
+    display: none;
+}
