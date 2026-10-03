@@ -26,6 +26,8 @@ Two merge modes are supported:
     phase 2, preserving the corruption-avoiding two-phase structure.
 """
 import io
+import os
+import tempfile
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
@@ -237,6 +239,43 @@ def merge_pipeline(sources, options=None):
             writer.add_outline_item(title, index)
 
     return writer
+
+
+class SourceError(ValueError):
+    """One of a merge's files couldn't be converted to PDF (the routes answer 400)."""
+
+
+def convert_and_merge(items, options, render_opts, out_path):
+    """One merge request's whole work, as it runs in the request's job.
+
+    ``items`` is ``(path, ext, title, shown_name)`` per file, in order. Each
+    file that isn't a PDF is converted with its converter into a temporary
+    directory (the job's), then everything is merged with
+    :func:`merge_pipeline` and written to ``out_path``. Returns
+    ``{'count': files merged, 'notes': renderer notes}``. A conversion
+    failure is a :class:`SourceError` naming the file, chained to its cause.
+    """
+    from converters import get_converter   # converters import pdf_ops
+
+    sources = []
+    scratch = None
+    for index, (path, ext, title, shown) in enumerate(items):
+        if ext == '.pdf':
+            sources.append((path, title))
+            continue
+        if scratch is None:
+            scratch = tempfile.mkdtemp(prefix='merge-')
+        converted = os.path.join(scratch, f'{index}.pdf')
+        try:
+            get_converter(ext)(path, converted, render_opts)
+        except Exception as exc:
+            raise SourceError(f'Could not convert {shown}: {exc}') from exc
+        sources.append((converted, title))
+    writer = merge_pipeline(sources, options)
+    with open(out_path, 'wb') as fh:
+        writer.write(fh)
+    notes = list(render_opts.notes) if render_opts is not None else []
+    return {'count': len(sources), 'notes': notes}
 
 
 def _resolve_source(source):

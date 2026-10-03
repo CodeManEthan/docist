@@ -26,6 +26,7 @@ XLSX parsing
 """
 import csv
 import io
+import os
 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -39,6 +40,8 @@ from reportlab.platypus import (
 )
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from xml.sax.saxutils import escape
+
+from pdf_ops import limits, office
 
 from . import ConversionError
 from .options import paper_size
@@ -82,14 +85,35 @@ def _read_csv_rows(input_path):
     return rows
 
 
-def _read_xlsx_sheets(input_path):
+def check_xlsx(input_path, error_type):
+    """Run the archive check on an ``.xlsx`` before ``openpyxl`` opens it
+    (design launch-hardening §4.2). Raises ``error_type`` with the archive
+    refusal (chained to a LimitError) or the spreadsheet message; the Word
+    wording of the check's own errors never reaches a spreadsheet user."""
+    try:
+        office.check_package(input_path)
+    except office.ArchiveError as exc:
+        raise error_type(limits.archive_message()) from limits.archive_refusal(exc)
+    except office.OfficeError as exc:
+        raise error_type(
+            f"Could not open spreadsheet '{os.path.basename(input_path)}': it is "
+            "damaged or not an .xlsx file."
+        ) from exc
+
+
+def _read_xlsx_sheets(input_path, opts=None):
     """Read an XLSX into ``[(sheet_name, rows), ...]`` skipping empty sheets.
 
     ``rows`` is a list of lists of stringified cell values. Raises
-    ``ConversionError`` if the workbook cannot be opened/parsed.
+    ``ConversionError`` if the workbook cannot be opened/parsed. Every cell
+    ``iter_rows`` yields counts against ``TABLE_CELLS_READ``, kept or not,
+    across the request (``opts.cells_read``): openpyxl pads each row to the
+    sheet's declared dimension, so a few KB can declare billions of cells.
     """
     import openpyxl
 
+    check_xlsx(input_path, ConversionError)
+    count = limits.CellCount(opts)
     try:
         wb = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 - any openpyxl/zip failure -> corrupt
@@ -102,6 +126,7 @@ def _read_xlsx_sheets(input_path):
         for ws in wb.worksheets:
             rows = []
             for row in ws.iter_rows(values_only=True):
+                count.add(len(row))
                 cells = ['' if v is None else _stringify(v) for v in row]
                 # Drop trailing all-empty cells for a tidier table.
                 while cells and cells[-1] == '':
@@ -252,7 +277,7 @@ def convert(input_path, output_path, opts=None):
     lower = input_path.lower()
     try:
         if lower.endswith('.xlsx'):
-            sheets = _read_xlsx_sheets(input_path)
+            sheets = _read_xlsx_sheets(input_path, opts)
             sections = [(name, rows) for name, rows in sheets]
         else:  # treat everything else routed here as CSV
             try:
@@ -260,7 +285,7 @@ def convert(input_path, output_path, opts=None):
             except OSError as exc:
                 raise ConversionError(f'Could not read CSV file: {exc}') from exc
             sections = [(None, rows)] if rows else []
-    except ConversionError:
+    except (ConversionError, limits.LimitError):
         raise
     except Exception as exc:  # noqa: BLE001
         raise ConversionError(f'Failed to parse spreadsheet: {exc}') from exc

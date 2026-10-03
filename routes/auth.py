@@ -313,8 +313,21 @@ def logout():
 # --------------------------------------------------------------------------
 # Email verification
 # --------------------------------------------------------------------------
-@bp.route('/verify/<token>')
+@bp.route('/verify/<token>', methods=['GET', 'POST'])
 def verify(token):
+    """GET changes nothing: it shows a page whose button POSTs back here, so a
+    mail scanner that follows the link can't verify the account. The POST,
+    under the app-wide CSRF check, uses the token (design launch-hardening
+    §12, the same shape as /reset/<token>)."""
+    if request.method == 'GET':
+        user = EmailToken.peek(token, 'verify')
+        if user is None:
+            return render_template(
+                'message.html', title='Link expired', body=LINK_DEAD,
+                link_href='/account', link_text='Go to your account to get a new one',
+            ), 400
+        return render_template('verify.html', token=token, email=user.email)
+
     user = EmailToken.consume(token, 'verify')
     if user is None:
         db.session.rollback()

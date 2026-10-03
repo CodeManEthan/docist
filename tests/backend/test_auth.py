@@ -241,7 +241,7 @@ class TestVerify:
     def test_link_verifies(self, client, outbox):
         _signup(client)
         token = _token_from(outbox, "verify")
-        response = client.get(f"/verify/{token}")
+        response = client.post(f"/verify/{token}")
         assert response.status_code == 200
         assert b"Email verified" in response.data
         assert _user("new@x.io").verified_at is not None
@@ -249,10 +249,59 @@ class TestVerify:
     def test_reused_link_refused(self, client, outbox):
         _signup(client)
         token = _token_from(outbox, "verify")
-        client.get(f"/verify/{token}")
-        response = client.get(f"/verify/{token}")
-        assert response.status_code == 400
-        assert b"expired or has already been used" in response.data
+        client.post(f"/verify/{token}")
+        for method in (client.get, client.post):
+            response = method(f"/verify/{token}")
+            assert response.status_code == 400
+            assert b"expired or has already been used" in response.data
+
+    def test_get_shows_a_confirm_page_and_changes_nothing(self, client, outbox):
+        """launch-hardening §12: a scanner that follows the link verifies nothing."""
+        _signup(client)
+        token = _token_from(outbox, "verify")
+        for _ in range(2):
+            response = client.get(f"/verify/{token}")
+            assert response.status_code == 200
+            page = response.data.decode()
+            assert "Confirm that you signed up for Docist with new@x.io." in page
+            assert "Verify my email" in page
+            assert "If you didn't sign up, close this page and nothing happens." in page
+            assert f'action="/verify/{token}"' in page
+            assert 'name="csrf_token"' in page
+        assert _user("new@x.io").verified_at is None
+        tokens = _db(lambda: [t.used_at for t in
+                              db.session.execute(db.select(EmailToken)).scalars()])
+        assert tokens and all(used is None for used in tokens)
+
+    def test_post_needs_the_csrf_token(self, client, outbox, csrf_on):
+        client.get("/signup")
+        page = client.get("/signup").data.decode()
+        csrf = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
+        client.post("/signup", data={"email": "new@x.io", "password": PASSWORD,
+                                     "confirm": PASSWORD, "csrf_token": csrf})
+        token = _token_from(outbox, "verify")
+        assert client.post(f"/verify/{token}").status_code == 400
+        assert _user("new@x.io").verified_at is None
+        # A fresh browser gets its CSRF token from the GET, as on reset.
+        fresh = flask_app_module.app.test_client()
+        page = fresh.get(f"/verify/{token}").data.decode()
+        csrf = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
+        response = fresh.post(f"/verify/{token}", data={"csrf_token": csrf})
+        assert response.status_code == 200
+        assert _user("new@x.io").verified_at is not None
+
+    def test_the_critics_sequence_now_fails_at_the_api_key(self, client, outbox):
+        """The registrant keeps their session; a scanner GETs the link; the
+        registrant asks for an API key and is refused (critic, major 1)."""
+        _signup(client, email="victim@example.com")
+        token = _token_from(outbox, "verify")
+        scanner = flask_app_module.app.test_client()
+        assert scanner.get(f"/verify/{token}").status_code == 200
+        response = client.post("/account/keys", data={"label": "k"})
+        assert response.status_code == 302
+        assert _user("victim@example.com").verified_at is None
+        keys = _db(lambda: db.session.execute(db.select(ApiKey)).scalars().all())
+        assert keys == []
 
     def test_expired_link_refused(self, client, outbox):
         _signup(client)
@@ -263,8 +312,9 @@ class TestVerify:
                 tok.expires_at = datetime(2000, 1, 1)
             db.session.commit()
         _db(expire)
-        response = client.get(f"/verify/{token}")
-        assert response.status_code == 400
+        for method in (client.get, client.post):
+            response = method(f"/verify/{token}")
+            assert response.status_code == 400
         assert _user("new@x.io").verified_at is None
 
     def test_garbage_token_refused(self, client):

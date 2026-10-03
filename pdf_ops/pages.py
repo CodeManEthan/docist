@@ -5,9 +5,12 @@ Page indices returned/consumed by these helpers are 0-based; the *spec*
 strings accepted by :func:`parse_page_ranges` are 1-based inclusive
 (the way a human would describe pages).
 """
+import math
 import os
 
 from pypdf import PdfReader, PdfWriter
+
+from pdf_ops import limits
 
 
 def parse_page_ranges(spec, page_count):
@@ -148,7 +151,7 @@ def rotate_pages(input_path, output_path, angle, indices=None):
     return output_path
 
 
-def split_pdf(input_path, output_dir, mode, value):
+def split_pdf(input_path, output_dir, mode, value, opts=None):
     """Split a PDF into multiple files, returning the list of created paths.
 
     ``mode``:
@@ -159,7 +162,17 @@ def split_pdf(input_path, output_dir, mode, value):
 
     Output files are named ``<base>_part1.pdf``, ``<base>_part2.pdf``, ...
     inside ``output_dir``. Returns the created file paths in order.
+
+    Limits (design launch-hardening §8): more than ``SPLIT_PARTS`` parts is
+    refused before any range is parsed (in ``ranges`` mode, before the PDF is
+    read too); each part's bytes count against ``RESULT_BYTES`` across the
+    split (``opts.written`` when given). Both raise :class:`limits.LimitError`.
+    Duplicate ranges stay allowed.
     """
+    total = opts if opts is not None else limits.WriteTotal()
+    if mode == "ranges" and isinstance(value, (list, tuple)) and len(value) > limits.SPLIT_PARTS:
+        raise limits.LimitError(limits.split_message(), kind='split')
+
     reader = PdfReader(input_path)
     page_count = len(reader.pages)
     base = os.path.splitext(os.path.basename(input_path))[0]
@@ -172,6 +185,8 @@ def split_pdf(input_path, output_dir, mode, value):
             raise ValueError("'Every N pages' needs a whole number.")
         if n < 1:
             raise ValueError("'Every N pages' must be at least 1.")
+        if math.ceil(page_count / n) > limits.SPLIT_PARTS:
+            raise limits.LimitError(limits.split_message(), kind='split')
         for start in range(0, page_count, n):
             chunks.append(list(range(start, min(start + n, page_count))))
     elif mode == "ranges":
@@ -194,5 +209,6 @@ def split_pdf(input_path, output_dir, mode, value):
         with open(out_path, "wb") as fh:
             writer.write(fh)
         created.append(out_path)
+        limits.charge_written(total, os.path.getsize(out_path))
 
     return created

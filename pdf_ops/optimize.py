@@ -50,6 +50,8 @@ import shutil
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, NumberObject
 
+from pdf_ops import limits
+
 try:  # Pillow is required for the image pass but never for the lossless pass.
     from PIL import Image
     _HAVE_PIL = True
@@ -151,6 +153,8 @@ def _pil_from_xobject(obj):
         # Already JPEG-encoded: let Pillow parse the raw stream bytes.
         try:
             im = Image.open(io.BytesIO(obj._data))
+            if not limits.frame_ok(im.width, im.height):
+                return None   # over FRAME_PIXELS: left alone, like one it can't open
             im.load()
             return im
         except Exception:
@@ -168,6 +172,10 @@ def _pil_from_xobject(obj):
     try:
         w = int(obj["/Width"])
         h = int(obj["/Height"])
+        # The declared size, before any byte is decoded (design §6.1): an
+        # image over FRAME_PIXELS is left alone, like one it can't open.
+        if not limits.frame_ok(w, h):
+            return None
         raw = obj.get_data()  # applies the stream filters -> raw pixels
         return Image.frombytes(mode, (w, h), raw)
     except Exception:

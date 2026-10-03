@@ -36,7 +36,7 @@ import time
 from flask import Request, current_app, g, has_request_context, jsonify, request
 from werkzeug.utils import secure_filename
 
-from pdf_ops import office
+from pdf_ops import limits, office
 from utils.identity import current_user
 from utils.metering import tier
 from utils.validation import UploadValidationError
@@ -53,7 +53,17 @@ _PAGE_UPLOADS = {'merge.index': 'merge.upload_files', 'convert.convert_index': '
 
 
 class LimitedRequest(Request):
-    """``flask.Request`` whose body limit is the one set for this request."""
+    """``flask.Request`` whose body limit is the one set for this request.
+
+    Each non-file multipart field is capped at ``limits.FORM_FIELD_BYTES``
+    (1 MiB). Werkzeug 3.0.6 enforces ``max_form_memory_size`` per field
+    (GHSA-q34m-jh98-gwm2); Flask 3.0.0 has no setting for it, so it is set
+    here (design launch-hardening §11).
+    """
+
+    @property
+    def max_form_memory_size(self):
+        return limits.FORM_FIELD_BYTES
 
     @property
     def max_content_length(self):
@@ -81,8 +91,48 @@ def limit_bytes(user, endpoint=None):
 
 
 def upload_ext(upload):
-    """An upload's extension, as the routes derive it from its filename."""
-    return os.path.splitext(secure_filename(upload.filename or ''))[1].lower()
+    """An upload's extension, from the name the user sent.
+
+    Not from ``secure_filename``, which turns ``отчёт.pdf`` into ``pdf``
+    with no extension (design launch-hardening §13).
+    """
+    return os.path.splitext(upload.filename or '')[1].lower()
+
+
+def merge_plan(files, convertible):
+    """Where each of a merge request's files is saved, checked before any is.
+
+    ``files`` are the request's ``files[]`` uploads; ``convertible(ext)``
+    says whether a non-PDF extension has a converter. An empty file part
+    (no filename) is ignored, since the browser sends one when nothing is
+    chosen. Returns ``[(upload, relative path, ext, bookmark title, name
+    shown), ...]`` with each file in its own ``<index>/`` directory, so
+    same-named uploads can't overwrite each other. Raises
+    :class:`UploadValidationError` naming every file, by the name the user
+    sent, that is neither a PDF nor convertible: the whole request is
+    refused, nothing is skipped.
+    """
+    plan = []
+    unsupported = []
+    for index, upload in enumerate(files):
+        if not upload or not upload.filename:
+            continue
+        raw = upload.filename
+        ext = upload_ext(upload)
+        if ext != '.pdf' and not convertible(ext):
+            unsupported.append(raw)
+            continue
+        safe = secure_filename(raw)
+        stem = safe[:-len(ext)] if ext and safe.lower().endswith(ext) else ''
+        if stem:
+            name, title = f'{stem}{ext}', stem
+        else:
+            name = f'file{index}{ext}'
+            title = os.path.splitext(os.path.basename(raw))[0] or f'file{index}'
+        plan.append((upload, os.path.join(str(index), name), ext, title, name))
+    if unsupported:
+        raise UploadValidationError(limits.merge_unsupported_message(unsupported))
+    return plan
 
 
 def merge_large_ok(ext, render_opts):
@@ -165,8 +215,21 @@ def init_app(app):
 
     @app.errorhandler(413)
     def _too_large(_error):
-        # Werkzeug raised while reading the body: the limit is this request's.
-        return too_large(request.max_content_length or free_limit_bytes())
+        # Werkzeug raised while reading the body, and raises the same error
+        # for a body over the limit, a text field over FORM_FIELD_BYTES and
+        # more than max_form_parts parts. A declared length says which.
+        limit = request.max_content_length or free_limit_bytes()
+        length = request.content_length
+        if length is not None and length > limit:
+            return too_large(limit)
+        if length is not None:
+            message = limits.FORM_MESSAGE      # within the limit: a field or the parts
+        else:
+            message = limits.CHUNKED_MESSAGE   # chunked: any of the three
+        response = jsonify({'error': message, 'code': 'upload_too_large',
+                            'limit_mb': limit_mb(limit)})
+        response.status_code = 413
+        return response
 
     @app.context_processor
     def _inject_upload_limit():

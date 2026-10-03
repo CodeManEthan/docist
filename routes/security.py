@@ -2,9 +2,13 @@
 
 Uploads are processed inside a ``tempfile.TemporaryDirectory`` -- deliberately
 NOT the shared UPLOAD_FOLDER, which the merge flow clears on every request.
-Results land in OUTPUT_FOLDER and are served by the shared /download endpoint.
+The work runs in the request's job (utils.render_opts.run_in_job); the result
+is built in the temp directory and moved to OUTPUT_FOLDER only when the job
+succeeds, so a refused request leaves nothing there. Results are served by the
+shared /download endpoint.
 """
 import os
+import shutil
 import tempfile
 
 from flask import Blueprint, current_app, render_template, request, jsonify
@@ -14,6 +18,7 @@ from pdf_ops.security import protect_pdf, unlock_pdf
 from pdf_ops.watermark import apply_text_watermark
 from pdf_ops.stamp import apply_header_footer, apply_bates_numbers, format_bates
 from utils.naming import result_name
+from utils.render_opts import run_in_job
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('security', __name__)
@@ -61,7 +66,7 @@ def run():
 
     output_folder = current_app.config['OUTPUT_FOLDER']
     output_name = _output_name(operation, file.filename)
-    output_path = os.path.join(output_folder, output_name)
+    form = request.form
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -71,67 +76,81 @@ def run():
                 validate_upload(input_path, '.pdf')
             except UploadValidationError as exc:
                 return jsonify({'error': str(exc)}), 400
+            # Built here, outside the job directory; moved to OUTPUT_FOLDER
+            # only after the job returns (design launch-hardening §10.3).
+            output_path = os.path.join(tmpdir, 'result.pdf')
 
             if operation == 'watermark':
-                text = request.form.get('text', '')
+                text = form.get('text', '')
                 if not text or not text.strip():
                     return jsonify({'error': 'Watermark text is required'}), 400
-                position = request.form.get('position', 'center')
-                opacity = request.form.get('opacity', 0.15)
-                font_size = request.form.get('font_size', 48)
-                rotation = request.form.get('rotation', 45)
-                apply_text_watermark(
-                    input_path, output_path, text,
-                    position=position, opacity=opacity,
-                    font_size=font_size, rotation=rotation,
-                )
-                message = 'Watermark applied to every page'
+                position = form.get('position', 'center')
+                opacity = form.get('opacity', 0.15)
+                font_size = form.get('font_size', 48)
+                rotation = form.get('rotation', 45)
+
+                def work():
+                    apply_text_watermark(
+                        input_path, output_path, text,
+                        position=position, opacity=opacity,
+                        font_size=font_size, rotation=rotation,
+                    )
+                    return 'Watermark applied to every page'
             elif operation == 'headerfooter':
                 slots = {
-                    'header_left': request.form.get('header_left', ''),
-                    'header_center': request.form.get('header_center', ''),
-                    'header_right': request.form.get('header_right', ''),
-                    'footer_left': request.form.get('footer_left', ''),
-                    'footer_center': request.form.get('footer_center', ''),
-                    'footer_right': request.form.get('footer_right', ''),
+                    'header_left': form.get('header_left', ''),
+                    'header_center': form.get('header_center', ''),
+                    'header_right': form.get('header_right', ''),
+                    'footer_left': form.get('footer_left', ''),
+                    'footer_center': form.get('footer_center', ''),
+                    'footer_right': form.get('footer_right', ''),
                 }
-                font_size = request.form.get('font_size', 9)
-                color = request.form.get('color', '#444444')
-                margin = request.form.get('margin', 36)
-                apply_header_footer(
-                    input_path, output_path,
-                    font_size=font_size, color=color, margin=margin,
-                    **slots,
-                )
-                message = 'Header/footer applied to every page'
+                font_size = form.get('font_size', 9)
+                color = form.get('color', '#444444')
+                margin = form.get('margin', 36)
+
+                def work():
+                    apply_header_footer(
+                        input_path, output_path,
+                        font_size=font_size, color=color, margin=margin,
+                        **slots,
+                    )
+                    return 'Header/footer applied to every page'
             elif operation == 'bates':
-                prefix = request.form.get('prefix', '')
-                start = request.form.get('start', 1)
-                digits = request.form.get('digits', 6)
-                position = request.form.get('position', 'bottom-right')
-                font_size = request.form.get('font_size', 9)
-                color = request.form.get('color', '#000000')
-                last_label = apply_bates_numbers(
-                    input_path, output_path,
-                    prefix=prefix, start=start, digits=digits,
-                    position=position, font_size=font_size, color=color,
-                )
-                first_label = _bates_first_label(prefix, start, digits)
-                message = f'Stamped {first_label}–{last_label}'
+                prefix = form.get('prefix', '')
+                start = form.get('start', 1)
+                digits = form.get('digits', 6)
+                position = form.get('position', 'bottom-right')
+                font_size = form.get('font_size', 9)
+                color = form.get('color', '#000000')
+
+                def work():
+                    last_label = apply_bates_numbers(
+                        input_path, output_path,
+                        prefix=prefix, start=start, digits=digits,
+                        position=position, font_size=font_size, color=color,
+                    )
+                    first_label = _bates_first_label(prefix, start, digits)
+                    return f'Stamped {first_label}–{last_label}'
             elif operation == 'protect':
                 # Password is used only to encrypt the user's own file; never logged.
-                password = request.form.get('password', '')
-                protect_pdf(input_path, output_path, password)
-                message = 'PDF password protection applied'
+                password = form.get('password', '')
+
+                def work():
+                    protect_pdf(input_path, output_path, password)
+                    return 'PDF password protection applied'
             else:  # unlock
-                password = request.form.get('password', '')
-                unlock_pdf(input_path, output_path, password)
-                message = 'PDF unlocked successfully'
+                password = form.get('password', '')
+
+                def work():
+                    unlock_pdf(input_path, output_path, password)
+                    return 'PDF unlocked successfully'
+
+            message = run_in_job(work, tmpdir)
+            shutil.move(output_path, os.path.join(output_folder, output_name))
     except ValueError as exc:
-        _cleanup(output_path)
         return jsonify({'error': str(exc)}), 400
     except Exception as exc:  # noqa: BLE001 -- surface as 500
-        _cleanup(output_path)
         return jsonify({'error': str(exc)}), 500
 
     return jsonify({
@@ -141,10 +160,3 @@ def run():
         'download_url': '/download?filename=' + output_name,
     })
 
-
-def _cleanup(path):
-    """Remove a partially-written output file, ignoring absence."""
-    try:
-        os.remove(path)
-    except OSError:
-        pass

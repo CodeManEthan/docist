@@ -8,10 +8,9 @@ the browser routes on purpose:
   * the response *is* the file (``send_file`` with a proper ``download_name``),
     not JSON pointing at ``/download``;
   * nothing is written to OUTPUT_FOLDER -- all work happens inside a
-    ``tempfile.TemporaryDirectory``, so API traffic leaves no residue on disk.
-    Merge and convert stream the finished file from an open handle; the other
-    endpoints still send it from memory (critic review 2026-10-02, blocker 7,
-    left for its own round);
+    ``tempfile.TemporaryDirectory``, in the request's job (pdf_ops/jobs.py),
+    so API traffic leaves no residue on disk. Every endpoint streams the
+    finished file from an open handle;
   * every failure is JSON ``{"error": ...}`` with 400 (user-fixable) or 500
     (unexpected), so clients never have to parse HTML.
 
@@ -26,7 +25,6 @@ each successful POST counts against the caller's daily limit (429 with
 ``code: daily_limit`` once spent; see utils/metering.py), and requests larger
 than ``DOCIST_MAX_UPLOAD_MB`` are rejected with a 413.
 """
-import io
 import mimetypes
 import os
 import tempfile
@@ -37,7 +35,8 @@ from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from converters import get_converter, supported_extensions
-from pdf_ops.merge import OptionsError, merge_pipeline, parse_options
+from pdf_ops.limits import LimitError
+from pdf_ops.merge import OptionsError, SourceError, convert_and_merge, parse_options
 from pdf_ops.pages import extract_pages, parse_page_ranges, split_pdf
 from pdf_ops.watermark import apply_text_watermark
 from transforms import (
@@ -53,8 +52,20 @@ from converters.options import PAPER_SIZES
 from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr_langs import language_choices
 from utils.identity import current_user
-from utils.render_opts import RenderOptionsError, from_form, notes_header
-from utils.uploads import charge_uploads, convert_large_ok, merge_large_ok, upload_ext
+from utils.render_opts import (
+    RenderOptionsError,
+    from_form,
+    notes_header,
+    run_in_job,
+    take_notes,
+)
+from utils.uploads import (
+    charge_uploads,
+    convert_large_ok,
+    merge_large_ok,
+    merge_plan,
+    upload_ext,
+)
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('api', __name__)
@@ -71,23 +82,12 @@ class ApiError(Exception):
 # ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
-def _send_bytes(data, download_name):
-    """Stream finished bytes back as an attachment with a sensible mimetype."""
-    mimetype = mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
-    return send_file(
-        io.BytesIO(data),
-        mimetype=mimetype,
-        as_attachment=True,
-        download_name=download_name,
-    )
-
-
 def _stream_path(path, download_name=None):
     """Stream a file produced inside the temp dir back without reading it into
     memory. The open handle outlives the TemporaryDirectory's removal (POSIX
     keeps an unlinked file's data until its last handle closes), and the
-    response closes the handle when it has been sent. Used by merge and
-    convert, which take paid-size uploads (round prelaunch-fixes B2)."""
+    response closes the handle when it has been sent. Every endpoint answers
+    with it (design launch-hardening §10.4, Rule F)."""
     name = download_name or os.path.basename(path)
     mimetype = mimetypes.guess_type(name)[0] or 'application/octet-stream'
     handle = open(path, 'rb')
@@ -100,18 +100,6 @@ def _stream_path(path, download_name=None):
         raise
     response.content_length = size
     return response
-
-
-def _send_path(path, download_name=None):
-    """Read a file produced inside the temp dir and stream it back.
-
-    Reading eagerly (rather than handing ``send_file`` the path) is what makes
-    the TemporaryDirectory contract safe: by the time the response is built the
-    directory can be torn down.
-    """
-    with open(path, 'rb') as fh:
-        data = fh.read()
-    return _send_bytes(data, download_name or os.path.basename(path))
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +147,13 @@ def _save_pdf(upload, tmpdir):
 
 
 def _page_count(path):
+    """Pages in the PDF at ``path``; runs inside the request's job."""
     try:
         return len(PdfReader(path).pages)
+    except MemoryError:
+        raise
     except Exception:
-        raise ApiError('Could not read the PDF file.')
+        raise ValueError('Could not read the PDF file.')
 
 
 @bp.errorhandler(ApiError)
@@ -221,65 +212,52 @@ def api_merge():
     except UploadValidationError as exc:
         raise ApiError(str(exc))
 
+    # Every file's extension is checked before any is saved; one that is
+    # neither a PDF nor convertible refuses the whole request (§13).
+    try:
+        plan = merge_plan(files, get_converter)
+    except UploadValidationError as exc:
+        raise ApiError(str(exc))
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        sources = []  # (pdf_path, bookmark_title)
+        items = []  # (path, ext, bookmark title, name shown in errors)
         first_filename = None
 
-        for index, upload in enumerate(files):
-            if not upload or not upload.filename:
-                continue
-            filename = secure_filename(upload.filename) or f'file{index}'
-            ext = os.path.splitext(filename)[1].lower()
-            if ext != '.pdf' and not get_converter(ext):
-                continue
-
-            # secure_filename can collapse distinct names to the same string;
-            # nest each upload so one can't overwrite another.
-            slot = os.path.join(tmpdir, str(index))
-            os.makedirs(slot, exist_ok=True)
-            path = os.path.join(slot, filename)
-            title = os.path.splitext(filename)[0]
+        for upload, relative, ext, title, filename in plan:
+            # Each upload in its own directory: secure_filename can collapse
+            # distinct names to the same string.
+            path = os.path.join(tmpdir, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             upload.save(path)
             try:
                 validate_upload(path, ext)
             except UploadValidationError as exc:
                 raise ApiError(f'{filename}: {exc}')
-
-            if ext == '.pdf':
-                sources.append((path, title))
-            else:
-                converted = path + '.converted.pdf'
-                try:
-                    get_converter(ext)(path, converted, render_opts)
-                except Exception as exc:
-                    raise ApiError(f'Could not convert {filename}: {exc}')
-                sources.append((converted, title))
+            items.append((path, ext, title, filename))
 
             if first_filename is None:
                 first_filename = filename
 
-        if not sources:
+        if not items:
             raise ApiError('No supported files provided.')
 
         # Interleave pairs exactly two sources (fronts + backs).
-        if options.get('mode') == 'interleave' and len(sources) != 2:
+        if options.get('mode') == 'interleave' and len(items) != 2:
             raise ApiError(
                 'Interleave mode requires exactly 2 files (a fronts file and '
-                f'a backs file); got {len(sources)}.'
+                f'a backs file); got {len(items)}.'
             )
-
-        try:
-            writer = merge_pipeline(sources, options)
-        except OptionsError as exc:
-            raise ApiError(str(exc))
-        except Exception as exc:  # pragma: no cover - defensive
-            raise ApiError(str(exc), status=500)
 
         base = os.path.splitext(first_filename)[0] or 'document'
         merged = os.path.join(tmpdir, 'merged.pdf')
-        with open(merged, 'wb') as out:
-            writer.write(out)
-        del writer
+        try:
+            done = run_in_job(
+                lambda: convert_and_merge(items, options, render_opts, merged), tmpdir)
+        except (LimitError, SourceError, OptionsError) as exc:
+            raise ApiError(str(exc))
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ApiError(str(exc), status=500)
+        take_notes(render_opts, done['notes'])
         return notes_header(_stream_path(merged, f'{base}-merged.pdf'), render_opts)
 
 
@@ -345,14 +323,20 @@ def api_convert():
             raise ApiError(str(exc))
 
         requested_output = os.path.join(tmpdir, f'{stem}{target}')
+
+        def work():
+            path = transform(input_path, requested_output, render_opts)
+            return {'path': path, 'notes': list(render_opts.notes)}
+
         try:
-            actual_path = transform(input_path, requested_output, render_opts)
-        except TransformError as exc:
+            done = run_in_job(work, tmpdir)
+        except (LimitError, TransformError) as exc:
             raise ApiError(str(exc))
         except Exception as exc:  # pragma: no cover - defensive
             raise ApiError(f'Unexpected error: {exc}', status=500)
 
-        return notes_header(_stream_path(actual_path), render_opts)
+        take_notes(render_opts, done['notes'])
+        return notes_header(_stream_path(done['path']), render_opts)
 
 
 # ---------------------------------------------------------------------------
@@ -365,19 +349,20 @@ def api_pages_extract():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path, base = _save_pdf(upload, tmpdir)
-        count = _page_count(input_path)
-        try:
-            indices = parse_page_ranges(request.form.get('ranges'), count)
-        except ValueError as exc:
-            raise ApiError(str(exc))
-
+        ranges = request.form.get('ranges')
         out_path = os.path.join(tmpdir, f'{base}_extracted.pdf')
-        try:
+
+        def work():
+            count = _page_count(input_path)
+            indices = parse_page_ranges(ranges, count)
             extract_pages(input_path, out_path, indices)
+
+        try:
+            run_in_job(work, tmpdir)
         except ValueError as exc:
             raise ApiError(str(exc))
 
-        return _send_path(out_path)
+        return _stream_path(out_path)
 
 
 @bp.route('/api/v1/pages/split', methods=['POST'])
@@ -403,21 +388,22 @@ def api_pages_split():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path, base = _save_pdf(upload, tmpdir)
-        _page_count(input_path)
+        zip_path = os.path.join(tmpdir, f'{base}_split.zip')
 
-        parts_dir = os.path.join(tmpdir, 'parts')
-        os.makedirs(parts_dir, exist_ok=True)
-        try:
+        def work():
+            _page_count(input_path)
+            parts_dir = tempfile.mkdtemp(prefix='parts-')   # in the job directory
             parts = split_pdf(input_path, parts_dir, mode, value)
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for part in parts:
+                    zf.write(part, arcname=os.path.basename(part))
+
+        try:
+            run_in_job(work, tmpdir)
         except ValueError as exc:
             raise ApiError(str(exc))
 
-        zip_path = os.path.join(tmpdir, f'{base}_split.zip')
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for part in parts:
-                zf.write(part, arcname=os.path.basename(part))
-
-        return _send_path(zip_path)
+        return _stream_path(zip_path)
 
 
 # ---------------------------------------------------------------------------
@@ -441,14 +427,14 @@ def api_watermark():
         input_path, base = _save_pdf(upload, tmpdir)
         out_path = os.path.join(tmpdir, f'{base}-watermarked.pdf')
         try:
-            apply_text_watermark(
+            run_in_job(lambda: apply_text_watermark(
                 input_path, out_path, text,
                 position=position, opacity=opacity,
                 font_size=font_size, rotation=rotation,
-            )
+            ), tmpdir)
         except ValueError as exc:
             raise ApiError(str(exc))
         except Exception as exc:  # pragma: no cover - defensive
             raise ApiError(str(exc), status=500)
 
-        return _send_path(out_path)
+        return _stream_path(out_path)

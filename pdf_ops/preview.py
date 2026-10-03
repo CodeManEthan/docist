@@ -15,6 +15,7 @@ import io
 
 import pypdfium2 as pdfium
 
+from pdf_ops import limits
 from pdf_ops.pdfium_lock import PDFIUM_LOCK
 
 # How many pages we are willing to rasterize for one preview request.
@@ -52,6 +53,20 @@ def _to_data_url(image):
     return "data:image/png;base64," + encoded
 
 
+# The tile shown for a page too large to render: a Letter-shaped neutral grey.
+_PLACEHOLDER_FILL = (226, 228, 232)
+
+
+def _placeholder(width):
+    """A plain thumbnail-sized PNG data URL, ``width`` wide and Letter-shaped."""
+    from PIL import Image
+    height = max(1, round(width * _LETTER_RATIO))
+    return _to_data_url(Image.new("RGB", (width, height), _PLACEHOLDER_FILL))
+
+
+_LETTER_RATIO = 792.0 / 612.0
+
+
 def render_thumbnails(input_path, max_pages=MAX_THUMBS, width=TARGET_WIDTH):
     """Render the first pages of a PDF as small PNG data URLs.
 
@@ -86,8 +101,18 @@ def render_thumbnails(input_path, max_pages=MAX_THUMBS, width=TARGET_WIDTH):
             total = len(doc)
             for i in range(min(total, max_pages)):
                 page = doc[i]
-                image = page.render(scale=_scale_for(page.get_width(), width)).to_pil()
-                thumbs.append(_to_data_url(image.convert("RGB")))
+                try:
+                    bitmap = limits.render_page(
+                        page, _scale_for(page.get_width(), width), page_number=i + 1)
+                except limits.LimitError:
+                    # A page over FRAME_PIXELS at thumbnail scale (a very tall
+                    # or wide MediaBox) isn't rendered (design launch-hardening
+                    # §7, [R7]). A neutral tile keeps its slot, so every later
+                    # thumbnail keeps its position and its page label.
+                    thumbs.append(_placeholder(width))
+                    continue
+                thumbs.append(_to_data_url(bitmap.to_pil().convert("RGB")))
+                del bitmap
         finally:
             doc.close()
 

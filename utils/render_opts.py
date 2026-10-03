@@ -19,9 +19,12 @@ Renderer notes (``opts.notes``) reach the user wherever the result goes:
 :func:`with_notes` for a browser route's message, :func:`notes_header` for an
 API response.
 """
+import os
+
 from flask import current_app, g, has_request_context
 
 from converters.options import DEFAULT_PAPER, PAPER_SIZES, RenderOptions
+from pdf_ops import jobs
 from pdf_ops import ocr as ocr_ops
 from pdf_ops import office
 from utils.metering import tier
@@ -72,6 +75,33 @@ def request_deadline():
         return None
     budget = current_app.config.get('RENDER_BUDGET', DEFAULT_RENDER_BUDGET)
     return started + budget
+
+
+def render_budget():
+    """The request's render budget in seconds (``RENDER_BUDGET``)."""
+    if has_request_context():
+        return current_app.config.get('RENDER_BUDGET', DEFAULT_RENDER_BUDGET)
+    return DEFAULT_RENDER_BUDGET
+
+
+def run_in_job(work, tmpdir):
+    """Run ``work()`` in this request's job (pdf_ops/jobs.py) and return its value.
+
+    The job directory is ``<tmpdir>/job``, inside the request's temp directory;
+    the job ends by the request's deadline. ``work`` gets nothing from Flask:
+    it reads paths and options the route prepared and returns plain data.
+    Raises :class:`pdf_ops.limits.LimitError` for any limit.
+    """
+    return jobs.run_job(work, deadline=request_deadline(),
+                        job_dir=os.path.join(tmpdir, 'job'), budget=render_budget())
+
+
+def take_notes(opts, notes):
+    """Copy renderer notes a job made back onto the route's ``opts``."""
+    for note in notes or ():
+        if note not in opts.notes:
+            opts.notes.append(note)
+    return opts
 
 
 def word_engine(user):

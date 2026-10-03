@@ -67,7 +67,7 @@ There is no shared password. Every tool page works without an account:
 | `DOCIST_PORT` | `5010` | Port for both `run.sh` modes. |
 | `DOCIST_MAX_UPLOAD_MB` | `50` | Request-body cap in MiB for anonymous visitors and free accounts; oversized uploads get a JSON 413 (`code: upload_too_large`). |
 | `DOCIST_MAX_UPLOAD_MB_PAID` | `90` | Request-body cap in MiB for paid accounts on Merge and Convert (browser and API). There only PDFs, and Word files the Word engine renders, may be over `DOCIST_MAX_UPLOAD_MB`; every other file, and every other tool, keeps the free cap. Keep it at least 5 MB under any proxy's own body cap: Cloudflare passes at most 100 MB per request on its Free and Pro plans, and a body over that gets Cloudflare's HTML page, not Docist's. |
-| `DOCIST_RENDER_BUDGET` | `90` | Seconds from the start of a request by which all Word-engine (LibreOffice) work must end, upload time included. Keep it 30 s inside gunicorn's `--timeout`. |
+| `DOCIST_RENDER_BUDGET` | `90` | Seconds from the start of a request by which all work on its uploads must end, upload time included (every tool, not only the Word engine). Keep it 30 s inside gunicorn's `--timeout`. |
 | `DOCIST_OFFICE_TIMEOUT` | `60` | Seconds one LibreOffice conversion may run. 15 s of the render budget are kept for the reflow fallback, and a call with under 10 s left isn't started. |
 | `DOCIST_OFFICE_MEM_MB` | `1536` | Address-space cap (`RLIMIT_AS`) for each LibreOffice process, in MiB. A conversion over it fails and the file is re-flowed instead. |
 | `DOCIST_OCR_MAX_LANGS` | `2` | How many OCR languages one request may name (`eng+spa` is two). Each extra language costs about 15 MB per Tesseract process; re-check the memory budget before raising it. |
@@ -192,6 +192,17 @@ flask --app app set-plan someone@example.com free
 - **No external fetches while rendering** — HTML, Markdown and DOCX are
   rendered with a link callback that only allows inline `data:` URIs, so an
   uploaded document cannot make the server request URLs or read local files.
+- **Per-request jobs** — every tool's work on an upload runs in a child
+  process forked for the request (`pdf_ops/jobs.py`), with each process
+  capped at 768 MiB of data above where it started and 200 MB per file it
+  writes, and killed with its process group at the render budget. A file
+  that needs more gets a 400 that says which limit it hit. At start one
+  canary job checks that the memory cap works on this kernel; if it doesn't,
+  the log says so and `/healthz` reports `"job_limits": false` (jobs still
+  run, without the memory cap). Other limits: 36 megapixels per image frame
+  or rendered page, 1,000 parts per split, 2,000,000 spreadsheet cells per
+  request, a 4 MiB zip central directory, and 1 MiB per form text field.
+  They are constants in `pdf_ops/limits.py`.
 - **Rate limiting** — sliding-window per-IP limit on POSTs (the endpoints
   that do real work, `/login` included), on top of the daily limits. Note:
   the limiter is per-process, so with N gunicorn workers the effective ceiling
@@ -252,7 +263,7 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now docist
-curl -s http://127.0.0.1:5010/healthz   # {"status": "ok"}
+curl -s http://127.0.0.1:5010/healthz   # {"status": "ok", "job_limits": true}
 ```
 
 The checked-in `units/docist.service` is a user unit for a loopback-only

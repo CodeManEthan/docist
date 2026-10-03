@@ -40,6 +40,7 @@ CSV reading (everywhere)
     right-padded with empty strings to a common width.
 """
 import csv
+import errno
 import html
 import io
 import json
@@ -47,6 +48,9 @@ import re
 
 import openpyxl
 import yaml
+
+from converters.spreadsheet_converter import check_xlsx
+from pdf_ops import limits
 
 from . import TransformError
 
@@ -173,6 +177,7 @@ def _rows_to_records(rows):
 # XLSX reading
 # --------------------------------------------------------------------------
 def _open_workbook(input_path):
+    check_xlsx(input_path, TransformError)   # before openpyxl (§4.2)
     try:
         return openpyxl.load_workbook(input_path, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 - any openpyxl/zip failure
@@ -181,10 +186,15 @@ def _open_workbook(input_path):
         ) from exc
 
 
-def _sheet_rows(ws):
-    """Read a worksheet into stringified rows, dropping trailing empty rows."""
+def _sheet_rows(ws, count):
+    """Read a worksheet into stringified rows, dropping trailing empty rows.
+
+    Every cell ``iter_rows`` yields, padding included, counts against
+    ``TABLE_CELLS_READ`` through ``count`` (a :class:`limits.CellCount`).
+    """
     rows = []
     for row in ws.iter_rows(values_only=True):
+        count.add(len(row))
         rows.append([_stringify(v) for v in row])
     while rows and all(c == '' for c in rows[-1]):
         rows.pop()
@@ -198,6 +208,10 @@ def _load_json(input_path):
     try:
         with open(input_path, encoding='utf-8') as fh:
             return json.load(fh)
+    except RecursionError as exc:
+        # Nesting deeper than the interpreter allows: the ruled "couldn't
+        # convert" sentence, not a 500 (build verification MINOR-2).
+        raise TransformError(limits.died_message()) from exc
     except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         raise TransformError(f'Invalid JSON input: {exc}') from exc
 
@@ -227,7 +241,7 @@ def csv_to_xlsx(input_path, output_path):
     return output_path
 
 
-def xlsx_to_csv(input_path, output_path):
+def xlsx_to_csv(input_path, output_path, opts=None):
     """XLSX -> CSV (comma-delimited, minimal quoting).
 
     Only the **first** worksheet is exported. For multi-sheet workbooks the
@@ -237,7 +251,7 @@ def xlsx_to_csv(input_path, output_path):
     wb = _open_workbook(input_path)
     try:
         ws = wb.worksheets[0]
-        rows = _sheet_rows(ws)
+        rows = _sheet_rows(ws, limits.CellCount(opts))
     finally:
         wb.close()
     with open(output_path, 'w', newline='', encoding='utf-8') as fh:
@@ -311,15 +325,16 @@ def json_to_csv(input_path, output_path):
     )
 
 
-def xlsx_to_json(input_path, output_path):
+def xlsx_to_json(input_path, output_path, opts=None):
     """XLSX -> JSON object ``{sheet_name: [objects]}`` for every sheet.
 
     Each sheet uses the same header/typing rules as ``.csv -> .json``. Empty
     sheets map to an empty array.
     """
     wb = _open_workbook(input_path)
+    count = limits.CellCount(opts)
     try:
-        result = {ws.title: _rows_to_records(_sheet_rows(ws))
+        result = {ws.title: _rows_to_records(_sheet_rows(ws, count))
                   for ws in wb.worksheets}
     finally:
         wb.close()
@@ -341,13 +356,33 @@ def json_to_yaml(input_path, output_path):
 
 
 def yaml_to_json(input_path, output_path):
-    """YAML -> JSON (UTF-8, ``indent=2``). Invalid YAML -> ``TransformError``."""
+    """YAML -> JSON (UTF-8, ``indent=2``). Invalid YAML -> ``TransformError``.
+
+    Aliases stay allowed. An alias graph that expands past memory or disk is
+    held by the request's job (memory cap, ``RLIMIT_FSIZE``); a recursive
+    alias (``json.dump``'s "Circular reference detected") or nesting deeper
+    than the interpreter allows is a ``TransformError`` with
+    ``limits.YAML_MESSAGE`` (design launch-hardening §5).
+    """
     try:
         with open(input_path, encoding='utf-8') as fh:
             data = yaml.safe_load(fh)
-    except (yaml.YAMLError, UnicodeDecodeError, OSError) as exc:
+    except RecursionError as exc:
+        raise TransformError(limits.YAML_MESSAGE) from exc
+    except (yaml.YAMLError, UnicodeDecodeError) as exc:
         raise TransformError(f'Invalid YAML input: {exc}') from exc
-    _dump_json(data, output_path)
+    except OSError as exc:
+        if exc.errno == errno.EFBIG:
+            raise
+        raise TransformError(f'Invalid YAML input: {exc}') from exc
+    try:
+        _dump_json(data, output_path)
+    except RecursionError as exc:
+        raise TransformError(limits.YAML_MESSAGE) from exc
+    except ValueError as exc:
+        if isinstance(exc, limits.LimitError):
+            raise
+        raise TransformError(limits.YAML_MESSAGE) from exc
     return output_path
 
 

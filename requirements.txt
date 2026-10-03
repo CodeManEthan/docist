@@ -2,7 +2,7 @@ Flask==3.0.0
 pypdf
 cryptography
 reportlab==4.0.7
-Werkzeug==3.0.1
+Werkzeug==3.0.6
 Markdown
 xhtml2pdf==0.2.21
 Pillow

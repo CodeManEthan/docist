@@ -7,17 +7,19 @@ and served by the shared /download endpoint below.
 """
 import hmac
 import os
+import shutil
 import tempfile
 
 from flask import Blueprint, current_app, render_template, request, send_file, jsonify
 from werkzeug.utils import secure_filename
 
 from converters import get_converter, supported_extensions
-from pdf_ops.merge import merge_pipeline, parse_options, OptionsError
+from pdf_ops.limits import LimitError
+from pdf_ops.merge import OptionsError, SourceError, convert_and_merge, parse_options
 from utils.identity import current_user, owner_tag
 from utils.naming import display_name, owner_of, result_name
-from utils.render_opts import RenderOptionsError, from_form, with_notes
-from utils.uploads import charge_uploads, merge_large_ok, upload_ext
+from utils.render_opts import RenderOptionsError, from_form, run_in_job, take_notes, with_notes
+from utils.uploads import charge_uploads, merge_large_ok, merge_plan, upload_ext
 from utils.validation import UploadValidationError, validate_upload
 
 bp = Blueprint('merge', __name__)
@@ -61,70 +63,66 @@ def upload_files():
 
     output_folder = current_app.config['OUTPUT_FOLDER']
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        uploaded_files = []  # list of (pdf_path, bookmark_title)
-        first_filename = None
-        for file in files:
-            if not file or not file.filename:
-                continue
-            filename = secure_filename(file.filename)
-            ext = os.path.splitext(filename)[1].lower()
-            if ext != '.pdf' and not get_converter(ext):
-                continue
+    # Every file's extension is checked before any is saved; one that is
+    # neither a PDF nor convertible refuses the whole request (§13).
+    try:
+        plan = merge_plan(files, get_converter)
+    except UploadValidationError as e:
+        return jsonify({'error': str(e)}), 400
 
-            filepath = os.path.join(tmpdir, filename)
-            title = os.path.splitext(filename)[0]  # original name without extension
+    with tempfile.TemporaryDirectory() as tmpdir:
+        items = []  # (path, ext, bookmark title, name shown in errors)
+        first_filename = None
+        for file, relative, ext, title, filename in plan:
+            # Each upload in its own directory: same-named files can't
+            # overwrite each other.
+            filepath = os.path.join(tmpdir, relative)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             file.save(filepath)
             try:
                 validate_upload(filepath, ext)
             except UploadValidationError as e:
                 return jsonify({'error': f'{filename}: {e}'}), 400
-
-            if ext == '.pdf':
-                uploaded_files.append((filepath, title))
-            else:
-                pdf_path = filepath + '.converted.pdf'
-                try:
-                    get_converter(ext)(filepath, pdf_path, render_opts)
-                except Exception as e:
-                    return jsonify({'error': f'Could not convert {filename}: {e}'}), 400
-                uploaded_files.append((pdf_path, title))
+            items.append((filepath, ext, title, filename))
 
             if first_filename is None:
                 first_filename = filename
 
-        if not uploaded_files:
+        if not items:
             return jsonify({'error': 'No supported files provided'}), 400
 
         # Interleave combines exactly two sources (fronts + backs); reject any
         # other count up front with a clear 400 rather than a downstream 500.
-        if options.get('mode') == 'interleave' and len(uploaded_files) != 2:
+        if options.get('mode') == 'interleave' and len(items) != 2:
             return jsonify({
                 'error': 'Interleave mode requires exactly 2 files '
-                         f'(a fronts file and a backs file); got {len(uploaded_files)}.'
+                         f'(a fronts file and a backs file); got {len(items)}.'
             }), 400
 
         # Generate output filename based on first file
         base_name = os.path.splitext(first_filename)[0]
+        merged_path = os.path.join(tmpdir, 'merged.pdf')
 
         try:
-            # Merge, stamp page numbers and add bookmarks in one pass so the
-            # outline survives page-number stamping.
-            writer = merge_pipeline(uploaded_files, options)
-
+            # Convert every file, merge, stamp page numbers and add bookmarks
+            # in the request's job (design launch-hardening §3.5). The result
+            # is built in tmpdir and moved to OUTPUT_FOLDER only on success.
+            done = run_in_job(
+                lambda: convert_and_merge(items, options, render_opts, merged_path), tmpdir)
+            take_notes(render_opts, done['notes'])
             output_filename = result_name(f"{base_name}-merged.pdf")
-            final_output = os.path.join(output_folder, output_filename)
-            with open(final_output, 'wb') as output_file:
-                writer.write(output_file)
+            shutil.move(merged_path, os.path.join(output_folder, output_filename))
 
             return jsonify({
                 'success': True,
                 'message': with_notes(
-                    f'Successfully merged {len(uploaded_files)} file(s)', render_opts),
+                    f'Successfully merged {done["count"]} file(s)', render_opts),
                 'download_url': '/download',
                 'filename': output_filename
             })
 
+        except (LimitError, SourceError) as e:
+            return jsonify({'error': str(e)}), 400
         except OptionsError as e:
             # e.g. interleave page-count mismatch -> a user-fixable 400.
             return jsonify({'error': str(e)}), 400

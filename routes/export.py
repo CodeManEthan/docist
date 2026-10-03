@@ -6,6 +6,7 @@ merge request). Results are written to OUTPUT_FOLDER and served by the shared
 /download endpoint (from routes/merge.py).
 """
 import os
+import shutil
 import tempfile
 import zipfile
 
@@ -16,7 +17,7 @@ from pdf_ops.export import pdf_to_images, pdf_to_text, pdf_to_text_report
 from pdf_ops.ocr import installed_languages
 from pdf_ops.ocr import is_available as ocr_is_available
 from pdf_ops.ocr_langs import language_choices
-from utils.render_opts import from_form
+from utils.render_opts import from_form, run_in_job
 from utils.naming import result_name
 from pypdf import PdfReader
 
@@ -65,44 +66,48 @@ def run_export():
     output_folder = current_app.config['OUTPUT_FOLDER']
 
     try:
+        # The form is read here; the PDF only in the request's job.
+        if operation == 'images':
+            fmt = (request.form.get('fmt') or 'png').strip().lower()
+            dpi = request.form.get('dpi', '150')
+            out_ext = '.zip'
+        else:  # text
+            ocr_fallback = _truthy(request.form.get('ocr_fallback'))
+            if ocr_fallback and not ocr_is_available():
+                return jsonify({'error': _OCR_INSTALL_HINT}), 400
+            # Only the OCR fallback reads `language`; a bad one is a
+            # RenderOptionsError, a ValueError, so a 400 below.
+            language = 'eng'
+            if ocr_fallback:
+                language = from_form(request.form, paper=False, ocr=True).ocr_language
+            out_ext = '.txt'
+
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = os.path.join(tmpdir, filename)
             upload.save(input_path)
+            # Built here, outside the job directory; moved to OUTPUT_FOLDER
+            # only after the job returns (design launch-hardening §10.3).
+            out_path = os.path.join(tmpdir, 'result' + out_ext)
 
-            # Validate it is a readable PDF (and confirm it has pages).
-            try:
-                page_count = len(PdfReader(input_path).pages)
-            except Exception:
-                return jsonify({'error': 'Could not read the PDF file.'}), 400
-            if page_count < 1:
-                return jsonify({'error': 'The PDF has no pages to export.'}), 400
+            def work():
+                # Validate it is a readable PDF (and confirm it has pages).
+                try:
+                    page_count = len(PdfReader(input_path).pages)
+                except MemoryError:
+                    raise
+                except Exception:
+                    raise ValueError('Could not read the PDF file.')
+                if page_count < 1:
+                    raise ValueError('The PDF has no pages to export.')
 
-            if operation == 'images':
-                fmt = (request.form.get('fmt') or 'png').strip().lower()
-                dpi = request.form.get('dpi', '150')
-                images_dir = os.path.join(tmpdir, 'images')
-                os.makedirs(images_dir, exist_ok=True)
-                images = pdf_to_images(input_path, images_dir, fmt=fmt, dpi=dpi)
+                if operation == 'images':
+                    images_dir = tempfile.mkdtemp(prefix='images-')   # the job's
+                    images = pdf_to_images(input_path, images_dir, fmt=fmt, dpi=dpi)
+                    with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        for img in images:
+                            zf.write(img, arcname=os.path.basename(img))
+                    return f"Exported {len(images)} page(s) as {fmt.upper()} images."
 
-                out_name = result_name(f"{base}_images.zip")
-                out_path = os.path.join(output_folder, out_name)
-                with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    for img in images:
-                        zf.write(img, arcname=os.path.basename(img))
-                message = f"Exported {len(images)} page(s) as {fmt.upper()} images."
-
-            else:  # text
-                ocr_fallback = _truthy(request.form.get('ocr_fallback'))
-                if ocr_fallback and not ocr_is_available():
-                    return jsonify({'error': _OCR_INSTALL_HINT}), 400
-                # Only the OCR fallback reads `language`; a bad one is a
-                # RenderOptionsError, a ValueError, so a 400 below.
-                language = 'eng'
-                if ocr_fallback:
-                    language = from_form(request.form, paper=False, ocr=True).ocr_language
-
-                out_name = result_name(f"{base}.txt")
-                out_path = os.path.join(output_folder, out_name)
                 report = pdf_to_text_report(
                     input_path, out_path,
                     ocr_fallback=ocr_fallback, language=language,
@@ -110,20 +115,25 @@ def run_export():
                 n_ocr = len(report['ocr_pages'])
                 if ocr_fallback:
                     if n_ocr:
-                        message = (
+                        return (
                             f"Extracted text from {report['pages']} page(s) "
                             f"({n_ocr} via OCR)."
                         )
-                    else:
-                        message = (
-                            f"Extracted text from {report['pages']} page(s). "
-                            "No pages needed OCR."
-                        )
-                else:
-                    message = (
+                    return (
                         f"Extracted text from {report['pages']} page(s). "
-                        "Scanned pages with no text layer come out empty."
+                        "No pages needed OCR."
                     )
+                return (
+                    f"Extracted text from {report['pages']} page(s). "
+                    "Scanned pages with no text layer come out empty."
+                )
+
+            message = run_in_job(work, tmpdir)
+            if operation == 'images':
+                out_name = result_name(f"{base}_images.zip")
+            else:
+                out_name = result_name(f"{base}.txt")
+            shutil.move(out_path, os.path.join(output_folder, out_name))
 
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400

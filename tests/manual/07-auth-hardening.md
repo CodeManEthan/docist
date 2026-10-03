@@ -64,8 +64,10 @@ says an account already exists.
 ## A4 ⚡ Verify the email
 Find the verification email in the server terminal (logged at WARNING) and
 open its link.
-**Expect:** a page saying the email is verified. Opening the same link
-again says it has expired or was already used. Back on `/account`: verified,
+**Expect:** a page asking you to confirm that you signed up with that
+address, with a **Verify my email** button; opening the link alone changes
+nothing. Pressing the button shows a page saying the email is verified.
+Opening the same link again says it has expired or was already used. Back on `/account`: verified,
 usage `0 / 20`; the nav shows `20 of 20 left today`.
 Alternative when no terminal is handy:
 `flask --app app verify-user $EMAIL`.

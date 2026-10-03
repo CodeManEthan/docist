@@ -55,11 +55,13 @@ Operator commands:
     flask --app app set-plan EMAIL PLAN    set a user's plan ('free' or paid)
     flask --app app verify-user EMAIL      mark a user's email verified
 """
+import fcntl
 import importlib
 import os
 import pkgutil
+import re
 import secrets
-import time
+import tempfile
 from datetime import timedelta
 
 import click
@@ -71,7 +73,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import routes
 from models import User, database_url, db, utcnow
-from pdf_ops import office
+from pdf_ops import jobs, office
+from pdf_ops.limits import LimitError
 from utils import csrf, identity, metering, uploads
 from utils.cleanup import OutputJanitor
 from utils.ratelimit import RateLimiter
@@ -94,26 +97,65 @@ def _is_memory_sqlite(url):
             and parsed.database in (None, '', ':memory:'))
 
 
-def _persisted_secret_key(path):
-    """Read the key at ``path``, creating it first if absent.
+_KEY_PATTERN = re.compile(r'[0-9a-f]{64}')
 
-    O_EXCL makes concurrent first starts safe: exactly one process creates the
-    file and the others read the winner's key (waiting briefly for its write).
-    """
+
+def _read_key(path):
+    """The stripped key at ``path`` if it is 64 hex characters, else None.
+    A missing file is None; any other read error raises."""
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        for _ in range(50):
-            with open(path) as fh:
-                key = fh.read().strip()
-            if key:
+        with open(path) as fh:
+            key = fh.read().strip()
+    except FileNotFoundError:
+        return None
+    return key if _KEY_PATTERN.fullmatch(key) else None
+
+
+def _persisted_secret_key(path):
+    """Read the key at ``path``, creating it first if absent or unusable.
+
+    Rule I (design launch-hardening §14): no reader sees the file before its
+    bytes are complete and on disk. A new key is written to a temporary file
+    in the same directory, fsynced, and os.replace()d onto ``path`` under an
+    exclusive flock on ``path + '.lock'``, so a reader without the lock sees
+    no file, the whole old one or the whole new one. An empty or partial file
+    left by older code is replaced at the next start (which signs everyone
+    out; a key never fully written was never in use). Old code wrote
+    token_hex(32), 64 hex characters, so its keys are kept.
+    """
+    key = _read_key(path)
+    if key is not None:
+        return key
+    directory = os.path.dirname(os.path.abspath(path))
+    with open(path + '.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            key = _read_key(path)   # another process may have just written it
+            if key is not None:
                 return key
-            time.sleep(0.1)
-        raise RuntimeError(f'{path} exists but is empty; delete it and restart')
-    key = secrets.token_hex(32)
-    with os.fdopen(fd, 'w') as fh:
-        fh.write(key)
-    return key
+            key = secrets.token_hex(32)
+            fd, tmp = tempfile.mkstemp(prefix='.secret_key.', dir=directory)
+            try:
+                with os.fdopen(fd, 'w') as fh:
+                    fh.write(key)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, path)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+            return key
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 app = Flask(__name__)
@@ -203,6 +245,20 @@ if (os.environ.get('DATABASE_URL')
             'allowance. Set it to the number of proxy hops (Railway: 1).'
         )
 
+# Every upload's work runs in a forked job (pdf_ops/jobs.py). Modules a job
+# would otherwise import on first use are imported here, so --preload loads
+# them once in the master and no job pays for them or counts them against
+# its memory cap (design launch-hardening §3.3).
+try:
+    import ocrmypdf  # noqa: F401
+    import pytesseract  # noqa: F401
+except ImportError:  # pragma: no cover - optional OCR stack
+    pass
+
+# J7: one canary job at start checks that the per-job memory cap bites on
+# this platform; if it doesn't, it logs an error and /healthz says so.
+jobs.canary()
+
 # Heavy work happens on POST, so that's what gets rate-limited (per client IP).
 # Swappable via app.limiter so tests can install a fresh, tiny-window instance.
 app.limiter = RateLimiter(
@@ -263,8 +319,16 @@ def _after_request(response):
 
 @app.route('/healthz')
 def healthz():
-    """Unauthenticated liveness probe for reverse proxies / uptime checks."""
-    return jsonify({'status': 'ok'})
+    """Unauthenticated liveness probe for reverse proxies / uptime checks.
+    ``job_limits`` is false when the start-time canary found the per-job
+    memory cap doesn't work on this platform (pdf_ops/jobs.py, J7)."""
+    return jsonify({'status': 'ok', 'job_limits': bool(jobs.limits_enforced)})
+
+
+@app.errorhandler(LimitError)
+def _limit_refused(exc):
+    # Any route that doesn't answer a LimitError itself: the same JSON 400.
+    return jsonify({'error': str(exc)}), 400
 
 
 def _user_by_email(email):

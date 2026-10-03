@@ -96,11 +96,12 @@ def test_convert_bad_paper_is_400_only_where_read(client, tmp_path, builders):
     assert resp.status_code == 200
 
 
-def test_convert_image_to_text_validates_language(client, tmp_path, builders, monkeypatch):
+def test_convert_image_to_text_validates_language(client, tmp_path, builders, monkeypatch,
+                                                  shared_list):
     import pytesseract
     from pdf_ops import ocr as ocr_ops
     from transforms import ocr_text
-    seen = []
+    seen = shared_list()
     monkeypatch.setattr(ocr_text, 'is_available', lambda: True)
     monkeypatch.setattr(ocr_ops, 'is_available', lambda: True)
     monkeypatch.setattr(ocr_ops, 'installed_languages', lambda: ['eng', 'spa', 'fra'])
