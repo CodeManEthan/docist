@@ -6,6 +6,7 @@
     "ids": "stage_id is secrets.token_urlsafe(16): 22 characters of [A-Za-z0-9_-]. holder (the tab id) is 22 to 32 characters of the same alphabet.",
     "key": "hash:engine:paper. hash is the sha256 of the uploaded bytes in lowercase hex. A PDF has empty engine and paper, so its key is '<hash>::' whatever the paper.",
     "type": "The upload's extension, lowercase, without the dot.",
+    "sizes": "From B7 (design §4.2 Convert): each page's size for placing its number on the page images, as runs [count, crop_w, crop_h, rotate, media_w, media_h] in source page order whose counts add up to pages. crop is the crop box clipped to the media box, in points rounded to 0.01; rotate is the page's own /Rotate reduced modulo 360. Consecutive pages with equal values share a run. Kept in the entry's meta.json and returned again on a dedup hit. An entry staged before B7 has no sizes and its answer leaves the field out.",
     "not_found": "A bad id, a bad page index, an expired id and another owner's id all get the same 404. The client reads any 404 on a staged id as expired.",
     "build_refusal": "A build refusal from the packet checks or from packet_pipeline's PacketError is 400 {error, code, items}: code is PacketError.code (the first item's code when items is not empty), items lists {id, code} for each bad item and is empty for a packet-wide refusal. Item codes: expired, stale, out_of_range, unreadable, encrypted, invalid. Packet-wide codes: invalid, empty, too_large (over the per-build byte cap, or over 2000 output pages), limit (a launch-hardening limit in the build's job). unsupported is retired: cover and divider pages build since B3 and the contents page since B5, so no packet the server plans has a page without a renderer.",
     "json_bodies": "hold and build read a JSON body of at most 1 MiB (pdf_ops/limits.FORM_FIELD_BYTES). A larger body is the 413 upload_too_large with limit_mb 1, before it is parsed."
@@ -44,7 +45,8 @@
             "name": "resume.docx",
             "type": "docx",
             "key": "a83a31320d921b888a48fa5edd0b4b5a29984de6e96bf7b8ac7d29ba06caf616:reflow:letter",
-            "bytes": 48213
+            "bytes": 48213,
+            "sizes": [[2, 612.0, 792.0, 0, 612.0, 792.0]]
           }
         },
         "ok_pdf": {
@@ -55,7 +57,8 @@
             "name": "scan.pdf",
             "type": "pdf",
             "key": "59ad1b2fc74287ded1bba7af67765d23ad4a49f1ae51902cc2ed3f8ebee96cfa::",
-            "bytes": 1830554
+            "bytes": 1830554,
+            "sizes": [[3, 595.28, 841.89, 0, 595.28, 841.89], [1, 595.28, 841.89, 90, 595.28, 841.89]]
           }
         },
         "bad_request": {
