@@ -1868,6 +1868,10 @@ function initPacket() {
     }
 
     // ---- Start ----
+    // SortableJS loads async, so a slow or hung CDN never holds this script.
+    // If it arrives after the first render, bind then.
+    const sortableTag = $('#pkSortable');
+    if (!window.Sortable && sortableTag) sortableTag.addEventListener('load', () => bindSortables());
     fetch('/formats').then(r => r.json()).then(data => {
         accepted = (data.extensions || []).map(e => e.toLowerCase());
         fileInput.setAttribute('accept', accepted.join(','));

@@ -90,6 +90,9 @@ def test_packet_page_serves_with_its_assets(client):
     # SortableJS is pinned with SRI (design §3.4).
     assert "sortablejs@1.15.7/Sortable.min.js" in body
     assert 'integrity="sha384-' in body
+    # It loads async, so a hung CDN never holds the deferred page scripts.
+    sortable_tag = body[body.index("<script", body.index("sortablejs") - 200):body.index("</script>", body.index("sortablejs"))]
+    assert " async" in sortable_tag and " defer" not in sortable_tag
     # Anonymous visitors have a daily limit, so the page knows what is left.
     assert 'data-ops-left="' in body
     assert 'data-ttl-minutes="' in body

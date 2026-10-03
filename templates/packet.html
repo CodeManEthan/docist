@@ -169,11 +169,13 @@
     <div class="pk-sr" id="pkLive" aria-live="polite"></div>
     <div class="pk-sr" id="pkLiveAssertive" aria-live="assertive"></div>
 
-    {#- SortableJS 1.15.7 (MIT), pinned with SRI. If the CDN is blocked the
-        page still works: the Move menus and grab mode do everything. -#}
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/Sortable.min.js"
+    {#- SortableJS 1.15.7 (MIT), pinned with SRI. It loads async, so a slow
+        or hung CDN never holds the page script, which binds drag when it
+        arrives. Without it the page still works: the Move menus and grab
+        mode do everything. -#}
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.7/Sortable.min.js" id="pkSortable"
             integrity="sha384-DgmC6Xe2bSN2WjTDXzWYbUbxyhNP+NNkGDR/g78pCXV7E7rcVTGxVg0uIVCUUcBc"
-            crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+            crossorigin="anonymous" referrerpolicy="no-referrer" async></script>
     <script src="/static/packet-model.js" defer></script>
     <script src="/static/packet.js" defer></script>
 </body>
