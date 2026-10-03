@@ -1,7 +1,7 @@
 ---
 type: repo-doc
 project: docist
-description: "Manual hand-test checklist 08 — thirteen checks of the Packet Builder page at /packet: mouse drag, touch drag from the handle and long-press selection on iOS and Android, keyboard-only arranging and build, a screen reader pass on moves, selection and the preview, card states, drafts, a 40-file drop against the rate limit, and sections with a cover and dividers."
+description: "Manual hand-test checklist 08 — fourteen checks of the Packet Builder page at /packet: mouse drag, touch drag from the handle and long-press selection on iOS and Android, keyboard-only arranging and build, a screen reader pass on moves, selection and the preview, card states, drafts, a 40-file drop against the rate limit, sections with a cover and dividers, and the contents page."
 tags: [checklist, testing, packet-builder, accessibility]
 updated: 2026-10-03
 ---
@@ -185,4 +185,24 @@ each drop adds a card at the start of that section (the first section for
 the cover) and the insertion line shows there first. Type "Łódź" as the
 cover title: the form says Ł and ź can't be printed, and the card and the
 PDF both show "■ód■".
+- [ ] Pass
+
+## K14 Contents page (B5)
+Add 35 or more files and spread them over three sections. Add a cover,
+turn on "Add a contents page" and "Start each section on a right-hand
+page", and set "Start numbering at" to 5. Rename one card by keyboard:
+its … menu → Rename…, type a new name, Enter.
+**Expect:** a Contents page card sits under the cover card, and the outline
+lists "Contents (2 pages)" under the cover. Its card opens the pop-up at
+"Contents page 1 of 2", marked "numbers are final at build"; each row
+shows the section or file name and its first page's number, files indented
+under their sections, and the renamed card shows its new name. Clicking a
+row goes to that page; → steps to "Contents, continued". × on the card
+turns the option off with an Undo toast. Build and open the PDF: the cover
+is page 1, a blank page 2, the contents pages 3 and 4 with no number, and
+the first section starts on page 5. The contents pages match the pop-up row
+for row, and clicking each row in a PDF viewer jumps to the page it names.
+The bookmarks still nest files under their sections. Turn the cover and
+the right-hand pages off and build again: the contents is page 1 and the
+links still land.
 - [ ] Pass
