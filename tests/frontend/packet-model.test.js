@@ -446,6 +446,75 @@ test('at the cap, released undo-only stages make room and the retry succeeds', a
     assert.equal(M.rowStatus(s.table[hashes[2]], s.packet), 'ready');
 });
 
+test('a paper change while a file converts stages it again when the request finishes', async () => {
+    // M2: the request carries the paper of the moment it was sent, so the
+    // answer binds Letter after the packet switched to A4. The queue's rule
+    // re-checks the row when the request finishes and converts it again.
+    const server = createFakeServer();
+    const holder = 'HOLDERholderHOLDER0005';
+    let s = M.emptyState('letter');
+    const { io } = ioFor(server, holder, () => s, v => { s = v; });
+    const files = new Map();
+    const stager = C.createStageQueue(io, files, {});
+    const realFetch = io.fetch;
+    let sent = 0;
+    io.fetch = async (url, init) => {
+        if (url === '/packet/stage') {
+            sent++;
+            if (sent === 1) {
+                // The user switches the paper while the first request is open;
+                // the page's afterChange asks the queue for stale rows, and
+                // the uploading row isn't one yet.
+                s = M.commit(s, M.setPaper(s.packet, 'a4'));
+                stager.restageStale();
+            }
+        }
+        return realFetch(url, init);
+    };
+    const f = new File([new Uint8Array(40).fill(9)], 'notes.txt', { type: 'text/plain' });
+    const h = await M.sha256Hex(await f.arrayBuffer(), crypto.subtle);
+    files.set(h, f);
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: h, label: 'notes.txt' }]));
+    s = Object.assign({}, s, { table: M.setRow(s.table, h, { status: 'waiting', name: 'notes.txt' }) });
+    await stager.enqueue(h);
+    assert.equal(sent, 2, 'the file was staged again for the new paper');
+    assert.equal(M.keyParts(s.table[h].key).paper, 'a4');
+    assert.equal(M.rowStatus(s.table[h], s.packet), 'ready');
+    assert.ok(C.buildReadiness(s, null).ok);
+    // Once per paper: nothing more is queued.
+    await stager.restageStale();
+    assert.equal(sent, 2);
+});
+
+test('a stale row is staged once per paper, even if the server keeps the old paper', async () => {
+    const server = createFakeServer();
+    const holder = 'HOLDERholderHOLDER0006';
+    let s = M.emptyState('letter');
+    const { io } = ioFor(server, holder, () => s, v => { s = v; });
+    const realFetch = io.fetch;
+    let sent = 0;
+    io.fetch = async (url, init) => {
+        if (url !== '/packet/stage') return realFetch(url, init);
+        sent++;
+        const form = new FormData();
+        form.append('file', init.body.get('file'));
+        form.append('paper', 'letter');
+        form.append('holder', init.body.get('holder'));
+        return realFetch(url, { method: 'POST', body: form });
+    };
+    const files = new Map();
+    const stager = C.createStageQueue(io, files, {});
+    const f = new File([new Uint8Array(40).fill(4)], 'memo.txt', { type: 'text/plain' });
+    const h = await M.sha256Hex(await f.arrayBuffer(), crypto.subtle);
+    files.set(h, f);
+    s = M.commit(s, M.addFiles(s.packet, [{ hash: h, label: 'memo.txt' }]));
+    await stager.enqueue(h);
+    s = M.commit(s, M.setPaper(s.packet, 'a4'));
+    await stager.restageStale();
+    assert.equal(sent, 2);
+    assert.equal(M.rowStatus(s.table[h], s.packet), 'stale', 'the wrong paper is left for the card to show');
+});
+
 test('a refusal that remains after relief shows the numbers', async () => {
     const server = createFakeServer({ capBytes: 1500 });
     let s = M.emptyState('letter');

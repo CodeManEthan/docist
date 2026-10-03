@@ -139,6 +139,13 @@ With a `.docx` in the packet, switch Paper from Letter to A4.
 convert again and how many have page edits that may reset. After, the
 `.docx` card converts again ("Converting again for A4…"); PDFs don't.
 Undo switches back and the card converts for Letter.
+
+Then, mid-conversion: drop a non-PDF that converts slowly (with the dev fake
+server, a name containing `slow`, such as `slow-race.txt`) and switch the
+paper while its card still says "Uploading and converting…".
+**Expect:** when that request finishes, the card converts again for the new
+paper on its own, then reads ready. It is never left on "Converting again
+for …" with nothing in flight, and Build enables once it is ready.
 - [ ] Pass
 
 ## K11 Operations left and the build refusals

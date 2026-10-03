@@ -275,6 +275,59 @@ async function stageWithRelief(io, hash, file) {
     }
 }
 
+// The staging queue: one stage request in flight, matching the work lane
+// (§4.3). `files` maps hash -> File for the files this page still has.
+// `hooks`: blocked() is true once the session is lost; done(hash, kind)
+// runs after each request.
+//
+// The rule (§3.1 Paper): when a stage request finishes, every row is checked
+// against the paper the packet has now, and a row that reads stale is queued
+// again while the page has its file. A request carries the paper of the
+// moment it was sent, so a paper change while it is open binds the old
+// paper; this check is what converts it again. A hash is staged at most once
+// per paper, so a server that answers with the wrong paper can't loop.
+function createStageQueue(io, files, hooks) {
+    const waiting = [];
+    const stagedFor = new Map();        // hash -> paper last staged for
+    const h = hooks || {};
+    let inFlight = false;
+    function add(hash) {
+        if (!waiting.includes(hash)) waiting.push(hash);
+        return next();
+    }
+    async function next() {
+        if (inFlight || (h.blocked && h.blocked())) return;
+        const hash = waiting.shift();
+        if (!hash) return;
+        const file = files.get(hash);
+        if (!file || !PM.namedHashes(io.get()).has(hash)) return next();
+        inFlight = true;
+        stagedFor.set(hash, io.get().packet.options.paper);
+        let kind;
+        try {
+            kind = await stageWithRelief(io, hash, file);
+        } finally {
+            inFlight = false;
+        }
+        if (h.done) h.done(hash, kind);
+        return restageStale();
+    }
+    // Queue every row that reads stale under the current paper.
+    function restageStale() {
+        const paper = io.get().packet.options.paper;
+        PM.staleHashes(io.get()).forEach(hash => {
+            if (files.has(hash) && stagedFor.get(hash) !== paper && !waiting.includes(hash)) waiting.push(hash);
+        });
+        return next();
+    }
+    return {
+        enqueue: add,
+        restageStale,
+        // A hash the user re-added or retried may be staged again.
+        forget: hash => { stagedFor.delete(hash); },
+    };
+}
+
 // The text a card shows for its row (empty when ready).
 function statusText(status, row, paper, haveFile) {
     switch (status) {
@@ -332,9 +385,6 @@ function initPacket() {
     // ---- State ----
     let S = PM.emptyState(initialPaper);
     const files = new Map();            // hash -> File, while this page has it
-    const queue = [];                   // hashes waiting to stage, one in flight
-    const restaged = new Map();         // hash -> paper last staged for (no loops)
-    let staging = false;
     let sessionLost = false;
     let accepted = null;                // extensions from /formats
     const ui = {
@@ -392,13 +442,13 @@ function initPacket() {
     function afterChange() {
         const r = PM.releaseUnnamed(S);
         S = r.state;
-        r.hashes.forEach(h => { files.delete(h); restaged.delete(h); });
+        r.hashes.forEach(h => { files.delete(h); stager.forget(h); });
         if (r.release.length) releaseStages(r.release);
         ui.buildErrors.clear();
         pruneSelection();
         scheduleDraft();
         render();
-        restageStale();
+        stager.restageStale();
     }
     function update(fn) {
         S = fn(S);
@@ -471,33 +521,16 @@ function initPacket() {
         toast: text => showToast(text, false),
         sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
     };
-    function enqueue(hash) {
-        if (!queue.includes(hash)) queue.push(hash);
-        pump();
-    }
-    async function pump() {
-        if (staging || sessionLost) return;
-        const hash = queue.shift();
-        if (!hash) return;
-        const file = files.get(hash);
-        if (!file || !PM.namedHashes(S).has(hash)) { pump(); return; }
-        staging = true;
-        restaged.set(hash, S.packet.options.paper);
-        const kind = await stageWithRelief(io, hash, file);
-        staging = false;
-        if (kind === 'csrf') loseSession();
-        const row = S.table[hash];
-        if (kind === 'ok' && row) say(row.name + ' is ready.');
-        else if (row && row.status === 'failed') say((row.name || 'A file') + ': ' + row.message);
-        pump();
-    }
-    // Rows that read stale (the paper changed) are staged again, one at a
-    // time, when this page still has the file.
-    function restageStale() {
-        PM.staleHashes(S).forEach(hash => {
-            if (files.has(hash) && restaged.get(hash) !== S.packet.options.paper) enqueue(hash);
-        });
-    }
+    const stager = createStageQueue(io, files, {
+        blocked: () => sessionLost,
+        done(hash, kind) {
+            if (kind === 'csrf') loseSession();
+            const row = S.table[hash];
+            if (kind === 'ok' && row && row.status === 'ready') say(row.name + ' is ready.');
+            else if (row && row.status === 'failed') say((row.name || 'A file') + ': ' + row.message);
+        },
+    });
+    const enqueue = hash => stager.enqueue(hash);
     function loseSession() {
         sessionLost = true;
         const box = $('#pkSession');
@@ -544,7 +577,7 @@ function initPacket() {
                 const inPacket = PM.packetHashes(packet).has(hash);
                 if (status === 'expired' || status === 'failed' || status === 'stale') {
                     table = PM.setRow(table, hash, { status: 'waiting', reason: '', message: '' });
-                    restaged.delete(hash);
+                    stager.forget(hash);
                     restored++;
                     if (!inPacket && !reAddItem) added.push({ hash, label: file.name });
                 } else if (!reAddItem) {
@@ -1238,7 +1271,7 @@ function initPacket() {
             const found = PM.findItem(S.packet, itemId);
             if (found) {
                 update(s => Object.assign({}, s, { table: PM.setRow(s.table, found.item.hash, { status: 'waiting', reason: '', message: '' }) }));
-                restaged.delete(found.item.hash);
+                stager.forget(found.item.hash);
                 enqueue(found.item.hash);
             }
             return;
@@ -1845,6 +1878,7 @@ if (typeof module !== 'undefined' && module.exports) {
         buildReadiness,
         postBuild,
         stageWithRelief,
+        createStageQueue,
         statusText,
         resultName,
         itemCodeText,
