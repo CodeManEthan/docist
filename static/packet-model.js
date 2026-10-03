@@ -1044,12 +1044,48 @@ function paperImpact(state, paper) {
 
 // ============================ Page plan (§3.3) ============================
 
+// ---- The contents page ([B5]) ----
+// Its length depends only on its row count (§3.3): every row is one line,
+// a title too wide is cut with an ellipsis, and each contents page holds
+// CONTENTS_ROWS rows on either paper. pdf_ops/packet.py has the same number,
+// pinned by tests/backend/test_packet_pipeline.py.
+const CONTENTS_ROWS = 30;
+const CONTENTS_HEADING = 'Contents';
+const CONTENTS_HEADING_MORE = 'Contents, continued';
+
+function contentsPageCount(rows) {
+    return Math.max(1, Math.ceil(rows / CONTENTS_ROWS));
+}
+
+// The rows the contents page lists, by the page's heading rule, as the
+// outline nests (pdf_ops/packet.py contents_rows): with more than one
+// section, each planned section is a row and its files are indented under
+// it; one section shows no heading, so its files alone are rows. Titles are
+// as the PDF prints them (pdfText). Each row is {kind, id, title, label,
+// index, indent, page}, page being its contents page (0-based).
+function contentsRows(packet, plan) {
+    const nested = sectionsOf(packet).length > 1;
+    const rows = [];
+    plan.entries.forEach(e => {
+        if (e.kind === 'section' && !nested) return;
+        rows.push({
+            kind: e.kind, id: e.id, label: e.label, index: e.index,
+            indent: e.kind === 'item' && nested,
+            title: pdfText(e.title) || (e.kind === 'section' ? UNTITLED_SECTION : 'Untitled'),
+            page: Math.floor(rows.length / CONTENTS_ROWS),
+        });
+    });
+    return rows;
+}
+
+
 // The page plan: every physical page in order with its printed label, in
 // the shape of the shared vectors (tests/fixtures/packet-plan.json), which
 // pdf_ops/packet.py page_plan also runs. `counts` maps hash -> page count for
 // ready rows (readyCounts); a file item whose hash has none gives no pages.
-// `contentsPages` is the contents length when options.contents is on ([B5]
-// measures it from the entry count; 1 until then). Returns
+// `contentsPages` is the contents length when options.contents is on; left
+// out, it is measured from the rows (contentsRows), as the build measures it
+// ([B5]). Returns
 //   pages:    [{kind, label, print, section?, item?, hash?, src?, rot?, index?}]
 //             kind is cover | contents | pad | divider | file | blank; label
 //             is the number or null for front matter. File and blank pages
@@ -1064,6 +1100,18 @@ function paperImpact(state, paper) {
 //             count}}, with 1-based physical pages, for the outline.
 function pagePlan(packet, counts, contentsPages) {
     const o = Object.assign(defaultOptions(), packet.options || {});
+    if (contentsPages == null) {
+        // The entries don't depend on the contents length, so a plan with
+        // one contents page gives the rows that measure it.
+        const first = planPages(packet, counts, 1, o);
+        if (!o.contents) return first;
+        const n = contentsPageCount(contentsRows(packet, first).length);
+        return n === 1 ? first : planPages(packet, counts, n, o);
+    }
+    return planPages(packet, counts, contentsPages, o);
+}
+
+function planPages(packet, counts, contentsPages, o) {
     const pages = [];
     const pad = () => pages.push({ kind: 'pad' });
     const toOdd = () => { if (o.recto_starts && pages.length % 2 === 1) pad(); };
@@ -1088,7 +1136,7 @@ function pagePlan(packet, counts, contentsPages) {
     if (packet.cover) pages.push({ kind: 'cover' });
     if (o.contents) {
         toOdd();
-        const n = contentsPages == null ? 1 : Math.max(1, contentsPages);
+        const n = Math.max(1, contentsPages);
         for (let i = 0; i < n; i++) pages.push({ kind: 'contents' });
     }
 
@@ -1352,6 +1400,7 @@ const PacketModelApi = {
     commit, undo, redo, replacePacket, commitFrom,
     releaseUnnamed, keepIds, releaseUndoOnly, heldBytes, applyHold,
     staleHashes, paperImpact,
+    CONTENTS_ROWS, CONTENTS_HEADING, CONTENTS_HEADING_MORE, contentsPageCount, contentsRows,
     pagePlan, rangeKeys, sha256Hex,
     draftKey, serializeDraft, parseDraft, saveDraft, loadDraft, listDrafts, pruneDrafts,
     latestDraft, restoreDraft, makeTabId, isTabId,

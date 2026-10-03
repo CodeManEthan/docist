@@ -13,8 +13,8 @@ const { createFakeServer, API } = require(path.join(__dirname, 'fake-packet-serv
 const PLAN = require(path.join(__dirname, '..', 'fixtures', 'packet-plan.json'));
 
 // This file's stage: it runs page-plan vectors whose model tag is at or
-// before B3 in the fixture's stage order, and skips later ones by name.
-const STAGE = 'B3';
+// before B5 in the fixture's stage order, and skips later ones by name.
+const STAGE = 'B5';
 
 const HA = 'a'.repeat(64);
 const HB = 'b'.repeat(64);
@@ -752,7 +752,7 @@ test('classify reads every packet-api.json response by status and code', () => {
     assert.equal(C.classify(404, API.endpoints.thumb.responses.not_found.body).kind, 'expired');
     const b = API.endpoints.build.responses;
     assert.equal(C.classify(400, b.bad_items.body).kind, 'bad_items');
-    ['too_large', 'too_many_pages', 'empty', 'unsupported'].forEach(k => {
+    ['too_large', 'too_many_pages', 'empty'].forEach(k => {
         assert.notEqual(C.classify(400, b[k].body).kind, 'bad_items', k);
         assert.equal(C.classify(400, b[k].body).error, b[k].body.error);
     });
@@ -1192,4 +1192,81 @@ test('n4: a pending action runs once, early on flush or later on its own', () =>
     assert.deepEqual(ran, ['rename', 'first'], 'a new action runs the one before it first');
     pending.flush();
     assert.deepEqual(ran, ['rename', 'first', 'second']);
+});
+
+// ---------------------------------------------------------------------------
+// The contents page ([B5])
+// ---------------------------------------------------------------------------
+
+function contentsPacket(sections, options) {
+    return {
+        version: 1, title: '', cover: null,
+        options: Object.assign(M.defaultOptions('letter'), { contents: true }, options || {}),
+        sections: sections.map(([id, title, items, divider]) => ({ id, title, divider: !!divider, items })),
+    };
+}
+const cFile = (id, hash, label) => ({ id, kind: 'file', hash, label: label == null ? id + '.pdf' : label, pages: null });
+
+test('the contents length is its row count over 30, one page at least', () => {
+    assert.equal(M.CONTENTS_ROWS, 30);
+    for (let n = 0; n < 200; n++) assert.equal(M.contentsPageCount(n), Math.max(1, Math.ceil(n / 30)), String(n));
+});
+
+test('contents rows follow the heading rule: sections with files under them, or files alone', () => {
+    const counts = { [HA]: 2, [HB]: 1 };
+    const two = contentsPacket([['s1', 'Resume', [cFile('i1', HA, 'resume.docx'), { id: 'x', kind: 'blank' }], true],
+        ['s2', '', [cFile('i2', HB, 'Łódź\n.pdf')]], ['s3', 'Empty', [], true]], { start_number: 4 });
+    const plan = M.pagePlan(two, counts);
+    assert.deepEqual(M.contentsRows(two, plan).map(r => [r.kind, r.title, r.label, r.index, r.indent, r.page]), [
+        ['section', 'Resume', 4, 1, false, 0],
+        ['item', 'resume.docx', 5, 2, true, 0],
+        ['section', 'Untitled section', 8, 5, false, 0],
+        ['item', '■ód■ .pdf', 8, 5, true, 0],
+    ]);
+    const one = contentsPacket([['s1', '', [cFile('i1', HA), cFile('i2', HB, '')]]]);
+    assert.deepEqual(M.contentsRows(one, M.pagePlan(one, counts)).map(r => [r.kind, r.title, r.label, r.index, r.indent]), [
+        ['item', 'i1.pdf', 1, 1, false], ['item', 'Untitled', 3, 3, false],
+    ]);
+});
+
+test('the plan measures the contents from its rows unless a length is given', () => {
+    const counts = {};
+    const items = [];
+    for (let k = 0; k < 31; k++) {
+        const h = String(k).padStart(64, '0');
+        counts[h] = 1;
+        items.push(cFile('i' + k, h));
+    }
+    const flat = contentsPacket([['s1', '', items]]);
+    const plan = M.pagePlan(flat, counts);
+    assert.deepEqual(plan.pages.slice(0, 3).map(p => p.kind), ['contents', 'contents', 'file']);
+    assert.equal(plan.total, 33);
+    assert.equal(M.contentsRows(flat, plan)[30].page, 1);
+    assert.equal(plan.entries[1].index, 2, 'links land after both contents pages');
+    assert.equal(M.pagePlan(flat, counts, 1).total, 32, 'a given length wins');
+    // 29 + 1 files and two headings: 32 rows, two pages.
+    const sectioned = contentsPacket([['s1', 'A', items.slice(0, 29)], ['s2', 'B', items.slice(30)]]);
+    assert.equal(M.pagePlan(sectioned, counts).pages.filter(p => p.kind === 'contents').length, 2);
+    const vector = PLAN.vectors.find(v => v.name === 'contents-after-cover');
+    const packet = JSON.parse(JSON.stringify(vector.packet));
+    packet.options = Object.assign({}, PLAN.option_defaults, packet.options);
+    assert.deepEqual(M.pagePlan(packet, vector.page_counts).pages.map(p => p.kind), ['cover', 'contents', 'file', 'file']);
+    // With recto starts, the measured length moves the pads.
+    const recto = contentsPacket([['s1', '', items]], { recto_starts: true });
+    assert.deepEqual(M.pagePlan(recto, counts).pages.slice(0, 3).map(p => p.kind), ['contents', 'contents', 'file']);
+    const coverRecto = Object.assign({}, recto, { cover: { title: 'T', subtitle: '', date: '', note: '' } });
+    assert.deepEqual(M.pagePlan(coverRecto, counts).pages.slice(0, 5).map(p => p.kind), ['cover', 'pad', 'contents', 'contents', 'file']);
+});
+
+test('the contents option is one undo step and off leaves no contents page', () => {
+    let s = twoFiles();
+    const on = M.setOption(s.packet, 'contents', true);
+    assert.notEqual(on, s.packet);
+    assert.equal(s.packet.options.contents, false, 'the input is unchanged');
+    s = M.commit(s, on);
+    let plan = M.pagePlan(s.packet, M.readyCounts(s.table, s.packet));
+    assert.equal(plan.pages[0].kind, 'contents');
+    s = M.undo(s);
+    plan = M.pagePlan(s.packet, M.readyCounts(s.table, s.packet));
+    assert.ok(!plan.pages.some(p => p.kind === 'contents'));
 });
