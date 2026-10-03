@@ -13,11 +13,13 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 from pypdf.annotations import Link
+from pypdf.generic import ContentStream
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from converters import docx_converter
 from pdf_ops import packet as packet_mod
+from pdf_ops.merge import _number_overlay
 from pdf_ops.packet import (
     DEFAULT_OPTIONS, MAX_OUTPUT_PAGES, PHASE1_NAME, PacketError, packet_pipeline, page_plan,
 )
@@ -434,14 +436,53 @@ def test_links_stay_on_their_text_when_a_rotated_page_is_numbered(tmp_path, rot,
     assert shown[5] == pytest.approx(30)
 
 
+def _used_fonts(page):
+    """[(font name, font dict)] for every Tf in ``page``'s own content, each
+    name resolved through the page's /Font resources (None if it is missing)."""
+    fonts = page["/Resources"].get_object().get("/Font")
+    fonts = fonts.get_object() if fonts is not None else {}
+    content = ContentStream(page.get_contents(), page.pdf)
+    used = []
+    for operands, op in content.operations:
+        if op == b"Tf":
+            name = operands[0]
+            used.append((name, fonts[name].get_object() if name in fonts else None))
+    return used
+
+
 def test_mixed_converted_docx_and_scanned_pdf_keep_sound_fonts(tmp_path, builders):
     """Font-dict safety (design section 4.8): numbers stamped on a converted
-    DOCX and an image-only scan, interleaved, leave every font dict whole."""
+    DOCX and an image-only scan, interleaved and with one DOCX page used
+    twice, leave every font whole and every font the content selects in place.
+
+    Each page's Tf operators are resolved through its own /Font resources:
+    every name must resolve to a dict with /Subtype and /BaseFont, the page's
+    own text must keep the source page's fonts in order, and the number must
+    get the overlay's. A clash between the overlay's Helvetica and the
+    converter's (both reportlab /F1) or resources shared between copies of
+    one page would show here; removing _detach fails this test.
+
+    This is still a smoke check for Merge's corruption (a font dict losing
+    /Subtype when the overlay is stamped on raw converter output): no input on
+    hand reproduces it, and a single-phase build passes this test. What pins
+    the two-phase order is test_phase1_is_a_file_under_work_dir_and_nothing_
+    else_is_written, which fails when numbers are stamped before phase 1 is
+    written.
+    """
     docx = builders.docx(tmp_path / "doc.docx")
     converted = tmp_path / "doc.pdf"
     docx_converter.convert(str(docx), str(converted))
     scan = _scan(tmp_path / "scan.pdf", pages=2)
     n_docx = len(PdfReader(str(converted)).pages)
+    # The fonts each source page selects, in order. The converter draws in
+    # Helvetica too, so the overlay's font can collide with the page's own.
+    source_fonts = {
+        (h, i): [str(f["/BaseFont"]) for _n, f in _used_fonts(page)]
+        for h, path in (("hd", str(converted)), ("hs", scan))
+        for i, page in enumerate(PdfReader(path).pages)}
+    assert any(source_fonts.values())
+    overlay = [str(f["/BaseFont"]) for _n, f in _used_fonts(_number_overlay(1, 612, "bottom-right"))]
+    assert overlay and set(overlay) == {"/Helvetica"}
 
     packet = _packet(("", [
         _file("i1", "hd", label="doc.docx"),
@@ -453,12 +494,19 @@ def test_mixed_converted_docx_and_scanned_pdf_keep_sound_fonts(tmp_path, builder
     total = len(plan["pages"])
     assert len(reader.pages) == total == 2 * n_docx + 2
 
-    for page in reader.pages:
+    for index, page in enumerate(reader.pages):
         fonts = page["/Resources"].get_object().get("/Font")
         assert fonts is not None   # at least the stamped number's font
         for ref in fonts.get_object().values():
             font = ref.get_object()
             assert "/Subtype" in font and "/BaseFont" in font
+        used = _used_fonts(page)
+        assert all(font is not None for _n, font in used), (index, used)
+        base = [str(font["/BaseFont"]) for _n, font in used]
+        # The page's own text keeps its fonts, and the number, drawn last,
+        # gets the overlay's.
+        info = plan["pages"][index]
+        assert base == source_fonts[(info["hash"], info["src"])] + overlay, (index, base)
     assert [n for page in reader.pages for n, _m in _numbers(page)] == list(range(1, total + 1))
     text = "\n".join(page.extract_text() for page in reader.pages)
     assert builders.DOCX_BODY in text
