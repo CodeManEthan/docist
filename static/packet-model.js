@@ -413,22 +413,32 @@ function rotateItems(packet, table, itemIds, delta) {
     return rotatePages(packet, table, targets, delta);
 }
 
-// Adjacent explicit runs of one file with the same label, key and page
-// count read as one item again after a move puts them side by side.
+// Rejoin adjacent explicit runs of one file with the same label, key and
+// page count, but only where the move itself put them side by side. Each
+// item has an origin: the destination's split parts, and runs of its own
+// pages placed back into it, have the destination's id; other placed runs
+// have their own new id; everything else its own id. Two runs join when
+// they share an origin, or when their origins were not neighbours in the
+// packet before the move. Runs that were already neighbours, such as a
+// duplicated card and its original, stay apart.
 // The joined item keeps an id from before the move (`known`) when one of
 // the two had it, so focus and expanded state follow it.
-function mergeRuns(items, known) {
+function mergeRuns(items, known, originOf, wasNext) {
     const out = [];
+    let end = null;     // origin of the last run joined into out's last item
     items.forEach(item => {
         const prev = out[out.length - 1];
+        const origin = originOf(item);
         if (prev && prev.kind === 'file' && item.kind === 'file' && prev.pages && item.pages
             && prev.hash === item.hash && prev.label === item.label
-            && prev.key === item.key && prev.src_pages === item.src_pages) {
+            && prev.key === item.key && prev.src_pages === item.src_pages
+            && (end === origin || !wasNext.has(end + '|' + origin))) {
             const id = known && !known.has(prev.id) && known.has(item.id) ? item.id : prev.id;
             out[out.length - 1] = Object.assign({}, prev, { id, pages: prev.pages.concat(item.pages) });
         } else {
             out.push(item);
         }
+        end = origin;
     });
     return out;
 }
@@ -462,7 +472,7 @@ function movePages(packet, table, targets, dest) {
             const m = materialize(item, table);
             const keep = [];
             m.pages.forEach((ref, i) => {
-                if (idx.has(i)) moved.push({ hash: m.hash, label: m.label, key: m.key, src_pages: m.src_pages, ref });
+                if (idx.has(i)) moved.push({ from: item.id, hash: m.hash, label: m.label, key: m.key, src_pages: m.src_pages, ref });
                 else keep.push(ref);
             });
             return Object.assign({}, m, { pages: keep });
@@ -471,15 +481,20 @@ function movePages(packet, table, targets, dest) {
 
     // 2. Runs of consecutive moved pages from one file become one item.
     const runs = [];
+    const fromDest = new Set();         // runs holding pages of the destination item
+    const origin = new Map();           // item -> origin id, for mergeRuns
     moved.forEach(p => {
         const last = runs[runs.length - 1];
         if (p.blank) { runs.push({ id: id(), kind: 'blank' }); return; }
         if (last && last.kind === 'file' && last.hash === p.hash && last.label === p.label
             && last.key === p.key && last.src_pages === p.src_pages) {
             last.pages.push(p.ref);
+            if (p.from === dest.item) fromDest.add(last);
             return;
         }
-        runs.push({ id: id(), kind: 'file', hash: p.hash, label: p.label, key: p.key, src_pages: p.src_pages, pages: [p.ref] });
+        const run = { id: id(), kind: 'file', hash: p.hash, label: p.label, key: p.key, src_pages: p.src_pages, pages: [p.ref] };
+        if (p.from === dest.item) fromDest.add(run);
+        runs.push(run);
     });
 
     // 3. Place them.
@@ -502,6 +517,9 @@ function movePages(packet, table, targets, dest) {
                 // The part with pages keeps the item's id where it can.
                 const before = Object.assign({}, m, { id: k > 0 ? m.id : id(), pages: refs.slice(0, k) });
                 const after = Object.assign({}, m, { id: k > 0 ? id() : m.id, pages: refs.slice(k) });
+                origin.set(before, m.id);
+                origin.set(after, m.id);
+                runs.forEach(run => { if (fromDest.has(run)) origin.set(run, m.id); });
                 out.push(before, ...runs, after);
             });
             sec.items = out;
@@ -525,11 +543,16 @@ function movePages(packet, table, targets, dest) {
         sec.items = sec.items.flatMap(item => item === MARK ? runs : [item]);
     }
 
-    // 4. Drop emptied items and rejoin runs that ended up side by side.
+    // 4. Drop emptied items and rejoin runs the move put side by side.
     const known = new Set(itemOrder(packet).map(e => e.item.id));
+    const wasNext = new Set();
+    packet.sections.forEach(sec => sec.items.forEach((item, i) => {
+        if (i) wasNext.add(sec.items[i - 1].id + '|' + item.id);
+    }));
+    const originOf = item => origin.get(item) || item.id;
     next.sections.forEach(sec => {
         sec.items = mergeRuns(sec.items.filter(item =>
-            !item.gone && !(item.kind === 'file' && item.pages && !item.pages.length)), known);
+            !item.gone && !(item.kind === 'file' && item.pages && !item.pages.length)), known, originOf, wasNext);
     });
     return JSON.stringify(next) === JSON.stringify(packet) ? packet : next;
 }

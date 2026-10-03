@@ -162,6 +162,31 @@ test('moving the split page back rejoins the runs', () => {
     assert.equal(p2.sections[0].items.length, 2);
 });
 
+test('a page stepped into the next file and back rejoins its run', () => {
+    const s = twoFiles();
+    const p1 = M.movePages(s.packet, s.table, [{ item: 'i1', index: 2 }], M.pageStepDest(s.packet, s.table, { item: 'i1', index: 2 }, 'later'));
+    assert.equal(seq(s, p1), 'a0 a1 b0 a2 b1');
+    const back = p1.sections[0].items[2].id;
+    const p2 = M.movePages(p1, s.table, [{ item: back, index: 0 }], M.pageStepDest(p1, s.table, { item: back, index: 0 }, 'earlier'));
+    assert.equal(seq(s, p2), 'a0 a1 a2 b0 b1');
+    assert.deepEqual(p2.sections[0].items.map(i => i.id), ['i1', 'i2']);
+});
+
+test('a move elsewhere leaves a duplicated card apart from its original', () => {
+    // m3: rejoining is only for runs the move itself put side by side.
+    let s = twoFiles();
+    s = M.commit(s, M.rotatePages(s.packet, s.table, [{ item: 'i1', index: 0 }], 90));
+    s = M.commit(s, M.duplicateItems(s.packet, ['i1']));
+    const ids = s.packet.sections[0].items.map(i => i.id);
+    assert.deepEqual(ids, ['i1', 'i3', 'i2']);
+    const p = M.movePages(s.packet, s.table, [{ item: 'i2', index: 1 }], { item: 'i2', index: 0 });
+    assert.deepEqual(p.sections[0].items.map(i => i.id + ':' + i.pages.length), ['i1:3', 'i3:3', 'i2:2']);
+    // A page moved within the copy stays in the copy.
+    const q = M.movePages(s.packet, s.table, [{ item: 'i3', index: 2 }], { item: 'i3', index: 0 });
+    assert.deepEqual(q.sections[0].items.map(i => i.id + ':' + (i.pages ? i.pages.length : 'all')), ['i1:3', 'i3:3', 'i2:all']);
+    assert.deepEqual(M.findItem(q, 'i3').item.pages.map(r => r.src), [2, 0, 1]);
+});
+
 test('moving pages across sections', () => {
     let s = twoFiles();
     s.packet = M.addSection(s.packet, 'Two');
