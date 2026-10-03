@@ -427,6 +427,12 @@ def _add_outline(writer, plan, packet):
 _MARGIN = 72
 _LEADING = 1.25
 _ELLIPSIS = '\u2026'
+# A field is cut to this many characters (after cleaning) before it is
+# fitted: a crafted megabyte title would otherwise be re-wrapped at each size
+# step for nothing. No block can show this many: the narrowest glyph the
+# fonts draw (ZapfDingbats U+2758, 0.138 em) at the smallest size (the note,
+# 9 pt, 3 lines on Letter's 468 pt) fits about 1131.
+_TEXT_CUT = 2000
 
 
 def _clean(text):
@@ -488,7 +494,7 @@ def _draw_blocks(c, width, height, blocks, centre):
     max_lines, gap_after)``; empty texts are left out."""
     laid = []
     for text, font, size, min_size, max_lines, gap in blocks:
-        text = _clean(text)
+        text = _clean(text)[:_TEXT_CUT].rstrip()
         if text:
             lines, fitted = _fit(text, font, size, min_size, width - 2 * _MARGIN, max_lines)
             laid.append((lines, font, fitted, gap))

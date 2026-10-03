@@ -986,6 +986,43 @@ def test_long_text_wraps_inside_the_margins_and_is_cut_with_an_ellipsis(tmp_path
     assert all(set(line.rstrip("…")) == {"X"} for line in divider_lines)
 
 
+def test_cover_and_divider_text_is_cut_before_it_is_fitted(tmp_path, monkeypatch):
+    """Verification-b3 n3: a crafted megabyte title is cut to _TEXT_CUT
+    characters before the wrap-and-shrink loop, and still ends in an
+    ellipsis on the page."""
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    huge = "word " * 200_000
+    fitted = []
+    real_fit = packet_mod._fit
+
+    def fit(text, *args):
+        fitted.append(len(text))
+        return real_fit(text, *args)
+
+    monkeypatch.setattr(packet_mod, "_fit", fit)
+    packet = _packet((huge, [_file("i1", "ha")], True), cover=_cover(title=huge, note=huge))
+    reader, _plan = _build(tmp_path, packet, {"ha": a})
+    assert fitted and max(fitted) <= 2000
+    assert _lines(reader.pages[0])[3].endswith("\u2026")
+    assert _lines(reader.pages[1])[-1].endswith("\u2026")
+
+
+def test_the_cut_never_changes_the_page(tmp_path):
+    """The cut is past what any block can show: the narrowest glyph the fonts
+    draw, in the smallest block (the note), gives the same page whole or cut."""
+    a = _pdf(tmp_path / "a.pdf", pages=1)
+    narrow = "\u2758" * 5000
+
+    def note_stream(note, name):
+        packet = _packet(("", [_file("i1", "ha")]), cover=_cover("", "", "", note))
+        reader, _plan = _build(tmp_path, packet, {"ha": a}, name=name)
+        return reader.pages[0].get_contents().get_data()
+
+    whole = note_stream(narrow, "whole.pdf")
+    assert whole == note_stream(narrow[:packet_mod._TEXT_CUT], "cut.pdf")
+    assert b"\\205" in whole or "\u2026".encode("cp1252") in whole   # the ellipsis is drawn
+
+
 def _reportlab_prints():
     """The code points ReportLab draws (not as a box) in the cover and divider
     fonts, after the server's cleaning: Helvetica, then its Symbol and
