@@ -128,27 +128,40 @@ def normalize_options(options):
 
 
 def _number_xy(position, page_width):
-    """Bottom-margin (x, y) for the page number given a position keyword."""
+    """Where a page number goes: ``(x, y, align)`` in points on a page shown
+    ``page_width`` wide (design packet-builder §3.3 rule 7).
+
+    The baseline is 30 pt above the bottom edge. ``bottom-left`` starts the
+    number 50 pt from the left edge and ``bottom-right`` 50 pt from the right
+    edge, both left-aligned. ``bottom-center`` centres it on the vertical
+    midline (``align`` is ``'center'``); before packet [B7] it started there
+    instead, a half-width right of centre. ``static/packet-model.js``
+    ``numberPlacement`` is the same rule, and both run the placement vectors
+    in ``tests/fixtures/packet-plan.json``.
+    """
     y = 30
     if position == 'bottom-left':
-        return 50, y
+        return 50, y, 'left'
     if position == 'bottom-center':
-        return page_width / 2, y
+        return page_width / 2, y, 'center'
     # bottom-right (default): matches the original x = width - 50 placement.
-    return page_width - 50, y
+    return page_width - 50, y, 'left'
 
 
 def _number_overlay(number, page_width, position, page_height=792.0):
     """Build a single-page PDF overlay bearing ``number`` at ``position``.
 
     The overlay canvas is the page's own size, so it covers the page on any
-    paper. The number lands from ``page_width`` as before.
+    paper. The number lands from ``page_width`` by :func:`_number_xy`.
     """
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=(page_width, page_height))
-    x, y = _number_xy(position, page_width)
+    x, y, align = _number_xy(position, page_width)
     can.setFont("Helvetica", 10)
-    can.drawString(x, y, str(number))
+    if align == 'center':
+        can.drawCentredString(x, y, str(number))
+    else:
+        can.drawString(x, y, str(number))
     can.save()
     packet.seek(0)
     return PdfReader(packet).pages[0]

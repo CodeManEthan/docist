@@ -300,3 +300,37 @@ def test_legacy_helper_blank_matches_page(tmp_path):
     assert sizes == [(595.28, 841.89)] * 2 + [(612.0, 792.0)] * 4
     assert reader.pages[1].rotation == 90
     assert reader.pages[5].rotation == 0
+
+
+# ---------------------------------------------------------------------------
+# Where the number sits (packet-builder design section 3.3 rule 7, [B7]).
+# Merge stamps on the media box and does not turn its overlay, so only
+# unturned pages are checked here; the packet's turned pages are in
+# test_packet_pipeline.py.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("size", [(612.0, 792.0), _A4, (792.0, 612.0)],
+                         ids=["letter", "a4", "landscape"])
+@pytest.mark.parametrize("position", ["bottom-left", "bottom-center", "bottom-right"])
+def test_merge_numbers_sit_where_rule_7_puts_them(tmp_path, position, size):
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    src = _pdf_of_size(tmp_path / "s.pdf", size, pages=1)
+    reader = _render(merge_pipeline([(src, "s")], {"number_position": position,
+                                                   "start_number": 47, "blank_pages": False}),
+                     tmp_path)
+    [(x, number)] = _stamped(reader)
+    assert number == 47
+    width = stringWidth("47", "Helvetica", 10)
+    if position == "bottom-left":
+        assert x == pytest.approx(50)
+    elif position == "bottom-right":
+        assert x == pytest.approx(size[0] - 50, abs=0.01)
+    else:
+        # Round note [C10]: centred on the midline, within 1 pt.
+        assert abs(x + width / 2 - size[0] / 2) <= 1
+
+
+def test_number_xy_gives_the_alignment():
+    from pdf_ops.merge import _number_xy
+    assert _number_xy("bottom-left", 612) == (50, 30, "left")
+    assert _number_xy("bottom-center", 612) == (306, 30, "center")
+    assert _number_xy("bottom-right", 612) == (562, 30, "left")
