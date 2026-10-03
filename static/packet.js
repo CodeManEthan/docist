@@ -390,6 +390,24 @@ function sectionDeleteFocus(after, before, deletedId) {
     return moved ? 'c:' + moved.id + ':open' : null;
 }
 
+// One deferred action that can be run early. A section rename that lands on
+// a blur waits for the click that caused it; Undo and Redo flush it first,
+// so they act on the step the user sees (verification-b3 n4). Setting a new
+// action runs the one before it.
+function createPending() {
+    let fn = null;
+    const flush = () => {
+        if (!fn) return;
+        const run = fn;
+        fn = null;
+        run();
+    };
+    return {
+        set(next) { flush(); fn = next; },
+        flush,
+    };
+}
+
 // The text a card shows for its row (empty when ready).
 function statusText(status, row, paper, haveFile) {
     switch (status) {
@@ -529,7 +547,9 @@ function initPacket() {
         if (names.length === 1) say(names[0] + ' expired. Re-add it to use it.');
         else if (names.length) say(plural(names.length, 'file') + ' expired. Re-add them to use them.');
     }
+    const pendingRename = createPending();
     function doUndo() {
+        pendingRename.flush();
         if (ui.grab || !S.past.length) return;
         S = PM.undo(S);
         ui.sel.clear();
@@ -537,6 +557,7 @@ function initPacket() {
         say('Undone.');
     }
     function doRedo() {
+        pendingRename.flush();
         if (ui.grab || !S.future.length) return;
         S = PM.redo(S);
         ui.sel.clear();
@@ -1612,12 +1633,14 @@ function initPacket() {
     // lands on a blur waits until focus has moved, so the re-render keeps
     // focus where Tab took it; after a click it waits for the click, so the
     // click still reaches the control it was aimed at.
+    // Undo and Redo flush a waiting rename first, so a click on Undo undoes
+    // the rename and not the step before it.
     let pointerDown = false;
-    let afterPointer = null;
+    let afterPointer = false;
     document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
     const pointerDone = () => {
         pointerDown = false;
-        if (afterPointer) { const fn = afterPointer; afterPointer = null; setTimeout(fn, 0); }
+        if (afterPointer) { afterPointer = false; setTimeout(pendingRename.flush, 0); }
     };
     document.addEventListener('pointerup', pointerDone, true);
     document.addEventListener('pointercancel', pointerDone, true);
@@ -1629,9 +1652,10 @@ function initPacket() {
             if (next === S.packet) return;
             change(next, 'Section renamed to ' + PM.sectionName(PM.findSection(next, sectionId).section) + '.');
         };
-        if (now) apply();
-        else if (pointerDown) afterPointer = apply;
-        else setTimeout(apply, 0);
+        if (now) { pendingRename.flush(); apply(); return; }
+        pendingRename.set(apply);
+        if (pointerDown) afterPointer = true;
+        else setTimeout(pendingRename.flush, 0);
     }
     function removeGenerated(key) {
         if (key === 'g:cover') {
@@ -2454,6 +2478,7 @@ if (typeof module !== 'undefined' && module.exports) {
         plusEntries,
         dropTarget,
         sectionDeleteFocus,
+        createPending,
         itemCodeText,
         CSRF_MESSAGE,
     };

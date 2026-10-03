@@ -1179,3 +1179,17 @@ test('n1: a draft with null or missing section and cover text restores as text',
     typed.packet.sections[0].title = 5;
     assert.equal(M.parseDraft(JSON.stringify(typed)), null, 'a wrong type is still refused');
 });
+
+test('n4: a pending action runs once, early on flush or later on its own', () => {
+    const ran = [];
+    const pending = C.createPending();
+    pending.set(() => ran.push('rename'));
+    pending.flush();
+    pending.flush();
+    assert.deepEqual(ran, ['rename'], 'flush runs it once');
+    pending.set(() => ran.push('first'));
+    pending.set(() => ran.push('second'));
+    assert.deepEqual(ran, ['rename', 'first'], 'a new action runs the one before it first');
+    pending.flush();
+    assert.deepEqual(ran, ['rename', 'first', 'second']);
+});
