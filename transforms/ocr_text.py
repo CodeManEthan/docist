@@ -64,7 +64,9 @@ it writes an empty ``.txt``. Only an image that cannot be opened/decoded raises
 :class:`transforms.TransformError`. Output is always UTF-8.
 """
 import pillow_heif
-from PIL import Image, ImageSequence
+from PIL import Image, ImageOps, ImageSequence
+
+from pdf_ops import limits
 
 from . import TransformError
 # Import ONLY the stable read-only availability helpers. pdf_ops.ocr is being
@@ -82,10 +84,16 @@ pillow_heif.register_heif_opener()
 
 
 def _open(input_path):
-    """Open an image, raising TransformError on unreadable/corrupt input."""
+    """Open an image, raising TransformError on unreadable/corrupt input.
+
+    The first frame is checked against ``FRAME_PIXELS`` before it is decoded.
+    """
     try:
         img = Image.open(input_path)
+        limits.check_frame(img.width, img.height)
         img.load()  # force a real decode so truncated/corrupt data fails here
+    except limits.LimitError:
+        raise
     except Exception as exc:
         raise TransformError(
             f"Could not open image '{input_path}': {exc}"
@@ -104,9 +112,13 @@ def _flatten_to_white(frame):
         or (frame.mode == 'P' and 'transparency' in frame.info)
     )
     if has_alpha:
-        rgba = frame.convert('RGBA')
-        background = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
-        return Image.alpha_composite(background, rgba).convert('RGB')
+        # Paste white through the inverted alpha band onto the RGB copy:
+        # the same result as compositing onto white, without a full-size
+        # RGBA copy, RGBA background and composite (Rule D, design §6.2).
+        alpha = (frame if frame.mode in ('RGBA', 'LA') else frame.convert('RGBA')).getchannel('A')
+        rgb = frame.convert('RGB')
+        rgb.paste((255, 255, 255), None, ImageOps.invert(alpha))
+        return rgb
     return frame.convert('RGB')
 
 
@@ -139,16 +151,23 @@ def image_to_text(input_path, output_path, opts=None):
 
     img = _open(input_path)
 
-    frames = [_flatten_to_white(f) for f in ImageSequence.Iterator(img)]
-    if not frames:  # extremely defensive: a decoded image always has >=1 frame
-        frames = [_flatten_to_white(img)]
+    # One frame at a time (Rule D): check it after its seek and before it is
+    # decoded, flatten it, OCR it and drop it before the next.
+    texts = []
+    for frame in ImageSequence.Iterator(img):
+        limits.check_frame(frame.width, frame.height)
+        flat = _flatten_to_white(frame)
+        texts.append(_ocr_frame(flat, language))
+        del flat
+    if not texts:  # extremely defensive: a decoded image always has >=1 frame
+        texts = [_ocr_frame(_flatten_to_white(img), language)]
 
-    if len(frames) == 1:
-        body = _ocr_frame(frames[0], language)
+    if len(texts) == 1:
+        body = texts[0]
     else:
         sections = [
-            f"--- Frame {i} ---\n{_ocr_frame(frame, language)}"
-            for i, frame in enumerate(frames, start=1)
+            f"--- Frame {i} ---\n{text}"
+            for i, text in enumerate(texts, start=1)
         ]
         # Form-feed between frames so downstream readers see a real break.
         body = "\f".join(sections)

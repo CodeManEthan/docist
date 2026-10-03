@@ -53,6 +53,8 @@ both *reading* and *writing* of HEIF via Pillow's ``save(..., "HEIF")``.
 import pillow_heif
 from PIL import Image
 
+from pdf_ops import limits
+
 from . import TransformError
 
 
@@ -88,7 +90,11 @@ def _open(input_path):
     """Open + decode the first frame, raising TransformError on bad input."""
     try:
         img = Image.open(input_path)
+        # Its one frame is checked before it is decoded (design §6.1).
+        limits.check_frame(img.width, img.height)
         img.load()  # force a real decode so truncated/corrupt data fails here
+    except limits.LimitError:
+        raise
     except Exception as exc:
         raise TransformError(
             f"Could not open image '{input_path}': {exc}"

@@ -6,10 +6,14 @@ area of the page (Letter by default, with margins) without upscaling, and centre
 white page. Multi-frame images (e.g. animated GIFs, multi-page TIFFs) produce
 one PDF page per frame.
 """
+import io
+
 from PIL import Image, ImageSequence
+from pypdf import PdfReader, PdfWriter
 
 from converters import ConversionError
 from converters.options import paper_size
+from pdf_ops import limits
 
 EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff', '.tif']
 
@@ -24,18 +28,23 @@ def page_pixels(opts=None):
     return round(w_pt * DPI / 72), round(h_pt * DPI / 72)
 
 
-def _flatten_to_rgb(frame):
-    """Return an RGB copy of a frame, compositing any transparency onto white."""
-    if frame.mode in ('RGBA', 'LA') or (frame.mode == 'P' and 'transparency' in frame.info):
-        rgba = frame.convert('RGBA')
-        background = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
-        return Image.alpha_composite(background, rgba).convert('RGB')
-    return frame.convert('RGB')
+def _has_alpha(frame):
+    return frame.mode in ('RGBA', 'LA') or (frame.mode == 'P' and 'transparency' in frame.info)
 
 
 def _compose_page(frame, page_w, page_h):
-    """Fit a single frame onto a centred, white page of ``page_w`` x ``page_h`` px (RGB)."""
-    img = _flatten_to_rgb(frame)
+    """Fit a single frame onto a centred, white page of ``page_w`` x ``page_h`` px (RGB).
+
+    Rule D: a frame with transparency is pasted onto the white page with its
+    alpha band as the mask, after scaling, instead of building an RGBA copy,
+    a white RGBA background and their composite at full size. At 36
+    megapixels that is about 309 MiB in the job instead of about 695
+    (design launch-hardening §6.2).
+    """
+    if _has_alpha(frame):
+        img = frame if frame.mode == 'RGBA' else frame.convert('RGBA')
+    else:
+        img = frame if frame.mode == 'RGB' else frame.convert('RGB')
 
     # Scale down to fit the printable area; never upscale small images.
     scale = min((page_w - 2 * MARGIN) / img.width,
@@ -46,35 +55,55 @@ def _compose_page(frame, page_w, page_h):
 
     page = Image.new('RGB', (page_w, page_h), (255, 255, 255))
     offset = ((page_w - img.width) // 2, (page_h - img.height) // 2)
-    page.paste(img, offset)
+    if img.mode == 'RGBA':
+        page.paste(img.convert('RGB'), offset, mask=img.getchannel('A'))
+    else:
+        page.paste(img, offset)
     return page
 
 
+def _page_pdf(page):
+    """One composed page as a one-page PDF (Pillow writes RGB as a JPEG stream)."""
+    buf = io.BytesIO()
+    page.save(buf, 'PDF', resolution=float(DPI))
+    buf.seek(0)
+    return buf
+
+
 def convert(input_path, output_path, opts=None):
-    """Convert the image at input_path into a PDF written to output_path."""
+    """Convert the image at input_path into a PDF written to output_path.
+
+    One frame at a time (Rule D): each frame is checked against
+    ``FRAME_PIXELS`` after its seek and before it is decoded, composed, saved
+    as a one-page PDF and appended to the writer, then dropped. The writer
+    holds compressed pages only.
+    """
     try:
         image = Image.open(input_path)
     except Exception as exc:
         raise ConversionError(f"Could not open image '{input_path}': {exc}") from exc
 
+    writer = PdfWriter()
+    count = 0
     try:
         page_w, page_h = page_pixels(opts)
-        pages = [_compose_page(frame, page_w, page_h)
-                 for frame in ImageSequence.Iterator(image)]
+        for frame in ImageSequence.Iterator(image):
+            limits.check_frame(frame.width, frame.height)
+            page = _compose_page(frame, page_w, page_h)
+            buf = _page_pdf(page)
+            del page
+            writer.append(PdfReader(buf))
+            count += 1
+    except limits.LimitError:
+        raise
     except Exception as exc:
         raise ConversionError(f"Could not process image '{input_path}': {exc}") from exc
 
-    if not pages:
+    if not count:
         raise ConversionError(f"Image '{input_path}' contained no frames to convert.")
 
     try:
-        first, rest = pages[0], pages[1:]
-        first.save(
-            output_path,
-            'PDF',
-            resolution=float(DPI),
-            save_all=True,
-            append_images=rest,
-        )
+        with open(output_path, 'wb') as fh:
+            writer.write(fh)
     except Exception as exc:
         raise ConversionError(f"Could not write PDF for '{input_path}': {exc}") from exc

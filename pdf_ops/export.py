@@ -21,6 +21,7 @@ import os
 import pypdfium2 as pdfium
 from pypdf import PdfReader
 
+from pdf_ops import limits
 from pdf_ops.pdfium_lock import PDFIUM_LOCK
 
 from pdf_ops.ocr import is_available as _ocr_is_available
@@ -36,7 +37,7 @@ MAX_DPI = 600
 OCR_DPI = 300
 
 
-def pdf_to_images(input_path, output_dir, fmt="png", dpi=150):
+def pdf_to_images(input_path, output_dir, fmt="png", dpi=150, opts=None):
     """Render every page of a PDF to an image file in ``output_dir``.
 
     Files are named ``page_001.<ext>``, ``page_002.<ext>``, ... (1-based,
@@ -46,7 +47,14 @@ def pdf_to_images(input_path, output_dir, fmt="png", dpi=150):
     90. ``dpi`` must be an integer-ish value within ``30..600`` — pages are
     rendered at ``scale = dpi / 72``. Raises ``ValueError`` for a bad format or
     an out-of-range DPI.
+
+    Limits (design launch-hardening §7, §10.2): a page over ``FRAME_PIXELS``
+    at this DPI is refused before it is rendered, with a message that says to
+    lower the DPI; each image's bytes count against ``RESULT_BYTES`` across
+    the request (``opts.written``, a RenderOptions; a running total of this
+    call when ``opts`` is None). Both raise :class:`limits.LimitError`.
     """
+    total = opts if opts is not None else limits.WriteTotal()
     fmt = str(fmt).strip().lower()
     if fmt == "jpeg":
         fmt = "jpg"
@@ -71,14 +79,16 @@ def pdf_to_images(input_path, output_dir, fmt="png", dpi=150):
             page_count = len(doc)
             for i in range(page_count):
                 page = doc[i]
-                bitmap = page.render(scale=scale)
+                bitmap = limits.render_page(page, scale, page_number=i + 1, dpi=dpi)
                 image = bitmap.to_pil()
                 out_path = os.path.join(output_dir, f"page_{i + 1:03d}{ext}")
                 if pil_format == "JPEG":
                     image.convert("RGB").save(out_path, "JPEG", quality=90)
                 else:
                     image.save(out_path, "PNG")
+                del image, bitmap
                 created.append(out_path)
+                limits.charge_written(total, os.path.getsize(out_path))
         finally:
             doc.close()
 
@@ -176,25 +186,29 @@ def _ocr_render_pages(input_path, page_indices, language):
     import pytesseract
 
     scale = OCR_DPI / 72.0
-    # Render everything under the pypdfium2 lock, but run Tesseract (slow,
-    # thread-safe) outside it so OCR doesn't starve thumbnail requests.
-    images = []
+    # One page at a time (Rule D, design launch-hardening §7): render it under
+    # the pypdfium2 lock, release the lock, OCR it (Tesseract is slow and
+    # runs outside the lock), drop it. A page over FRAME_PIXELS at the fixed
+    # OCR resolution is refused with a message that doesn't mention DPI.
+    results = {}
     with PDFIUM_LOCK:
         doc = pdfium.PdfDocument(input_path)
-        try:
-            for i in page_indices:
+    try:
+        for i in page_indices:
+            with PDFIUM_LOCK:
                 page = doc[i]
-                bitmap = page.render(scale=scale)
-                images.append((i, bitmap.to_pil().convert("RGB")))
-        finally:
+                bitmap = limits.render_page(page, scale, page_number=i + 1)
+                image = bitmap.to_pil().convert("RGB")
+                del bitmap, page
+            try:
+                results[i] = pytesseract.image_to_string(image, lang=language)
+            except pytesseract.TesseractError as exc:
+                raise ValueError(_map_tesseract_error(exc, language))
+            finally:
+                del image
+    finally:
+        with PDFIUM_LOCK:
             doc.close()
-
-    results = {}
-    for i, image in images:
-        try:
-            results[i] = pytesseract.image_to_string(image, lang=language)
-        except pytesseract.TesseractError as exc:
-            raise ValueError(_map_tesseract_error(exc, language))
     return results
 
 

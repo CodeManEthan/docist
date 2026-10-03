@@ -40,6 +40,7 @@ CSV reading (everywhere)
     right-padded with empty strings to a common width.
 """
 import csv
+import errno
 import html
 import io
 import json
@@ -351,13 +352,33 @@ def json_to_yaml(input_path, output_path):
 
 
 def yaml_to_json(input_path, output_path):
-    """YAML -> JSON (UTF-8, ``indent=2``). Invalid YAML -> ``TransformError``."""
+    """YAML -> JSON (UTF-8, ``indent=2``). Invalid YAML -> ``TransformError``.
+
+    Aliases stay allowed. An alias graph that expands past memory or disk is
+    held by the request's job (memory cap, ``RLIMIT_FSIZE``); a recursive
+    alias (``json.dump``'s "Circular reference detected") or nesting deeper
+    than the interpreter allows is a ``TransformError`` with
+    ``limits.YAML_MESSAGE`` (design launch-hardening §5).
+    """
     try:
         with open(input_path, encoding='utf-8') as fh:
             data = yaml.safe_load(fh)
-    except (yaml.YAMLError, UnicodeDecodeError, OSError) as exc:
+    except RecursionError as exc:
+        raise TransformError(limits.YAML_MESSAGE) from exc
+    except (yaml.YAMLError, UnicodeDecodeError) as exc:
         raise TransformError(f'Invalid YAML input: {exc}') from exc
-    _dump_json(data, output_path)
+    except OSError as exc:
+        if exc.errno == errno.EFBIG:
+            raise
+        raise TransformError(f'Invalid YAML input: {exc}') from exc
+    try:
+        _dump_json(data, output_path)
+    except RecursionError as exc:
+        raise TransformError(limits.YAML_MESSAGE) from exc
+    except ValueError as exc:
+        if isinstance(exc, limits.LimitError):
+            raise
+        raise TransformError(limits.YAML_MESSAGE) from exc
     return output_path
 
 

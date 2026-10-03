@@ -47,6 +47,7 @@ import converters
 from converters import ConversionError
 
 from pdf_ops.export import pdf_to_images, pdf_to_text
+from pdf_ops.limits import LimitError
 
 from . import TransformError
 
@@ -75,7 +76,7 @@ def _make_to_pdf(ext):
     return to_pdf
 
 
-def _pdf_to_image(input_path, output_path, fmt):
+def _pdf_to_image(input_path, output_path, fmt, opts=None):
     """Render a PDF to image(s); return the single image OR a multi-page zip.
 
     See the module docstring for the single-vs-multi-page policy.
@@ -83,9 +84,10 @@ def _pdf_to_image(input_path, output_path, fmt):
     try:
         with tempfile.TemporaryDirectory() as tmp:
             try:
-                images = pdf_to_images(input_path, tmp, fmt=fmt, dpi=IMAGE_DPI)
+                images = pdf_to_images(input_path, tmp, fmt=fmt, dpi=IMAGE_DPI, opts=opts)
             except ValueError:
-                # Programming error (bad fmt/dpi) -- not a user input problem.
+                # A limit (pdf_ops.limits.LimitError), or a programming error
+                # (bad fmt/dpi) -- passed through either way.
                 raise
             except Exception as exc:
                 raise TransformError(
@@ -107,20 +109,23 @@ def _pdf_to_image(input_path, output_path, fmt):
                 for img in images:
                     zf.write(img, arcname=os.path.basename(img))
             return zip_path
-    except TransformError:
+    except (TransformError, LimitError):
         raise
     except Exception as exc:  # pragma: no cover - defensive catch-all
         raise TransformError(f"PDF to {fmt} failed: {exc}") from exc
 
 
-def pdf_to_png(input_path, output_path):
-    """.pdf -> .png (150 DPI). Single page: PNG; multi-page: zip of PNGs."""
-    return _pdf_to_image(input_path, output_path, "png")
+def pdf_to_png(input_path, output_path, opts=None):
+    """.pdf -> .png (150 DPI). Single page: PNG; multi-page: zip of PNGs.
+
+    ``opts`` carries the request's running total of bytes written, so a
+    pivot's second half shares it (design launch-hardening §10.2)."""
+    return _pdf_to_image(input_path, output_path, "png", opts)
 
 
-def pdf_to_jpg(input_path, output_path):
+def pdf_to_jpg(input_path, output_path, opts=None):
     """.pdf -> .jpg (150 DPI). Single page: JPG; multi-page: zip of JPGs."""
-    return _pdf_to_image(input_path, output_path, "jpg")
+    return _pdf_to_image(input_path, output_path, "jpg", opts)
 
 
 def pdf_to_txt(input_path, output_path):
