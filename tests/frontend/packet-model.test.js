@@ -1078,3 +1078,60 @@ test('rangeKeys selects from the anchor to the target in view order', () => {
     assert.deepEqual(M.rangeKeys(order, 'd', 'b'), ['b', 'c', 'd']);
     assert.deepEqual(M.rangeKeys(order, null, 'c'), ['c']);
 });
+
+// ---------------------------------------------------------------------------
+// Fix round (verification-b3.md)
+// ---------------------------------------------------------------------------
+
+// A drawn page, top to bottom (heights in px): toolbar 0-60, cover card
+// 80-160, then four sections. Only file cards are in `cards`; the cover and
+// divider cards never are, which is the point of M1.
+function dropLayout() {
+    return [
+        // Exhibit A: heading 170-200, divider card 200-280, items from 300.
+        { id: 's1', top: 170, bottom: 500, start: 300, count: 2, collapsed: false,
+            cards: [{ index: 0, top: 300, bottom: 380 }, { index: 1, top: 400, bottom: 480 }] },
+        // Exhibit B: heading 520-550, divider card 550-630, one card.
+        { id: 's2', top: 520, bottom: 740, start: 650, count: 1, collapsed: false,
+            cards: [{ index: 0, top: 650, bottom: 730 }] },
+        // Collapsed: heading only, three items hidden.
+        { id: 's3', top: 760, bottom: 790, start: 790, count: 3, collapsed: true, cards: [] },
+        // Empty: heading 810-840, divider card 840-900, no items.
+        { id: 's4', top: 810, bottom: 920, start: 910, count: 0, collapsed: false, cards: [] },
+    ];
+}
+
+test('M1: every drop height lands in a section, whatever cards sit around it', () => {
+    const layout = dropLayout();
+    const at = y => C.dropTarget(y, layout).slot;
+    assert.deepEqual(at(20), { section: 's1', index: 0 }, 'the toolbar is the start of the first section');
+    assert.deepEqual(at(100), { section: 's1', index: 0 }, 'the cover card is the start of the first section');
+    assert.deepEqual(at(185), { section: 's1', index: 0 }, 'a heading is the start of its section');
+    assert.deepEqual(at(240), { section: 's1', index: 0 }, 'a divider card is the start of its section');
+    assert.deepEqual(at(390), { section: 's1', index: 1 });
+    assert.deepEqual(at(470), { section: 's1', index: 2 }, 'below the last card is the section end');
+    assert.deepEqual(at(510), { section: 's2', index: 0 }, 'the gap before a section is its start');
+    assert.deepEqual(at(600), { section: 's2', index: 0 }, "a later section's divider is its start");
+    assert.deepEqual(at(775), { section: 's3', index: 0 }, 'a collapsed section takes the drop at its start');
+    assert.deepEqual(at(870), { section: 's4', index: 0 }, 'an empty section takes the drop');
+    assert.deepEqual(at(5000), { section: 's4', index: 0 }, 'below everything is the end of the last section');
+    for (let y = -200; y < 1200; y += 7) {
+        const r = C.dropTarget(y, layout);
+        assert.ok(r.slot && layout.some(s => s.id === r.slot.section), 'y ' + y + ' places the drop');
+        assert.ok(Number.isFinite(r.line), 'y ' + y + ' shows the insertion line');
+    }
+});
+
+test('M1: the insertion line sits where the files will land', () => {
+    const layout = dropLayout();
+    assert.equal(C.dropTarget(100, layout).line, 300 - 12, 'above the first file card, below the divider');
+    assert.equal(C.dropTarget(470, layout).line, 480 + 10, 'after the last card');
+    assert.equal(C.dropTarget(870, layout).line, 910, 'at the top of an empty section');
+    assert.equal(C.dropTarget(775, layout).line, 790, 'under a collapsed heading');
+    assert.deepEqual(C.dropTarget(100, []), { slot: null, line: null, open: null }, 'no drawn sections: the end of the packet');
+});
+
+test('M1: a drop into a collapsed section opens it so the new cards show', () => {
+    assert.equal(C.dropTarget(775, dropLayout()).open, 's3');
+    assert.equal(C.dropTarget(390, dropLayout()).open, null);
+});

@@ -349,6 +349,31 @@ function plusEntries(packet, sectionId) {
     return out;
 }
 
+// Where a file drop at height `y` lands (§2.1 Drop files). `layout` lists
+// the sections as drawn, in order: {id, top, bottom, start, count, collapsed,
+// cards}. `start` is where the section's items begin (below its heading and
+// divider card), `count` is how many items it holds, and `cards` are its
+// file cards on screen, {index, top, bottom}. Cover and divider cards are
+// never in `cards`: they hold no item, so they can't be a slot.
+// The rule: a drop belongs to the first section whose bottom is below the
+// pointer. So the toolbar, the cover card, a heading, a divider card and
+// the gap after the section before are all that section's start. Inside it,
+// the files go before the first card whose middle is below the pointer, or
+// at its end. A collapsed section shows no cards, so it takes the drop at
+// its start and opens. Below every section is the end of the last one.
+// `line` is the height for the insertion line; `open` names a section to
+// open. With no section drawn (the empty page), the slot is null: the end.
+function dropTarget(y, layout) {
+    const sections = layout || [];
+    if (!sections.length) return { slot: null, line: null, open: null };
+    const sec = sections.find(s => y < s.bottom) || sections[sections.length - 1];
+    if (sec.collapsed) return { slot: { section: sec.id, index: 0 }, line: sec.start, open: sec.id };
+    const card = sec.cards.find(c => y < (c.top + c.bottom) / 2);
+    if (card) return { slot: { section: sec.id, index: card.index }, line: card.top - 12, open: null };
+    const last = sec.cards[sec.cards.length - 1];
+    return { slot: { section: sec.id, index: sec.count }, line: last ? last.bottom + 10 : sec.start, open: null };
+}
+
 // The text a card shows for its row (empty when ready).
 function statusText(status, row, paper, haveFile) {
     switch (status) {
@@ -666,30 +691,39 @@ function initPacket() {
     const main = $('#pkMain');
     const dropline = $('#pkDropline');
     const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
-    function dropSlot(y) {
-        const cards = Array.from(document.querySelectorAll('#pkList .pk-card'));
-        for (const card of cards) {
-            const r = card.getBoundingClientRect();
-            if (y < r.top + r.height / 2) {
-                const found = PM.findItem(S.packet, card.dataset.item);
-                return { slot: { section: found.section.id, index: found.i }, el: card, before: true };
+    // The drawn sections for dropTarget: only a section's own file cards
+    // (`.pk-items > .pk-card` with an item the packet has) are slots.
+    function dropLayout() {
+        if ($('#pkWork').hidden) return [];
+        const out = [];
+        $('#pkList').querySelectorAll(':scope > .pk-section').forEach(el => {
+            const found = PM.findSection(S.packet, el.dataset.section);
+            if (!found) return;
+            const r = el.getBoundingClientRect();
+            const items = el.querySelector(':scope > .pk-items');
+            const head = el.querySelector(':scope > .pk-sec-head');
+            const cards = [];
+            if (items) {
+                Array.from(items.children).forEach(card => {
+                    const item = card.classList.contains('pk-card') ? PM.findItem(S.packet, card.dataset.item) : null;
+                    if (!item || item.section !== found.section) return;
+                    const cr = card.getBoundingClientRect();
+                    cards.push({ index: item.i, top: cr.top, bottom: cr.bottom });
+                });
             }
-        }
-        return { slot: null, el: cards[cards.length - 1] || null, before: false };
+            const start = items ? items.getBoundingClientRect().top : (head ? head.getBoundingClientRect().bottom : r.top);
+            out.push({ id: found.section.id, top: r.top, bottom: r.bottom, start, count: found.section.items.length, collapsed: !items, cards });
+        });
+        return out;
     }
     document.addEventListener('dragover', e => {
         if (!hasFiles(e)) return;
         e.preventDefault();
         main.classList.add('pk-dragover');
-        const { el, before } = dropSlot(e.clientY);
+        const { line } = dropTarget(e.clientY, dropLayout());
         const mr = main.getBoundingClientRect();
-        let top;
-        if (!el) top = $('#pkList').getBoundingClientRect().top - mr.top;
-        else {
-            const r = el.getBoundingClientRect();
-            top = (before ? r.top - 12 : r.bottom + 10) - mr.top;
-        }
-        dropline.style.top = top + 'px';
+        const top = line == null ? $('#pkList').getBoundingClientRect().top : line;
+        dropline.style.top = (top - mr.top) + 'px';
         dropline.hidden = false;
     });
     document.addEventListener('dragleave', e => {
@@ -700,7 +734,9 @@ function initPacket() {
         e.preventDefault();
         dropline.hidden = true;
         main.classList.remove('pk-dragover');
-        addFileList(e.dataTransfer.files, dropSlot(e.clientY).slot);
+        const { slot, open } = dropTarget(e.clientY, dropLayout());
+        if (open) ui.collapsed.delete(open);
+        addFileList(e.dataTransfer.files, slot);
     });
 
     // ---- Thumbnails: lazy, one render request in flight, retry on busy ----
@@ -1592,7 +1628,9 @@ function initPacket() {
     }
 
     function focusNear(removedId) {
-        const card = list.querySelector('.pk-card');
+        // A file card: the cover card is not one, and it stays drawn (in the
+        // hidden workspace) after the last file goes.
+        const card = list.querySelector('.pk-items > .pk-card');
         if (card) ui.focusKey = card.dataset.key + ':open';
         render();
         if (!card) $('#pkEmptyAdd').focus();
@@ -2376,6 +2414,7 @@ if (typeof module !== 'undefined' && module.exports) {
         statusText,
         resultName,
         plusEntries,
+        dropTarget,
         itemCodeText,
         CSRF_MESSAGE,
     };
