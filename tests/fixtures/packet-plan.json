@@ -1,0 +1,690 @@
+{
+  "about": "Shared page-plan vectors for the packet builder (design.md section 3.3). pdf_ops/packet.py page_plan and static/packet-model.js must both turn each vector's packet, page_counts and contents_pages into exactly its expect.",
+  "version": 1,
+  "stage_order": ["B6", "B1", "B2", "B3", "B5", "B4"],
+  "consumers": {
+    "pipeline": "pdf_ops/packet.py page_plan, run by tests/backend/test_packet_pipeline.py",
+    "model": "static/packet-model.js, run by tests/frontend/packet-model.test.js"
+  },
+  "rules": [
+    "stage maps each consumer to the stage that builds the vector's feature in that consumer.",
+    "A consumer's tests at stage S run a vector when stage_order puts its tag for that consumer at or before S, and skip it otherwise.",
+    "Merge option_defaults under each packet's options before planning.",
+    "page_counts holds one entry per hash with a ready row; a hash missing from it is not ready.",
+    "contents_pages is the contents page count when options.contents is on; it defaults to 1.",
+    "pages lists every physical page in order. index in entries is the 0-based physical page.",
+    "label is the printed number or null for front matter; print says whether it is stamped.",
+    "entries list each planned section and each file item that gives a page, in plan order; blank items get none."
+  ],
+  "option_defaults": {
+    "paper": "letter",
+    "page_numbers": true,
+    "number_position": "bottom-right",
+    "start_number": 1,
+    "number_generated": false,
+    "bookmarks": true,
+    "contents": false,
+    "recto_starts": false
+  },
+  "vectors": [
+    {
+      "name": "one-file-all-pages",
+      "note": "pages: null expands to every page of the bound stage; the implicit section has an empty title.",
+      "stage": {"pipeline": "B6", "model": "B6"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 3},
+      "expect": {
+        "pages": [
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 1, "rot": 0, "label": 2, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 2, "rot": 0, "label": 3, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 1, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 0}
+        ]
+      }
+    },
+    {
+      "name": "page-edits-across-files",
+      "note": "Explicit refs keep their order and rotation; a deleted page is absent; a duplicated page appears twice; one file split into two items.",
+      "stage": {"pipeline": "B6", "model": "B6"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": [{"src": 2, "rot": 0}, {"src": 0, "rot": 90}], "key": "h-a::", "src_pages": 3},
+              {"id": "i2", "kind": "file", "hash": "h-b", "label": "b.pdf", "pages": null},
+              {"id": "i3", "kind": "file", "hash": "h-a", "label": "a.pdf (2)", "pages": [{"src": 1, "rot": 180}, {"src": 1, "rot": 270}], "key": "h-a::", "src_pages": 3}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 3, "h-b": 2},
+      "expect": {
+        "pages": [
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 2, "rot": 0, "label": 1, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 90, "label": 2, "print": true},
+          {"kind": "file", "section": "s1", "item": "i2", "hash": "h-b", "src": 0, "rot": 0, "label": 3, "print": true},
+          {"kind": "file", "section": "s1", "item": "i2", "hash": "h-b", "src": 1, "rot": 0, "label": 4, "print": true},
+          {"kind": "file", "section": "s1", "item": "i3", "hash": "h-a", "src": 1, "rot": 180, "label": 5, "print": true},
+          {"kind": "file", "section": "s1", "item": "i3", "hash": "h-a", "src": 1, "rot": 270, "label": 6, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 1, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 0},
+          {"kind": "item", "id": "i2", "section": "s1", "title": "b.pdf", "label": 3, "index": 2},
+          {"kind": "item", "id": "i3", "section": "s1", "title": "a.pdf (2)", "label": 5, "index": 4}
+        ]
+      }
+    },
+    {
+      "name": "not-ready-and-emptied-items",
+      "note": "A file whose hash has no ready row gives no pages; an item with every page deleted gives none; neither gets an entry.",
+      "stage": {"pipeline": "B6", "model": "B6"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-x", "label": "x.docx", "pages": null},
+              {"id": "i2", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": [], "key": "h-a::", "src_pages": 3},
+              {"id": "i3", "kind": "file", "hash": "h-b", "label": "b.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 3, "h-b": 1},
+      "expect": {
+        "pages": [
+          {"kind": "file", "section": "s1", "item": "i3", "hash": "h-b", "src": 0, "rot": 0, "label": 1, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 1, "index": 0},
+          {"kind": "item", "id": "i3", "section": "s1", "title": "b.pdf", "label": 1, "index": 0}
+        ]
+      }
+    },
+    {
+      "name": "blank-items-are-body-pages",
+      "note": "A blank item is one body page: it is numbered and prints. It has no contents or outline entry.",
+      "stage": {"pipeline": "B6", "model": "B6"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"start_number": 5},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "blank"},
+              {"id": "i2", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null},
+              {"id": "i3", "kind": "blank"}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 2},
+      "expect": {
+        "pages": [
+          {"kind": "blank", "section": "s1", "item": "i1", "label": 5, "print": true},
+          {"kind": "file", "section": "s1", "item": "i2", "hash": "h-a", "src": 0, "rot": 0, "label": 6, "print": true},
+          {"kind": "file", "section": "s1", "item": "i2", "hash": "h-a", "src": 1, "rot": 0, "label": 7, "print": true},
+          {"kind": "blank", "section": "s1", "item": "i3", "label": 8, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 5, "index": 0},
+          {"kind": "item", "id": "i2", "section": "s1", "title": "a.pdf", "label": 6, "index": 1}
+        ]
+      }
+    },
+    {
+      "name": "numbers-off-still-labels",
+      "note": "With page_numbers off nothing prints, but labels are still planned for the contents and outline.",
+      "stage": {"pipeline": "B6", "model": "B6"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"page_numbers": false, "start_number": 3},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null},
+              {"id": "i2", "kind": "blank"}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 2},
+      "expect": {
+        "pages": [
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 3, "print": false},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 1, "rot": 0, "label": 4, "print": false},
+          {"kind": "blank", "section": "s1", "item": "i2", "label": 5, "print": false}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 3, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 3, "index": 0}
+        ]
+      }
+    },
+    {
+      "name": "nothing-to-plan",
+      "note": "No item gives a page, so no section is in the plan.",
+      "stage": {"pipeline": "B6", "model": "B6"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-x", "label": "x.docx", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {},
+      "expect": {
+        "pages": [],
+        "entries": []
+      }
+    },
+    {
+      "name": "sections-in-order",
+      "note": "Labels run on across sections; each section's entry points at its first page.",
+      "stage": {"pipeline": "B6", "model": "B3"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "Resume",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "resume.docx", "pages": null}
+            ]
+          },
+          {
+            "id": "s2",
+            "title": "References",
+            "divider": false,
+            "items": [
+              {"id": "i2", "kind": "file", "hash": "h-b", "label": "refs.pdf", "pages": null},
+              {"id": "i3", "kind": "file", "hash": "h-c", "label": "letter.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 2, "h-b": 1, "h-c": 2},
+      "expect": {
+        "pages": [
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 1, "rot": 0, "label": 2, "print": true},
+          {"kind": "file", "section": "s2", "item": "i2", "hash": "h-b", "src": 0, "rot": 0, "label": 3, "print": true},
+          {"kind": "file", "section": "s2", "item": "i3", "hash": "h-c", "src": 0, "rot": 0, "label": 4, "print": true},
+          {"kind": "file", "section": "s2", "item": "i3", "hash": "h-c", "src": 1, "rot": 0, "label": 5, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "Resume", "label": 1, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "resume.docx", "label": 1, "index": 0},
+          {"kind": "section", "id": "s2", "title": "References", "label": 3, "index": 2},
+          {"kind": "item", "id": "i2", "section": "s2", "title": "refs.pdf", "label": 3, "index": 2},
+          {"kind": "item", "id": "i3", "section": "s2", "title": "letter.pdf", "label": 4, "index": 3}
+        ]
+      }
+    },
+    {
+      "name": "empty-section-with-divider-left-out",
+      "note": "A section whose items give no pages is left out, divider and all; a divider alone never puts it in. A section with a divider points at its divider.",
+      "stage": {"pipeline": "B6", "model": "B3"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "A",
+            "divider": true,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s2",
+            "title": "Empty",
+            "divider": true,
+            "items": [
+              {"id": "i2", "kind": "file", "hash": "h-x", "label": "x.docx", "pages": null}
+            ]
+          },
+          {
+            "id": "s3",
+            "title": "C",
+            "divider": false,
+            "items": [
+              {"id": "i3", "kind": "file", "hash": "h-b", "label": "b.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s4",
+            "title": "Nothing",
+            "divider": true,
+            "items": []
+          }
+        ]
+      },
+      "page_counts": {"h-a": 1, "h-b": 1},
+      "expect": {
+        "pages": [
+          {"kind": "divider", "section": "s1", "label": 1, "print": false},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 2, "print": true},
+          {"kind": "file", "section": "s3", "item": "i3", "hash": "h-b", "src": 0, "rot": 0, "label": 3, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "A", "label": 1, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 2, "index": 1},
+          {"kind": "section", "id": "s3", "title": "C", "label": 3, "index": 2},
+          {"kind": "item", "id": "i3", "section": "s3", "title": "b.pdf", "label": 3, "index": 2}
+        ]
+      }
+    },
+    {
+      "name": "dividers-print-when-numbering-generated",
+      "note": "number_generated on: dividers print their label.",
+      "stage": {"pipeline": "B6", "model": "B3"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"number_generated": true},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "A",
+            "divider": true,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s2",
+            "title": "B",
+            "divider": true,
+            "items": [
+              {"id": "i2", "kind": "blank"}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 2},
+      "expect": {
+        "pages": [
+          {"kind": "divider", "section": "s1", "label": 1, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 2, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 1, "rot": 0, "label": 3, "print": true},
+          {"kind": "divider", "section": "s2", "label": 4, "print": true},
+          {"kind": "blank", "section": "s2", "item": "i2", "label": 5, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "A", "label": 1, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 2, "index": 1},
+          {"kind": "section", "id": "s2", "title": "B", "label": 4, "index": 3}
+        ]
+      }
+    },
+    {
+      "name": "cover-is-front-matter",
+      "note": "The cover comes first, has no label and uses no number.",
+      "stage": {"pipeline": "B6", "model": "B3"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {},
+        "cover": {"title": "Packet", "subtitle": "", "date": "2026-10-03", "note": ""},
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 2},
+      "expect": {
+        "pages": [
+          {"kind": "cover", "label": null, "print": false},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 1, "rot": 0, "label": 2, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 1, "index": 1},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 1}
+        ]
+      }
+    },
+    {
+      "name": "recto-pads-section-starts-only",
+      "note": "recto_starts: one pad before an even section start (before its divider if it has one), never inside a section, even where a split file's items meet. Pads use numbers and do not print with number_generated off.",
+      "stage": {"pipeline": "B6", "model": "B3"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"recto_starts": true},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "A",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": [{"src": 0, "rot": 0}, {"src": 1, "rot": 0}], "key": "h-a::", "src_pages": 3},
+              {"id": "i5", "kind": "file", "hash": "h-a", "label": "a.pdf (2)", "pages": [{"src": 2, "rot": 0}], "key": "h-a::", "src_pages": 3}
+            ]
+          },
+          {
+            "id": "s2",
+            "title": "B",
+            "divider": false,
+            "items": [
+              {"id": "i2", "kind": "file", "hash": "h-b", "label": "b.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s3",
+            "title": "C",
+            "divider": true,
+            "items": [
+              {"id": "i3", "kind": "file", "hash": "h-c", "label": "c.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s4",
+            "title": "D",
+            "divider": false,
+            "items": [
+              {"id": "i4", "kind": "file", "hash": "h-d", "label": "d.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 3, "h-b": 1, "h-c": 1, "h-d": 1},
+      "expect": {
+        "pages": [
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 1, "rot": 0, "label": 2, "print": true},
+          {"kind": "file", "section": "s1", "item": "i5", "hash": "h-a", "src": 2, "rot": 0, "label": 3, "print": true},
+          {"kind": "pad", "label": 4, "print": false},
+          {"kind": "file", "section": "s2", "item": "i2", "hash": "h-b", "src": 0, "rot": 0, "label": 5, "print": true},
+          {"kind": "pad", "label": 6, "print": false},
+          {"kind": "divider", "section": "s3", "label": 7, "print": false},
+          {"kind": "file", "section": "s3", "item": "i3", "hash": "h-c", "src": 0, "rot": 0, "label": 8, "print": true},
+          {"kind": "file", "section": "s4", "item": "i4", "hash": "h-d", "src": 0, "rot": 0, "label": 9, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "A", "label": 1, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 0},
+          {"kind": "item", "id": "i5", "section": "s1", "title": "a.pdf (2)", "label": 3, "index": 2},
+          {"kind": "section", "id": "s2", "title": "B", "label": 5, "index": 4},
+          {"kind": "item", "id": "i2", "section": "s2", "title": "b.pdf", "label": 5, "index": 4},
+          {"kind": "section", "id": "s3", "title": "C", "label": 7, "index": 6},
+          {"kind": "item", "id": "i3", "section": "s3", "title": "c.pdf", "label": 8, "index": 7},
+          {"kind": "section", "id": "s4", "title": "D", "label": 9, "index": 8},
+          {"kind": "item", "id": "i4", "section": "s4", "title": "d.pdf", "label": 9, "index": 8}
+        ]
+      }
+    },
+    {
+      "name": "recto-pads-print-when-numbering-generated",
+      "note": "number_generated on: a recto pad prints its label.",
+      "stage": {"pipeline": "B6", "model": "B3"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"recto_starts": true, "number_generated": true},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "A",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s2",
+            "title": "B",
+            "divider": false,
+            "items": [
+              {"id": "i2", "kind": "file", "hash": "h-b", "label": "b.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 1, "h-b": 1},
+      "expect": {
+        "pages": [
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true},
+          {"kind": "pad", "label": 2, "print": true},
+          {"kind": "file", "section": "s2", "item": "i2", "hash": "h-b", "src": 0, "rot": 0, "label": 3, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "A", "label": 1, "index": 0},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 0},
+          {"kind": "section", "id": "s2", "title": "B", "label": 3, "index": 2},
+          {"kind": "item", "id": "i2", "section": "s2", "title": "b.pdf", "label": 3, "index": 2}
+        ]
+      }
+    },
+    {
+      "name": "recto-after-cover",
+      "note": "A pad between the cover and the first section is front matter: no label.",
+      "stage": {"pipeline": "B6", "model": "B3"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"recto_starts": true},
+        "cover": {"title": "Packet", "subtitle": "", "date": "2026-10-03", "note": ""},
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 1},
+      "expect": {
+        "pages": [
+          {"kind": "cover", "label": null, "print": false},
+          {"kind": "pad", "label": null, "print": false},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 1, "index": 2},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 2}
+        ]
+      }
+    },
+    {
+      "name": "contents-after-cover",
+      "note": "The contents pages follow the cover; their count comes from contents_pages.",
+      "stage": {"pipeline": "B6", "model": "B5"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"contents": true},
+        "cover": {"title": "Packet", "subtitle": "", "date": "2026-10-03", "note": ""},
+        "sections": [
+          {
+            "id": "s1",
+            "title": "A",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s2",
+            "title": "B",
+            "divider": false,
+            "items": [
+              {"id": "i2", "kind": "file", "hash": "h-b", "label": "b.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 1, "h-b": 1},
+      "contents_pages": 2,
+      "expect": {
+        "pages": [
+          {"kind": "cover", "label": null, "print": false},
+          {"kind": "contents", "label": null, "print": false},
+          {"kind": "contents", "label": null, "print": false},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true},
+          {"kind": "file", "section": "s2", "item": "i2", "hash": "h-b", "src": 0, "rot": 0, "label": 2, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "A", "label": 1, "index": 3},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 3},
+          {"kind": "section", "id": "s2", "title": "B", "label": 2, "index": 4},
+          {"kind": "item", "id": "i2", "section": "s2", "title": "b.pdf", "label": 2, "index": 4}
+        ]
+      }
+    },
+    {
+      "name": "contents-recto-with-divider",
+      "note": "recto_starts with a cover: the contents and each section start on an odd physical page; pads before the first section are front matter.",
+      "stage": {"pipeline": "B6", "model": "B5"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"contents": true, "recto_starts": true},
+        "cover": {"title": "Packet", "subtitle": "", "date": "2026-10-03", "note": ""},
+        "sections": [
+          {
+            "id": "s1",
+            "title": "A",
+            "divider": true,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          },
+          {
+            "id": "s2",
+            "title": "B",
+            "divider": false,
+            "items": [
+              {"id": "i2", "kind": "file", "hash": "h-b", "label": "b.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 2, "h-b": 1},
+      "contents_pages": 1,
+      "expect": {
+        "pages": [
+          {"kind": "cover", "label": null, "print": false},
+          {"kind": "pad", "label": null, "print": false},
+          {"kind": "contents", "label": null, "print": false},
+          {"kind": "pad", "label": null, "print": false},
+          {"kind": "divider", "section": "s1", "label": 1, "print": false},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 2, "print": true},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 1, "rot": 0, "label": 3, "print": true},
+          {"kind": "pad", "label": 4, "print": false},
+          {"kind": "file", "section": "s2", "item": "i2", "hash": "h-b", "src": 0, "rot": 0, "label": 5, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "A", "label": 1, "index": 4},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 2, "index": 5},
+          {"kind": "section", "id": "s2", "title": "B", "label": 5, "index": 8},
+          {"kind": "item", "id": "i2", "section": "s2", "title": "b.pdf", "label": 5, "index": 8}
+        ]
+      }
+    },
+    {
+      "name": "contents-without-cover",
+      "note": "The contents can be the first page; it is still front matter.",
+      "stage": {"pipeline": "B6", "model": "B5"},
+      "packet": {
+        "version": 1,
+        "title": "Vector",
+        "options": {"contents": true},
+        "cover": null,
+        "sections": [
+          {
+            "id": "s1",
+            "title": "",
+            "divider": false,
+            "items": [
+              {"id": "i1", "kind": "file", "hash": "h-a", "label": "a.pdf", "pages": null}
+            ]
+          }
+        ]
+      },
+      "page_counts": {"h-a": 1},
+      "contents_pages": 1,
+      "expect": {
+        "pages": [
+          {"kind": "contents", "label": null, "print": false},
+          {"kind": "file", "section": "s1", "item": "i1", "hash": "h-a", "src": 0, "rot": 0, "label": 1, "print": true}
+        ],
+        "entries": [
+          {"kind": "section", "id": "s1", "title": "", "label": 1, "index": 1},
+          {"kind": "item", "id": "i1", "section": "s1", "title": "a.pdf", "label": 1, "index": 1}
+        ]
+      }
+    }
+  ]
+}
