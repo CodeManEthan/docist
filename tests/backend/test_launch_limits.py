@@ -687,3 +687,37 @@ def test_prep_keep_alpha_doesnt_copy_an_rgba_frame():
     from transforms import images
     src = Image.new('RGBA', (8, 8), (1, 2, 3, 4))
     assert images._prep_keep_alpha(src) is src
+
+
+def _bomb_png(width=20000, height=20000):
+    """A PNG of a few dozen bytes whose header declares ``width`` x ``height``
+    (400 MP, over Pillow's own 179 MP limit). Nothing ever decodes it."""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return (struct.pack('>I', len(data)) + kind + data
+                + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff))
+    return (b'\x89PNG\r\n\x1a\n'
+            + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(b'')) + chunk(b'IEND', b''))
+
+
+def test_an_image_over_pillows_own_limit_gets_the_image_sentence(api, monkeypatch):
+    """Build verification MINOR-1: Image.open's DecompressionBombError, at all
+    three open sites (image to PDF, image to image, image to text)."""
+    from pdf_ops import ocr as ocr_ops
+    from transforms import ocr_text
+    monkeypatch.setattr(ocr_text, 'is_available', lambda: True)
+    monkeypatch.setattr(ocr_ops, 'is_available', lambda: True)
+    monkeypatch.setattr(ocr_ops, 'installed_languages', lambda: ['eng'])
+    src = _bomb_png()
+    assert len(src) < 100
+    cases = [('/api/v1/convert', {'target': '.pdf'}), ('/convert/run', {'target': '.jpg'}),
+             ('/convert/run', {'target': '.txt'}), ('/api/v1/merge', {})]
+    for path, fields in cases:
+        files = {'files[]': [(src, 'big.png')]} if 'merge' in path else {'file': (src, 'big.png')}
+        response = post(api, path, files, **fields)
+        assert response.status_code == 400, (path, fields)
+        assert error(response) == limits.image_message(), (path, fields)
+        assert '/tmp' not in error(response)

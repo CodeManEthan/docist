@@ -80,6 +80,10 @@ def convert(input_path, output_path, opts=None):
     """
     try:
         image = Image.open(input_path)
+    except Image.DecompressionBombError as exc:
+        # Over Pillow's own limit (about 179 MP), before check_frame runs:
+        # the same ruled sentence as any image over FRAME_PIXELS.
+        raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
         raise ConversionError(f"Could not open image '{input_path}': {exc}") from exc
 
@@ -96,6 +100,8 @@ def convert(input_path, output_path, opts=None):
             count += 1
     except limits.LimitError:
         raise
+    except Image.DecompressionBombError as exc:
+        raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
         raise ConversionError(f"Could not process image '{input_path}': {exc}") from exc
 

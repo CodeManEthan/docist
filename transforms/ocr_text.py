@@ -94,6 +94,10 @@ def _open(input_path):
         img.load()  # force a real decode so truncated/corrupt data fails here
     except limits.LimitError:
         raise
+    except Image.DecompressionBombError as exc:
+        # Over Pillow's own limit (about 179 MP), before check_frame runs:
+        # the same ruled sentence as any image over FRAME_PIXELS.
+        raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
         raise TransformError(
             f"Could not open image '{input_path}': {exc}"
