@@ -1,7 +1,7 @@
 ---
 type: repo-doc
 project: docist
-description: "Manual hand-test checklist 08 — twelve checks of the Packet Builder page at /packet: mouse drag, touch drag from the handle and long-press selection on iOS and Android, keyboard-only arranging and build, a screen reader pass on moves, selection and the preview, card states, drafts, and a 40-file drop against the rate limit."
+description: "Manual hand-test checklist 08 — thirteen checks of the Packet Builder page at /packet: mouse drag, touch drag from the handle and long-press selection on iOS and Android, keyboard-only arranging and build, a screen reader pass on moves, selection and the preview, card states, drafts, a 40-file drop against the rate limit, and sections with a cover and dividers."
 tags: [checklist, testing, packet-builder, accessibility]
 updated: 2026-10-03
 ---
@@ -162,4 +162,20 @@ In accounts mode (10 POSTs a minute), drop 40 small PDFs at once.
 **Expect:** the cards fill in one at a time; when the limit answers 429 the
 waiting cards say "Waiting…" and carry on by themselves after the
 Retry-After, with no card failing. The page stays usable while it works.
+- [ ] Pass
+
+## K13 Sections, cover and dividers (B3)
+Add three files. Press Add section and type "References", then rename the
+first section "Resume" in its heading. Use Move to section… on one card,
+and on two cards selected together through the bulk bar. From a "+",
+add a Cover page (title, subtitle, date, note) and "Add dividers to all
+sections". Turn on "Start each section on a right-hand page". Build and
+open the PDF.
+**Expect:** the cover is page 1 with no number, and a blank follows it so
+the Resume divider is on page 3. Each divider shows its section's title,
+large and centred, and counts as a page without printing its number. The
+PDF's bookmarks are Resume and References, each with its files nested
+under it. Section up/down, collapse, delete (its files move to the
+neighbouring section, with Undo) and the divider's Edit text form all
+work by keyboard, and Escape in a section name puts the old name back.
 - [ ] Pass
