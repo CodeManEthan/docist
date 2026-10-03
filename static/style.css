@@ -1256,3 +1256,174 @@ legend {
     letter-spacing: 0.06em;
     text-transform: uppercase;
 }
+
+/* =====================================================================
+ * Midnight polish: heading icons, phone nav, spacing and leftovers.
+ * ===================================================================== */
+
+/* Heading icon tile: a stroke icon drawn in the logo gradient. */
+h1 {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.h1-icon {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    background:
+        radial-gradient(90% 90% at 30% 0%, rgba(255, 77, 94, 0.18), transparent 70%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+    border: 1px solid var(--line-strong);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px -10px rgba(255, 77, 94, 0.55);
+}
+
+.h1-icon svg,
+.upload-icon svg {
+    display: block;
+}
+
+.upload-icon {
+    font-size: 0;
+}
+
+/* Merge / Convert: the Word hint sits clear of the drop zone and file list. */
+.upload-area + .upload-hint,
+.file-list + .upload-hint {
+    margin-top: 14px;
+    padding: 0 4px;
+    line-height: 1.5;
+}
+
+/* account.html's page-local input rule drew a thin light border; keep the
+   shared dark field instead. */
+body .login-form input[type="text"] {
+    border: 1px solid var(--line-strong);
+}
+
+/* ---- Phone nav: brand and account on top, tool links wrap below ---- */
+@media (max-width: 800px) {
+    .tool-nav {
+        position: relative;
+        flex-wrap: wrap;
+        overflow: visible;
+        row-gap: 6px;
+        column-gap: 4px;
+        padding: 10px 16px 12px;
+    }
+
+    .tool-nav .nav-brand {
+        order: 0;
+        border-right: 0;
+        padding-right: 0;
+        margin-right: auto;
+    }
+
+    .tool-nav .nav-usage,
+    .tool-nav a[href="/login"],
+    .tool-nav a[href="/account"],
+    .tool-nav a[href="/signup"],
+    .tool-nav .nav-signout-form {
+        order: 1;
+    }
+
+    .tool-nav .nav-usage {
+        margin-left: auto;
+        font-size: 0.75em;
+    }
+
+    /* Line break between the top row and the tool links. */
+    .tool-nav::after {
+        content: "";
+        order: 2;
+        flex-basis: 100%;
+        height: 0;
+    }
+
+    .tool-nav > a:not([href="/login"]):not([href="/account"]):not([href="/signup"]) {
+        order: 3;
+        flex: 0 0 auto;
+        font-size: 0.8em;
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.03);
+        border-color: var(--line);
+    }
+
+    .tool-nav > a.active {
+        background: rgba(255, 77, 94, 0.14);
+        border-color: rgba(255, 77, 94, 0.45);
+    }
+
+    .tool-nav a,
+    .tool-nav .nav-signout {
+        white-space: nowrap;
+    }
+
+    .container {
+        margin-top: 24px;
+    }
+}
+
+@media (max-width: 720px) {
+    .tool-nav {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        padding: 10px 16px 12px;
+    }
+
+    h1 {
+        gap: 12px;
+    }
+
+    .h1-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 11px;
+    }
+}
+
+/* Labels that hold a text or number field: keep the caption on one line and
+   let the field drop below it when the row is narrow. */
+.options-panel label:has(> input[type="text"]),
+.options-panel label:has(> input[type="number"]),
+.options-panel label:has(> input[type="password"]),
+.options-panel label:has(> select) {
+    flex-wrap: wrap;
+    row-gap: 6px;
+}
+
+.options-panel label:has(> input[type="text"]) > input[type="text"],
+.options-panel label:has(> input[type="password"]) > input[type="password"] {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+@media (max-width: 800px) {
+    .tool-nav > a.active:not([href="/login"]):not([href="/account"]) {
+        color: var(--ink);
+        background: rgba(255, 77, 94, 0.16);
+        border-color: rgba(255, 77, 94, 0.5);
+    }
+}
+
+/* Signed in, the top row holds brand + Account + Sign out; the usage line
+   moves to the end of the tool links so nothing wraps under the brand. */
+@media (max-width: 800px) {
+    .tool-nav .nav-usage {
+        order: 4;
+        margin-left: auto;
+        padding: 6px 2px;
+        font-size: 0.72em;
+    }
+
+    .tool-nav a[href="/login"],
+    .tool-nav a[href="/account"],
+    .tool-nav .nav-signout {
+        font-size: 0.82em;
+        padding: 6px 12px;
+    }
+}

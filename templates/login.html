@@ -24,7 +24,7 @@
         {% include "_account_nav.html" %}
     </nav>
     <div class="container login-container">
-        <h1>📄 Sign in</h1>
+        <h1><span class="h1-icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><defs><linearGradient id="h1-grad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#ff8a3d"/><stop offset="0.5" stop-color="#ff4d5e"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient></defs><g fill="none" stroke="url(#h1-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></g></svg></span>Sign in</h1>
         <p class="subtitle">Every tool works without an account. Sign in for a higher daily limit and API keys.</p>
 
         {% for category, message in get_flashed_messages(with_categories=true) %}
