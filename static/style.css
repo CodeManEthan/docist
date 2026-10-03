@@ -811,17 +811,14 @@ body::after {
     border-right: 1px solid var(--line);
 }
 
-/* Logo mark: a folded-corner page in the brand gradient. */
+/* Logo mark: the Docist clip (static/logo.svg). */
 .tool-nav .nav-brand::before {
     content: "";
-    width: 24px;
-    height: 24px;
-    border-radius: 7px;
-    background:
-        linear-gradient(225deg, rgba(255, 255, 255, 0.55) 0 22%, transparent 22.5%),
-        linear-gradient(135deg, var(--accent-2), var(--accent) 45%, var(--indigo));
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset,
-                0 4px 14px rgba(255, 90, 71, 0.35);
+    width: 28px;
+    height: 28px;
+    flex: none;
+    background: url("/static/logo.svg") center / contain no-repeat;
+    filter: drop-shadow(0 4px 12px rgba(255, 90, 71, 0.3));
 }
 
 .tool-nav a {
