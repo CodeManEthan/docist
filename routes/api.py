@@ -8,10 +8,9 @@ the browser routes on purpose:
   * the response *is* the file (``send_file`` with a proper ``download_name``),
     not JSON pointing at ``/download``;
   * nothing is written to OUTPUT_FOLDER -- all work happens inside a
-    ``tempfile.TemporaryDirectory``, so API traffic leaves no residue on disk.
-    Merge and convert stream the finished file from an open handle; the other
-    endpoints still send it from memory (critic review 2026-10-02, blocker 7,
-    left for its own round);
+    ``tempfile.TemporaryDirectory``, in the request's job (pdf_ops/jobs.py),
+    so API traffic leaves no residue on disk. Every endpoint streams the
+    finished file from an open handle;
   * every failure is JSON ``{"error": ...}`` with 400 (user-fixable) or 500
     (unexpected), so clients never have to parse HTML.
 
@@ -26,7 +25,6 @@ each successful POST counts against the caller's daily limit (429 with
 ``code: daily_limit`` once spent; see utils/metering.py), and requests larger
 than ``DOCIST_MAX_UPLOAD_MB`` are rejected with a 413.
 """
-import io
 import mimetypes
 import os
 import tempfile
@@ -78,23 +76,12 @@ class ApiError(Exception):
 # ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
-def _send_bytes(data, download_name):
-    """Stream finished bytes back as an attachment with a sensible mimetype."""
-    mimetype = mimetypes.guess_type(download_name)[0] or 'application/octet-stream'
-    return send_file(
-        io.BytesIO(data),
-        mimetype=mimetype,
-        as_attachment=True,
-        download_name=download_name,
-    )
-
-
 def _stream_path(path, download_name=None):
     """Stream a file produced inside the temp dir back without reading it into
     memory. The open handle outlives the TemporaryDirectory's removal (POSIX
     keeps an unlinked file's data until its last handle closes), and the
-    response closes the handle when it has been sent. Used by merge and
-    convert, which take paid-size uploads (round prelaunch-fixes B2)."""
+    response closes the handle when it has been sent. Every endpoint answers
+    with it (design launch-hardening §10.4, Rule F)."""
     name = download_name or os.path.basename(path)
     mimetype = mimetypes.guess_type(name)[0] or 'application/octet-stream'
     handle = open(path, 'rb')
@@ -107,18 +94,6 @@ def _stream_path(path, download_name=None):
         raise
     response.content_length = size
     return response
-
-
-def _send_path(path, download_name=None):
-    """Read a file produced inside the temp dir and stream it back.
-
-    Reading eagerly (rather than handing ``send_file`` the path) is what makes
-    the TemporaryDirectory contract safe: by the time the response is built the
-    directory can be torn down.
-    """
-    with open(path, 'rb') as fh:
-        data = fh.read()
-    return _send_bytes(data, download_name or os.path.basename(path))
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +358,7 @@ def api_pages_extract():
         except ValueError as exc:
             raise ApiError(str(exc))
 
-        return _send_path(out_path)
+        return _stream_path(out_path)
 
 
 @bp.route('/api/v1/pages/split', methods=['POST'])
@@ -424,7 +399,7 @@ def api_pages_split():
         except ValueError as exc:
             raise ApiError(str(exc))
 
-        return _send_path(zip_path)
+        return _stream_path(zip_path)
 
 
 # ---------------------------------------------------------------------------
@@ -458,4 +433,4 @@ def api_watermark():
         except Exception as exc:  # pragma: no cover - defensive
             raise ApiError(str(exc), status=500)
 
-        return _send_path(out_path)
+        return _stream_path(out_path)

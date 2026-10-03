@@ -407,10 +407,9 @@ def test_api_convert_holds_a_large_png_to_the_free_limit(client, make_user):
 @pytest.fixture
 def no_memory_send(monkeypatch):
     """Fail on the in-memory senders; record what send_file is handed."""
-    def boom(*_a, **_k):
-        raise AssertionError('the result was read into memory')
-    monkeypatch.setattr(api_routes, '_send_bytes', boom)
-    monkeypatch.setattr(api_routes, '_send_path', boom)
+    # launch-hardening §10.4 deleted the in-memory senders outright.
+    assert not hasattr(api_routes, '_send_bytes')
+    assert not hasattr(api_routes, '_send_path')
     sent = []
     real = api_routes.send_file
 

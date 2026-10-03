@@ -36,7 +36,7 @@ import time
 from flask import Request, current_app, g, has_request_context, jsonify, request
 from werkzeug.utils import secure_filename
 
-from pdf_ops import office
+from pdf_ops import limits, office
 from utils.identity import current_user
 from utils.metering import tier
 from utils.validation import UploadValidationError
@@ -53,7 +53,17 @@ _PAGE_UPLOADS = {'merge.index': 'merge.upload_files', 'convert.convert_index': '
 
 
 class LimitedRequest(Request):
-    """``flask.Request`` whose body limit is the one set for this request."""
+    """``flask.Request`` whose body limit is the one set for this request.
+
+    Each non-file multipart field is capped at ``limits.FORM_FIELD_BYTES``
+    (1 MiB). Werkzeug 3.0.6 enforces ``max_form_memory_size`` per field
+    (GHSA-q34m-jh98-gwm2); Flask 3.0.0 has no setting for it, so it is set
+    here (design launch-hardening §11).
+    """
+
+    @property
+    def max_form_memory_size(self):
+        return limits.FORM_FIELD_BYTES
 
     @property
     def max_content_length(self):
@@ -165,8 +175,21 @@ def init_app(app):
 
     @app.errorhandler(413)
     def _too_large(_error):
-        # Werkzeug raised while reading the body: the limit is this request's.
-        return too_large(request.max_content_length or free_limit_bytes())
+        # Werkzeug raised while reading the body, and raises the same error
+        # for a body over the limit, a text field over FORM_FIELD_BYTES and
+        # more than max_form_parts parts. A declared length says which.
+        limit = request.max_content_length or free_limit_bytes()
+        length = request.content_length
+        if length is not None and length > limit:
+            return too_large(limit)
+        if length is not None:
+            message = limits.FORM_MESSAGE      # within the limit: a field or the parts
+        else:
+            message = limits.CHUNKED_MESSAGE   # chunked: any of the three
+        response = jsonify({'error': message, 'code': 'upload_too_large',
+                            'limit_mb': limit_mb(limit)})
+        response.status_code = 413
+        return response
 
     @app.context_processor
     def _inject_upload_limit():
