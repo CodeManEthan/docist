@@ -1,0 +1,392 @@
+{
+  "version": 1,
+  "description": "Packet builder endpoint shapes (design.md §4.3). B2's fake server serves these bodies; B1's route tests assert their responses against them. A change to an endpoint's shape is a change to this file, made on the branch that owns it at the time, in a fixture-only commit.",
+  "conventions": {
+    "refusal_body": "Every refusal is JSON with a human `error` string. Every packet refusal also carries a `code`. Only two shared refusals have no code: the CSRF 400 and the POST rate-limit 429 (see shared below).",
+    "ids": "stage_id is secrets.token_urlsafe(16): 22 characters of [A-Za-z0-9_-]. holder (the tab id) is 22 to 32 characters of the same alphabet.",
+    "key": "hash:engine:paper. hash is the sha256 of the uploaded bytes in lowercase hex. A PDF has empty engine and paper, so its key is '<hash>::' whatever the paper.",
+    "type": "The upload's extension, lowercase, without the dot.",
+    "not_found": "A bad id, a bad page index, an expired id and another owner's id all get the same 404. The client reads any 404 on a staged id as expired.",
+    "build_refusal": "A build refusal from the packet checks or from packet_pipeline's PacketError is 400 {error, code, items}: code is PacketError.code (the first item's code when items is not empty), items lists {id, code} for each bad item and is empty for a packet-wide refusal. Item codes: expired, stale, out_of_range, unreadable, encrypted, invalid. Packet-wide codes: invalid, empty, too_large (over the per-build byte cap, or over 2000 output pages), unsupported (a cover, divider or contents page with no renderer yet)."
+  },
+  "samples": {
+    "holder": "EZM1BEvzSWxoVlti-shb3w",
+    "stage_ids": [
+      "MtAE-ns2NpeMj_2cYXa5uw",
+      "Id6efNf-xfIPLeNc9YYhUQ",
+      "kGGotCwjcKXCzN0RLPuzSg"
+    ],
+    "expired_stage_id": "opGk5pSvU5a10JKiN529WQ",
+    "hashes": {
+      "resume.docx": "a83a31320d921b888a48fa5edd0b4b5a29984de6e96bf7b8ac7d29ba06caf616",
+      "scan.pdf": "59ad1b2fc74287ded1bba7af67765d23ad4a49f1ae51902cc2ed3f8ebee96cfa"
+    }
+  },
+  "endpoints": {
+    "stage": {
+      "method": "POST",
+      "path": "/packet/stage",
+      "request": {
+        "content_type": "multipart/form-data",
+        "fields": {
+          "file": "exactly one file",
+          "paper": "letter or a4",
+          "holder": "the tab id"
+        }
+      },
+      "responses": {
+        "ok_docx": {
+          "status": 200,
+          "body": {
+            "stage_id": "MtAE-ns2NpeMj_2cYXa5uw",
+            "pages": 2,
+            "name": "resume.docx",
+            "type": "docx",
+            "key": "a83a31320d921b888a48fa5edd0b4b5a29984de6e96bf7b8ac7d29ba06caf616:reflow:letter",
+            "bytes": 48213
+          }
+        },
+        "ok_pdf": {
+          "status": 200,
+          "body": {
+            "stage_id": "Id6efNf-xfIPLeNc9YYhUQ",
+            "pages": 4,
+            "name": "scan.pdf",
+            "type": "pdf",
+            "key": "59ad1b2fc74287ded1bba7af67765d23ad4a49f1ae51902cc2ed3f8ebee96cfa::",
+            "bytes": 1830554
+          }
+        },
+        "rejected": {
+          "status": 400,
+          "note": "The file can't be read or converted: validate_upload, a converter error, or one of launch-hardening's limits. `error` is the short reason the card shows. A PDF the job can't open is `unreadable`; one that needs a password is `encrypted` (below).",
+          "body": {
+            "error": "This file is not a valid PDF.",
+            "code": "rejected"
+          }
+        },
+        "unreadable": {
+          "status": 400,
+          "body": {
+            "error": "This PDF is damaged and can't be read.",
+            "code": "unreadable"
+          }
+        },
+        "encrypted": {
+          "status": 400,
+          "body": {
+            "error": "This PDF needs a password. Remove the password and add it again.",
+            "code": "encrypted"
+          }
+        },
+        "too_large": {
+          "status": 400,
+          "note": "The converted PDF is over the tier's per-build cap (§4.6), so no build could use it.",
+          "body": {
+            "error": "This file is 61 MB as a PDF. A packet can use at most 50 MB of files.",
+            "code": "too_large",
+            "limit_bytes": 52428800
+          }
+        },
+        "staging_quota": {
+          "status": 400,
+          "body": {
+            "error": "Over your staging limit.",
+            "code": "staging_quota",
+            "cap_bytes": 209715200,
+            "cap_files": 200,
+            "subject_bytes": 207618048,
+            "subject_files": 31,
+            "holder_bytes": 188743680,
+            "holder_files": 27
+          }
+        },
+        "staging_full": {
+          "status": 400,
+          "body": {
+            "error": "Docist is busy, try again later.",
+            "code": "staging_full"
+          }
+        },
+        "upload_too_large": {
+          "status": 413,
+          "note": "From utils/uploads.py (too_large), unchanged.",
+          "body": {
+            "error": "This upload is over the 50 MB limit.",
+            "code": "upload_too_large",
+            "limit_mb": 50
+          }
+        },
+        "busy": {
+          "status": 429,
+          "headers": {
+            "Retry-After": "3"
+          },
+          "body": {
+            "error": "Another file is still being prepared. Trying again shortly.",
+            "code": "busy"
+          }
+        }
+      }
+    },
+    "hold": {
+      "method": "POST",
+      "path": "/packet/hold",
+      "request": {
+        "content_type": "application/json",
+        "body": {
+          "holder": "EZM1BEvzSWxoVlti-shb3w",
+          "keep": [
+            "MtAE-ns2NpeMj_2cYXa5uw",
+            "Id6efNf-xfIPLeNc9YYhUQ",
+            "opGk5pSvU5a10JKiN529WQ"
+          ],
+          "release": [
+            "kGGotCwjcKXCzN0RLPuzSg"
+          ]
+        },
+        "limits": "keep and release together carry at most 500 ids."
+      },
+      "responses": {
+        "ok": {
+          "status": 200,
+          "note": "live maps each kept id that is still live to its page count. gone lists kept ids that are expired, unknown or another owner's. Released ids appear in neither.",
+          "body": {
+            "live": {
+              "MtAE-ns2NpeMj_2cYXa5uw": 2,
+              "Id6efNf-xfIPLeNc9YYhUQ": 4
+            },
+            "gone": [
+              "opGk5pSvU5a10JKiN529WQ"
+            ]
+          }
+        },
+        "bad_request": {
+          "status": 400,
+          "body": {
+            "error": "Bad hold request.",
+            "code": "bad_request"
+          }
+        }
+      }
+    },
+    "thumb": {
+      "method": "GET",
+      "path": "/packet/stage/<stage_id>/thumb/<n>?w=160",
+      "request": {
+        "w": "160 or 320; other values are clamped to those."
+      },
+      "responses": {
+        "ok": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "image/png",
+            "Cache-Control": "private, max-age=3600",
+            "ETag": "\"<etag>\""
+          },
+          "note": "A page over FRAME_PIXELS gets a 200 'too large to preview' tile image, not an error."
+        },
+        "not_found": {
+          "status": 404,
+          "body": {
+            "error": "Not found.",
+            "code": "not_found"
+          }
+        },
+        "busy": {
+          "status": 429,
+          "headers": {
+            "Retry-After": "2"
+          },
+          "body": {
+            "error": "Too many previews at once.",
+            "code": "busy"
+          }
+        }
+      }
+    },
+    "page": {
+      "method": "GET",
+      "path": "/packet/stage/<stage_id>/page/<n>?w=1200",
+      "request": {
+        "w": "160, 320 or 1200; other values are clamped to those."
+      },
+      "responses": {
+        "ok": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "image/png",
+            "Cache-Control": "private, max-age=3600",
+            "ETag": "\"<etag>\""
+          }
+        },
+        "not_found": {
+          "status": 404,
+          "body": {
+            "error": "Not found.",
+            "code": "not_found"
+          }
+        },
+        "busy": {
+          "status": 429,
+          "headers": {
+            "Retry-After": "2"
+          },
+          "body": {
+            "error": "Too many previews at once.",
+            "code": "busy"
+          }
+        }
+      }
+    },
+    "build": {
+      "method": "POST",
+      "path": "/packet/build",
+      "request": {
+        "content_type": "application/json",
+        "body": {
+          "packet": "the packet document (design.md §3.1)",
+          "stages": {
+            "<hash>": "<stage_id>"
+          },
+          "holder": "EZM1BEvzSWxoVlti-shb3w"
+        }
+      },
+      "responses": {
+        "ok": {
+          "status": 200,
+          "headers": {
+            "X-Docist-Usage-Remaining": "7",
+            "X-Docist-Usage-Limit": "10"
+          },
+          "note": "X-Docist-Usage-Remaining and X-Docist-Usage-Limit read 'unlimited' for a tier with no limit. filename is served by the existing GET /download?filename=.",
+          "body": {
+            "filename": "q8Zr2Lk0_Application.pdf",
+            "pages": 14
+          }
+        },
+        "bad_items": {
+          "status": 400,
+          "note": "PacketError or the route's own fit check with items. code is the first item's code. Item codes: expired (missing, unknown, expired or another owner's stage), stale (refs that don't fit the stage), out_of_range (a src at or past the page count), unreadable, encrypted, invalid.",
+          "body": {
+            "error": "Some files can't be used. Re-add them and build again.",
+            "code": "expired",
+            "items": [
+              {
+                "id": "i1",
+                "code": "expired"
+              },
+              {
+                "id": "i3",
+                "code": "stale"
+              },
+              {
+                "id": "i4",
+                "code": "out_of_range"
+              },
+              {
+                "id": "i5",
+                "code": "unreadable"
+              },
+              {
+                "id": "i6",
+                "code": "encrypted"
+              }
+            ]
+          }
+        },
+        "too_large": {
+          "status": 400,
+          "note": "Over the per-build byte cap (§4.6).",
+          "body": {
+            "error": "This packet uses 62 MB of files. A packet can use at most 50 MB.",
+            "code": "too_large",
+            "items": [],
+            "limit_bytes": 52428800
+          }
+        },
+        "too_many_pages": {
+          "status": 400,
+          "note": "PacketError from packet_pipeline's 2000-page cap; it reuses too_large.",
+          "body": {
+            "error": "A packet can have at most 2000 pages.",
+            "code": "too_large",
+            "items": []
+          }
+        },
+        "invalid": {
+          "status": 400,
+          "note": "A malformed packet, item or options. items lists the bad items when known.",
+          "body": {
+            "error": "This packet is malformed.",
+            "code": "invalid",
+            "items": [
+              {
+                "id": "i2",
+                "code": "invalid"
+              }
+            ]
+          }
+        },
+        "empty": {
+          "status": 400,
+          "body": {
+            "error": "The packet has no pages.",
+            "code": "empty",
+            "items": []
+          }
+        },
+        "unsupported": {
+          "status": 400,
+          "note": "A cover, divider or contents page before its renderer exists (B3, B5).",
+          "body": {
+            "error": "Cover pages aren't available yet.",
+            "code": "unsupported",
+            "items": []
+          }
+        },
+        "daily_limit": {
+          "status": 429,
+          "headers": {
+            "Retry-After": "3600"
+          },
+          "note": "From utils/metering.py check(), unchanged.",
+          "body": {
+            "error": "You've used today's 10 free operations. Create a free account and verify your email for 20 a day at /signup — or come back after midnight UTC.",
+            "code": "daily_limit",
+            "limit": 10
+          }
+        },
+        "busy": {
+          "status": 429,
+          "headers": {
+            "Retry-After": "5"
+          },
+          "body": {
+            "error": "Another file is still being prepared. Trying again shortly.",
+            "code": "busy"
+          }
+        }
+      }
+    }
+  },
+  "shared": {
+    "csrf": {
+      "status": 400,
+      "note": "utils/csrf.py _refuse() for a fetch. No code. The client shows 'Reload the page. Your arrangement is saved.'",
+      "body": {
+        "error": "Session expired — reload the page and try again."
+      }
+    },
+    "rate_limit": {
+      "status": 429,
+      "headers": {
+        "Retry-After": "12"
+      },
+      "note": "app.py _rate_limit(), POST only. No code.",
+      "body": {
+        "error": "Too many requests — please wait a moment and try again."
+      }
+    }
+  }
+}
