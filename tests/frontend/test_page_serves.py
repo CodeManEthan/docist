@@ -161,6 +161,14 @@ def test_served_pages_link_to_the_packet_builder(client):
     assert packet_nav.count('class="active"') == 1
 
 
+def test_the_merge_page_links_to_the_packet_builder(client):
+    # Round note [C2]: the packet builder sits beside the merge page, with a
+    # link from it, outside the nav.
+    body = client.get("/").get_data(as_text=True)
+    page = NAV_RE.sub("", body)
+    assert '<a href="/packet">Packet Builder</a>' in page
+
+
 def test_packet_fixture_csrf_text_matches_the_server():
     # The page tells the CSRF refusal from other code-less 400s by the
     # error text, which packet-api.json pins (B2 deviation 7). If the
