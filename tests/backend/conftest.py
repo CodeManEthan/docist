@@ -6,8 +6,9 @@ documents the converters accept, plus a real (reportlab) PDF and a minimal,
 hand-zipped OOXML ``.docx`` (python-docx is intentionally NOT a dependency).
 
 The Flask ``app`` module is imported once (module singleton). The ``client``
-fixture repoints ``UPLOAD_FOLDER``/``OUTPUT_FOLDER`` at per-test ``tmp_path``
-subdirectories so tests never touch the real ``uploads/`` or ``output/`` dirs
+fixture repoints ``UPLOAD_FOLDER``/``OUTPUT_FOLDER``/``STAGING_FOLDER`` at
+per-test ``tmp_path`` subdirectories so tests never touch the real
+``uploads/``, ``output/`` or ``staging/`` dirs
 (the /upload endpoint clears the upload folder on every request).
 
 The database is the in-memory SQLite that tests/conftest.py selects; the
@@ -228,6 +229,7 @@ def client(tmp_path):
     a fresh in-memory database, and CSRF + metering off."""
     upload_dir = tmp_path / "uploads"
     output_dir = tmp_path / "output"
+    staging_dir = tmp_path / "staging"
     upload_dir.mkdir()
     output_dir.mkdir()
 
@@ -241,10 +243,11 @@ def client(tmp_path):
         db.create_all()
 
     saved = {key: app.config.get(key) for key in (
-        "UPLOAD_FOLDER", "OUTPUT_FOLDER", "CSRF_ENABLED", "METERING_ENABLED",
+        "UPLOAD_FOLDER", "OUTPUT_FOLDER", "STAGING_FOLDER", "CSRF_ENABLED", "METERING_ENABLED",
     )}
     app.config["UPLOAD_FOLDER"] = str(upload_dir)
     app.config["OUTPUT_FOLDER"] = str(output_dir)
+    app.config["STAGING_FOLDER"] = str(staging_dir)
     app.config["TESTING"] = True
     app.config["CSRF_ENABLED"] = False
     app.config["METERING_ENABLED"] = False
@@ -253,6 +256,7 @@ def client(tmp_path):
     # Attach the dirs so tests can inspect the filesystem.
     test_client.upload_dir = upload_dir
     test_client.output_dir = output_dir
+    test_client.staging_dir = staging_dir
     try:
         yield test_client
     finally:

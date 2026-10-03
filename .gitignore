@@ -31,6 +31,7 @@ instance/
 # Application specific
 uploads/
 output/
+staging/
 tests/manual/fixtures/
 *.pdf
 

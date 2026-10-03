@@ -39,6 +39,11 @@ local development):
     DOCIST_RATE_WINDOW             rate-limit window in seconds (default 60)
     DOCIST_OUTPUT_MAX_AGE_MINUTES  results older than this are pruned (default
                                    1440 = 24h; pruning runs opportunistically)
+    DOCIST_STAGING_TTL_MINUTES     a staged packet file expires this long after
+                                   its last hold renewal (default 120)
+    DOCIST_STAGING_MAX_HOURS       a staged packet file expires this long after
+                                   it was staged, however often it is renewed
+                                   (default 24)
     DOCIST_COOKIE_SECURE           set to 1 when serving over HTTPS
     FLASK_DEBUG                    set to 1 for the dev server's debugger
 
@@ -76,7 +81,7 @@ from models import User, database_url, db, utcnow
 from pdf_ops import jobs, office
 from pdf_ops.limits import LimitError
 from utils import csrf, identity, metering, uploads
-from utils.cleanup import OutputJanitor
+from utils.cleanup import OutputJanitor, StagingJanitor
 from utils.ratelimit import RateLimiter
 
 
@@ -166,8 +171,10 @@ app = Flask(__name__)
 os.makedirs(app.instance_path, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['OUTPUT_FOLDER'] = 'output'
+app.config['STAGING_FOLDER'] = 'staging'   # the packet builder's staged files (utils/staging.py)
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
+os.makedirs(app.config['STAGING_FOLDER'], exist_ok=True)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url(os.environ)
 if os.environ.get('DOCIST_SECRET_KEY'):
@@ -189,6 +196,8 @@ app.config['RATE_LIMIT_REQUESTS'] = _env_int('DOCIST_RATE_LIMIT', 30)
 app.config['RATE_LIMIT_WINDOW'] = _env_int('DOCIST_RATE_WINDOW', 60)
 app.config['RATE_LIMIT_ENABLED'] = True
 app.config['OUTPUT_MAX_AGE'] = _env_int('DOCIST_OUTPUT_MAX_AGE_MINUTES', 24 * 60) * 60
+app.config['STAGING_TTL_MINUTES'] = _env_int('DOCIST_STAGING_TTL_MINUTES', 120)
+app.config['STAGING_MAX_HOURS'] = _env_int('DOCIST_STAGING_MAX_HOURS', 24)
 app.config['CSRF_ENABLED'] = True
 app.config['METERING_ENABLED'] = True
 app.config['LIMIT_ANON'] = _env_int('DOCIST_LIMIT_ANON', 10)
@@ -265,6 +274,7 @@ app.limiter = RateLimiter(
     app.config['RATE_LIMIT_REQUESTS'], app.config['RATE_LIMIT_WINDOW']
 )
 _janitor = OutputJanitor(max_age=app.config['OUTPUT_MAX_AGE'], interval=300)
+_staging_janitor = StagingJanitor(interval=300)
 
 
 def _rate_limit():
@@ -286,10 +296,12 @@ def _before_request():
     """The one before-request chain, in order. The cheapest refusal runs first,
     and nothing that costs a DB lookup or a body parse runs before the per-IP
     limiter."""
-    # 1. Prune stale results opportunistically (throttled inside the janitor).
-    #    Skipped under test so suites never touch the real output folder.
+    # 1. Prune stale results and sweep the packet staging store
+    #    opportunistically (each throttled inside its janitor). Skipped under
+    #    test so suites never touch the real output or staging folders.
     if not app.testing:
         _janitor.maybe_prune(app.config['OUTPUT_FOLDER'])
+        _staging_janitor.maybe_sweep(app.config)
 
     # 2. Per-IP POST rate limit, so 401s and CSRF 400s are limited too.
     if request.method == 'POST' and app.config['RATE_LIMIT_ENABLED']:

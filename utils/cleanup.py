@@ -49,3 +49,27 @@ class OutputJanitor:
             return 0
         self._last_run = now
         return prune_old_files(folder, self.max_age, now=now)
+
+
+class StagingJanitor:
+    """The packet staging store's sweep (utils/staging.py), at most once per
+    interval, on the same opportunistic schedule as :class:`OutputJanitor`.
+
+    A sweep removes expired and holderless entries, skipping any entry whose
+    lock is held (a build or render is reading it), clears lane files
+    untouched for a day, and rebuilds the ledger. ``prune_old_files`` is flat
+    and mtime-only, so it isn't reused here.
+    """
+
+    def __init__(self, interval):
+        self.interval = interval
+        self._last_run = 0.0
+
+    def maybe_sweep(self, config, now=None):
+        if now is None:
+            now = time.time()
+        if now - self._last_run < self.interval:
+            return 0
+        self._last_run = now
+        from utils.staging import Store
+        return Store.from_config(config).sweep()
