@@ -4,6 +4,7 @@ These exercise the real Flask app via its test_client, confirming the page
 references the extracted /static/app.js, that the asset is served non-empty,
 and that /formats still advertises PDF support.
 """
+import json
 import os
 import sys
 
@@ -15,6 +16,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import app as app_module  # noqa: E402
+from utils import csrf  # noqa: E402
 
 
 @pytest.fixture()
@@ -112,3 +114,14 @@ def test_packet_page_is_not_linked_yet(client):
     # reachable by URL only.
     for path in ("/", "/convert", "/pages", "/print", "/export", "/security", "/api"):
         assert 'href="/packet"' not in client.get(path).get_data(as_text=True), path
+
+
+def test_packet_fixture_csrf_text_matches_the_server():
+    # The page tells the CSRF refusal from other code-less 400s by the
+    # error text, which packet-api.json pins (B2 deviation 7). If the
+    # server's message changes, this fails before the page stops seeing it.
+    fixture = os.path.join(PROJECT_ROOT, "tests", "fixtures", "packet-api.json")
+    with open(fixture, encoding="utf-8") as fh:
+        shared = json.load(fh)["shared"]["csrf"]
+    assert shared["body"]["error"] == csrf._MESSAGE
+    assert csrf._MESSAGE.startswith("Session expired")
