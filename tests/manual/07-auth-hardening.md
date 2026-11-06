@@ -1,11 +1,3 @@
----
-type: repo-doc
-project: docist
-description: "Manual hand-test checklist 07 — sixteen checks of accounts and hardening against a server started in accounts mode: anonymous daily limit and nav usage line, signup, email verification via the console sender, API key lifecycle, owner-bound downloads, CSRF, logout, password change and reset, set-plan, throttles, 413, rate limiting, traversal guard and content sniffing."
-tags: [checklist, testing, auth, accounts, secrets]
-updated: 2026-09-25
----
-
 # 07 — Accounts & hardening
 
 **Restart the server in accounts mode first**, with tiny limits so every

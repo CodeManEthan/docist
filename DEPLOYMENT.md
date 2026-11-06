@@ -1,11 +1,3 @@
----
-type: repo-doc
-project: docist
-description: "Production deployment recipe for Docist: the one-command gunicorn start, every DOCIST_* environment variable, accounts and daily limits, email sender setup, Railway with Postgres, nginx and systemd templates, and honest limitations."
-tags: [howto, deployment, ops, auth, accounts]
-updated: 2026-09-25
----
-
 # Deploying Docist
 
 Docist's dev server (`python app.py`) is for localhost only. For anything

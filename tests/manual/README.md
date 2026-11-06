@@ -1,11 +1,3 @@
----
-type: repo-doc
-project: docist
-description: "Index and operating instructions for Docist's manual hand-test suite: what hand-testing covers that the automated suites cannot, per-session fixture setup, the two server modes and why their overrides exist, the seven checklists in order, and the smoke subset."
-tags: [index, testing, checklist]
-updated: 2026-09-25
----
-
 # Docist manual hand-tests
 
 Checklists for hand-testing every user-facing feature. Automated tests
