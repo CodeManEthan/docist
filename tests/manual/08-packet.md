@@ -1,11 +1,3 @@
----
-type: repo-doc
-project: docist
-description: "Manual hand-test checklist 08 — fifteen checks of the Packet Builder page at /packet: mouse drag, touch drag from the handle and long-press selection on iOS and Android, keyboard-only arranging and build, a screen reader pass on moves, selection and the preview, card states, drafts, a 40-file drop against the rate limit, sections with a cover and dividers, the contents page, and the page numbers on the page images."
-tags: [checklist, testing, packet-builder, accessibility]
-updated: 2026-10-03
----
-
 # 08 — Packet Builder
 
 The page is `/packet`. Every page's nav links to it as "Packet Builder",
