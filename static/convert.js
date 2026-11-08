@@ -86,6 +86,9 @@ function initConvertApp() {
     const ocrRow = document.getElementById('ocrRow');
 
     let selectedFile = null;
+    // Bumped whenever the result goes stale, so a run still in flight
+    // when the file or target changes drops its response.
+    let runToken = 0;
     let currentTargets = [];
     let paperTargets = [];
     let ocrTargets = [];
@@ -202,6 +205,8 @@ function initConvertApp() {
     });
 
     targetSelect.addEventListener('change', () => {
+        clearDownload();
+        message.style.display = 'none';
         updateRunBtn();
         updateExtras();
     });
@@ -228,14 +233,16 @@ function initConvertApp() {
         if (extras.paper && paperEl) formData.append('paper', paperEl.value);
         if (extras.ocr) formData.append('language', selectedLanguage(document));
 
+        clearDownload();
+        const run = runToken;
         runBtn.disabled = true;
         loading.style.display = 'block';
         message.style.display = 'none';
-        clearDownload();
 
         try {
             const response = await fetch('/convert/run', { method: 'POST', body: formData });
             const result = await response.json();
+            if (run !== runToken) return;
             loading.style.display = 'none';
             if (response.ok && result.success) {
                 showMessage('success', result.message);
@@ -244,6 +251,7 @@ function initConvertApp() {
                 showMessage('error', result.error || 'An error occurred.');
             }
         } catch (err) {
+            if (run !== runToken) return;
             loading.style.display = 'none';
             showMessage('error', 'Failed to connect to server.');
         } finally {
@@ -251,7 +259,11 @@ function initConvertApp() {
         }
     });
 
+    // Drop the last run's result: its download button, and the response of
+    // any run still in flight.
     function clearDownload() {
+        runToken += 1;
+        loading.style.display = 'none';
         const existing = document.getElementById('downloadBtn');
         if (existing) existing.remove();
     }

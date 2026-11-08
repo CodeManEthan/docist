@@ -231,7 +231,11 @@ function initApp() {
     syncNumberControls();
 
     document.querySelectorAll('input[name="mergeMode"]').forEach((el) => {
-        el.addEventListener('change', syncModeControls);
+        el.addEventListener('change', () => {
+            clearMergeResult();
+            message.style.display = 'none';
+            syncModeControls();
+        });
     });
 
     // Read the option panel into the shape buildMergeOptions expects.
@@ -256,6 +260,9 @@ function initApp() {
     let selectedFiles = [];
     let acceptedExtensions = ['.pdf'];
     let dragSrcIndex = null;
+    // Bumped whenever the merged result goes stale, so a merge still in
+    // flight when the file list or mode changes drops its response.
+    let mergeToken = 0;
     // File object -> { state: 'loading'|'ready'|'error', url: dataUrl }.
     // Keyed by the File itself so reordering/removal can't desync it.
     const thumbCache = new Map();
@@ -318,6 +325,7 @@ function initApp() {
         if (files.length === 0) return;
         // Append new files to existing list instead of replacing
         selectedFiles = [...selectedFiles, ...files];
+        clearMergeResult();
         files.forEach(queueThumb);
         displayFiles();
         updateMergeBtn();
@@ -375,6 +383,8 @@ function initApp() {
         const next = moveItem(selectedFiles, from, to);
         if (next === selectedFiles) return; // no-op, keep the current render
         selectedFiles = next;
+        clearMergeResult();
+        message.style.display = 'none';
         displayFiles();
     }
 
@@ -384,6 +394,8 @@ function initApp() {
         // Drop the cached preview unless the same File is still in the list
         // (the user can add the very same file twice).
         if (dropped && !selectedFiles.includes(dropped)) thumbCache.delete(dropped);
+        clearMergeResult();
+        message.style.display = 'none';
         displayFiles();
         updateMergeBtn();
     }
@@ -482,6 +494,8 @@ function initApp() {
         const paperEl = document.getElementById('paperSelect');
         if (paperEl) formData.append('paper', paperEl.value);
 
+        clearMergeResult();
+        const run = mergeToken;
         mergeBtn.disabled = true;
         loading.style.display = 'block';
         message.style.display = 'none';
@@ -493,6 +507,7 @@ function initApp() {
             });
 
             const result = await response.json();
+            if (run !== mergeToken) return;
 
             loading.style.display = 'none';
 
@@ -501,39 +516,7 @@ function initApp() {
                 message.textContent = result.message;
                 message.style.display = 'block';
 
-                const outputFilename = result.filename;
-
-                const downloadBtn = document.createElement('button');
-                downloadBtn.className = 'btn download-btn';
-                downloadBtn.textContent = '⬇️ Download Merged PDF';
-                downloadBtn.onclick = () => {
-                    window.location.href = '/download?filename=' + encodeURIComponent(outputFilename);
-                    setTimeout(() => {
-                        downloadBtn.textContent = '✓ Downloaded! Click to download again';
-                    }, 1000);
-                };
-
-                const btnContainer = mergeBtn.parentNode;
-                btnContainer.insertBefore(downloadBtn, message);
-
-                mergeBtn.style.display = 'none';
-
-                const resetBtn = document.createElement('button');
-                resetBtn.className = 'btn';
-                resetBtn.textContent = '🔄 Start Over';
-                resetBtn.style.marginTop = '10px';
-                resetBtn.onclick = () => {
-                    downloadBtn.remove();
-                    resetBtn.remove();
-                    mergeBtn.style.display = 'block';
-                    message.style.display = 'none';
-                    selectedFiles = [];
-                    thumbCache.clear();
-                    displayFiles();
-                    updateMergeBtn();
-                    fileInput.value = '';
-                };
-                btnContainer.insertBefore(resetBtn, message);
+                showMergeResult(result.filename);
             } else {
                 message.className = 'message error';
                 message.textContent = result.error || 'An error occurred';
@@ -541,6 +524,7 @@ function initApp() {
                 updateMergeBtn();
             }
         } catch (error) {
+            if (run !== mergeToken) return;
             loading.style.display = 'none';
             message.className = 'message error';
             message.textContent = 'Failed to connect to server';
@@ -548,6 +532,56 @@ function initApp() {
             updateMergeBtn();
         }
     });
+
+    // Drop the merged result: the download and Start Over buttons go, the
+    // Merge button comes back, and a merge still in flight is ignored.
+    function clearMergeResult() {
+        mergeToken += 1;
+        loading.style.display = 'none';
+        ['downloadBtn', 'resetBtn'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        });
+        mergeBtn.style.display = 'block';
+        updateMergeBtn();
+    }
+
+    // After a merge: one download button for this result, Start Over in
+    // place of the Merge button.
+    function showMergeResult(outputFilename) {
+        clearMergeResult();
+        const btnContainer = mergeBtn.parentNode;
+
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'btn download-btn';
+        downloadBtn.id = 'downloadBtn';
+        downloadBtn.textContent = '⬇️ Download Merged PDF';
+        downloadBtn.onclick = () => {
+            window.location.href = '/download?filename=' + encodeURIComponent(outputFilename);
+            setTimeout(() => {
+                downloadBtn.textContent = '✓ Downloaded! Click to download again';
+            }, 1000);
+        };
+        btnContainer.insertBefore(downloadBtn, message);
+
+        mergeBtn.style.display = 'none';
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn';
+        resetBtn.id = 'resetBtn';
+        resetBtn.textContent = '🔄 Start Over';
+        resetBtn.style.marginTop = '10px';
+        resetBtn.onclick = () => {
+            clearMergeResult();
+            message.style.display = 'none';
+            selectedFiles = [];
+            thumbCache.clear();
+            displayFiles();
+            updateMergeBtn();
+            fileInput.value = '';
+        };
+        btnContainer.insertBefore(resetBtn, message);
+    }
 
     // Reflect the initial mode (standard) in the panel + merge button.
     syncModeControls();

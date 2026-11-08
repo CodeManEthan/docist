@@ -97,6 +97,9 @@ function initPrintApp() {
     };
 
     let selectedFile = null;
+    // Bumped whenever the result goes stale, so a run still in flight
+    // when the file or operation changes drops its response.
+    let runToken = 0;
 
     function currentOperation() {
         const checked = opRadios.find(r => r.checked);
@@ -143,6 +146,7 @@ function initPrintApp() {
             return;
         }
         selectedFile = file;
+        clearDownload();
         fileName.textContent = file.name;
         fileName.style.display = 'block';
         message.style.display = 'none';
@@ -155,7 +159,11 @@ function initPrintApp() {
         message.style.display = 'block';
     }
 
-    opRadios.forEach(r => r.addEventListener('change', showActivePanel));
+    opRadios.forEach(r => r.addEventListener('change', () => {
+        clearDownload();
+        message.style.display = 'none';
+        showActivePanel();
+    }));
 
     // ---- Run ----
     runBtn.addEventListener('click', async () => {
@@ -179,14 +187,16 @@ function initPrintApp() {
         const paperEl = document.getElementById('paperSelect');
         if (paperEl) formData.append('paper', paperEl.value);
 
+        clearDownload();
+        const run = runToken;
         runBtn.disabled = true;
         loading.style.display = 'block';
         message.style.display = 'none';
-        clearDownload();
 
         try {
             const response = await fetch('/print/run', { method: 'POST', body: formData });
             const result = await response.json();
+            if (run !== runToken) return;
             loading.style.display = 'none';
 
             if (response.ok && result.success) {
@@ -196,6 +206,7 @@ function initPrintApp() {
                 showMessage('error', result.error || 'An error occurred.');
             }
         } catch (err) {
+            if (run !== runToken) return;
             loading.style.display = 'none';
             showMessage('error', 'Failed to connect to server.');
         } finally {
@@ -203,7 +214,11 @@ function initPrintApp() {
         }
     });
 
+    // Drop the last run's result: its download button, and the response of
+    // any run still in flight.
     function clearDownload() {
+        runToken += 1;
+        loading.style.display = 'none';
         const existing = document.getElementById('downloadBtn');
         if (existing) existing.remove();
     }
