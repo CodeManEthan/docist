@@ -1453,6 +1453,18 @@ button.pk-gc-row:focus-visible .pk-gc-t {
     .pk-flag-gap {
         width: 22px;
     }
+
+    /* A card's file name takes up to two lines, so names that share a
+       prefix stay apart. */
+    .pk-name {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.3;
+    }
 }
 
 .pk-bulk [hidden] {

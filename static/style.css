@@ -1480,3 +1480,81 @@ body .login-form input[type="text"] {
 .site-footer a:hover {
     color: var(--ink);
 }
+
+/* ---- API parameter tables: each scrolls inside its panel ---- */
+.api-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* ---- Narrow phones: a tighter card, file names on up to two lines ---- */
+@media (max-width: 520px) {
+    body {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .tool-nav {
+        width: calc(100% + 20px);
+        margin: 0 -10px;
+    }
+
+    .container {
+        padding: 24px 16px;
+    }
+
+    .options-panel,
+    body .api-endpoint {
+        padding: 12px;
+    }
+
+    /* The account page's key table is wider than a phone card once a key
+       exists (the key prefix and the Revoke button do not wrap): it scrolls
+       inside the card instead of pushing the page sideways. */
+    .key-table {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    .key-table td code {
+        overflow-wrap: anywhere;
+    }
+
+    .file-info {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.3;
+        min-width: 0;
+    }
+
+    /* Merge rows: the size moves under the name, so the name gets the
+       width the size column took. */
+    .file-item:has(> .file-size) {
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "handle thumb info actions"
+            "handle thumb size actions";
+        align-items: center;
+        column-gap: 8px;
+        row-gap: 2px;
+    }
+
+    .file-item:has(> .file-size):not(:has(> .file-thumb)) {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "handle info actions"
+            "handle size actions";
+    }
+
+    .file-item > .drag-handle { grid-area: handle; }
+    .file-item > .file-thumb { grid-area: thumb; }
+    .file-item > .file-info { grid-area: info; align-self: end; }
+    .file-item > .file-size { grid-area: size; align-self: start; font-size: 0.85em; }
+    .file-item > .file-actions { grid-area: actions; }
+}
