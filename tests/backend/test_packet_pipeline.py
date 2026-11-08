@@ -27,15 +27,6 @@ from pdf_ops.packet import (
     DEFAULT_OPTIONS, MAX_OUTPUT_PAGES, PHASE1_NAME, PacketError, packet_pipeline, page_plan,
 )
 
-# This file's stage: B6 wrote it, B1 added the build route's byte-cap and
-# stale cases, B3 the cover, divider and nested-outline cases, and B5 the
-# contents page, and B7 the number placement (its vectors under
-# placement_vectors). The fixture's stage order decides which vectors are
-# later; every page-plan vector is tagged B6 for this consumer, so all of
-# them run.
-STAGE = "B7"
-CONSUMER = "pipeline"
-
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "packet-plan.json"
 PLAN_FIXTURE = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
@@ -176,15 +167,7 @@ def _markers(reader):
 # Shared page-plan vectors
 # ---------------------------------------------------------------------------
 def _vector_params():
-    order = PLAN_FIXTURE["stage_order"]
-    params = []
-    for vector in PLAN_FIXTURE["vectors"]:
-        tag = vector["stage"][CONSUMER]
-        marks = []
-        if order.index(tag) > order.index(STAGE):
-            marks.append(pytest.mark.skip(reason=f"vector tagged {tag}, later than {STAGE}"))
-        params.append(pytest.param(vector, id=vector["name"], marks=marks))
-    return params
+    return [pytest.param(vector, id=vector["name"]) for vector in PLAN_FIXTURE["vectors"]]
 
 
 @pytest.mark.parametrize("vector", _vector_params())
@@ -195,24 +178,8 @@ def test_page_plan_vectors(vector):
     assert packet == vector["packet"]   # the plan leaves its input alone
 
 
-def test_fixture_lists_its_stage_order_and_tags():
-    order = PLAN_FIXTURE["stage_order"]
-    assert STAGE in order
-    for vector in PLAN_FIXTURE["vectors"]:
-        assert set(vector["stage"]) == {"pipeline", "model"}
-        assert all(tag in order for tag in vector["stage"].values())
-
-
 def _placement_params():
-    order = PLAN_FIXTURE["stage_order"]
-    params = []
-    for vector in PLAN_FIXTURE["placement_vectors"]:
-        tag = vector["stage"][CONSUMER]
-        marks = []
-        if order.index(tag) > order.index(STAGE):
-            marks.append(pytest.mark.skip(reason=f"vector tagged {tag}, later than {STAGE}"))
-        params.append(pytest.param(vector, id=vector["name"], marks=marks))
-    return params
+    return [pytest.param(vector, id=vector["name"]) for vector in PLAN_FIXTURE["placement_vectors"]]
 
 
 @pytest.mark.parametrize("vector", _placement_params())
@@ -222,14 +189,6 @@ def test_number_placement_vectors(vector):
     want = vector["expect"]
     assert x == pytest.approx(want["x"], abs=1e-6)
     assert (y, align) == (want["y"], want["align"])
-
-
-def test_placement_vectors_are_tagged_like_the_plan_vectors():
-    order = PLAN_FIXTURE["stage_order"]
-    assert "B7" in order
-    for vector in PLAN_FIXTURE["placement_vectors"]:
-        assert set(vector["stage"]) == {"pipeline", "model"}
-        assert all(tag in order for tag in vector["stage"].values())
 
 
 def test_option_defaults_match_the_fixture():

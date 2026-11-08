@@ -20,8 +20,6 @@ from routes import packet_build, packet_stage
 from utils import staging
 
 APP = flask_app_module.app
-STAGE = "B7"
-CONSUMER = "pipeline"
 PLAN = json.loads((ph.FIXTURES / "packet-plan.json").read_text(encoding="utf-8"))
 
 
@@ -587,15 +585,7 @@ def test_a_paid_users_per_build_cap_is_the_paid_limit(client, make_user, login):
 # The page-plan vectors through the real endpoint (B1 and earlier)
 # ---------------------------------------------------------------------------
 def _vector_params():
-    order = PLAN["stage_order"]
-    params = []
-    for vector in PLAN["vectors"]:
-        tag = vector["stage"][CONSUMER]
-        marks = []
-        if order.index(tag) > order.index(STAGE):
-            marks.append(pytest.mark.skip(reason=f"vector tagged {tag}, later than {STAGE}"))
-        params.append(pytest.param(vector, id=vector["name"], marks=marks))
-    return params
+    return [pytest.param(vector, id=vector["name"]) for vector in PLAN["vectors"]]
 
 
 @pytest.mark.parametrize("vector", _vector_params())

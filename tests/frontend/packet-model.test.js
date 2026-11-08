@@ -12,11 +12,6 @@ const C = require(path.join(__dirname, '..', '..', 'static', 'packet.js'));
 const { createFakeServer, API } = require(path.join(__dirname, 'fake-packet-server.js'));
 const PLAN = require(path.join(__dirname, '..', 'fixtures', 'packet-plan.json'));
 
-// This file's stage: it runs page-plan and placement vectors whose model tag
-// is at or before B7 in the fixture's stage order, and skips later ones by
-// name.
-const STAGE = 'B7';
-
 const HA = 'a'.repeat(64);
 const HB = 'b'.repeat(64);
 const HC = 'c'.repeat(64);
@@ -424,20 +419,13 @@ test('rotate, delete and duplicate pages', () => {
 // Page plan: the shared vectors
 // ---------------------------------------------------------------------------
 
-test('the fixture names this stage', () => {
-    assert.ok(PLAN.stage_order.includes(STAGE));
+test('the fixture\'s option defaults are the model\'s', () => {
     const defaults = Object.assign({}, M.defaultOptions('letter'));
     assert.deepEqual(defaults, PLAN.option_defaults);
 });
 
-const atOrBefore = tag => PLAN.stage_order.indexOf(tag) <= PLAN.stage_order.indexOf(STAGE);
 PLAN.vectors.forEach(v => {
-    const name = 'page-plan vector ' + v.name + ' (model ' + v.stage.model + ')';
-    if (!atOrBefore(v.stage.model)) {
-        test(name, { skip: 'model tag ' + v.stage.model + ' is after ' + STAGE }, () => {});
-        return;
-    }
-    test(name, () => {
+    test('page-plan vector ' + v.name, () => {
         const packet = JSON.parse(JSON.stringify(v.packet));
         packet.options = Object.assign({}, PLAN.option_defaults, packet.options);
         const plan = M.pagePlan(packet, v.page_counts, v.contents_pages);
@@ -1290,12 +1278,7 @@ test('renaming a file card cleans and caps its label, and empty keeps the old on
 // Page numbers on the page images ([B7], design §2.1, §3.3 rule 7)
 // ---------------------------------------------------------------------------
 PLAN.placement_vectors.forEach(v => {
-    const name = 'placement vector ' + v.name + ' (model ' + v.stage.model + ')';
-    if (!atOrBefore(v.stage.model)) {
-        test(name, { skip: 'model tag ' + v.stage.model + ' is after ' + STAGE }, () => {});
-        return;
-    }
-    test(name, () => {
+    test('placement vector ' + v.name, () => {
         const got = M.numberPlacement(v.number_position, v.width);
         assert.ok(Math.abs(got.x - v.expect.x) < 1e-6, got.x + ' vs ' + v.expect.x);
         assert.equal(got.y, v.expect.y);
