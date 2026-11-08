@@ -3,21 +3,15 @@
 The page is `/packet`. Every page's nav links to it as "Packet Builder",
 beside Merge, and the merge page links to it under its heading.
 
-**Two servers.** Until the packet endpoints ([B1]) land, run the dev fake,
-which serves the shapes in `tests/fixtures/packet-api.json` from memory and
-converts with the real converters:
+Run the server in default mode (see README), with a short staging TTL so
+K9's expiry can be seen without a two-hour wait:
 
 ```bash
-DOCIST_LIMIT_ANON=100000 .venv/bin/python tests/manual/packet_fake_server.py
-# → http://127.0.0.1:5011/packet
+DOCIST_LIMIT_ANON=100000 DOCIST_API_ANONYMOUS=1 DOCIST_STAGING_TTL_MINUTES=2 ./run.sh
+# → http://localhost:5010/packet
 ```
 
-The fake keeps nothing across a restart (every card then reads "Expired"),
-and its build is a plain assembly without numbers or bookmarks. File names
-drive its refusals: a name containing `fail` is refused, `quota` gets the
-staging-quota refusal, `full` gets "Docist is busy", `busy` waits once,
-`slow` takes three seconds. Before [B2] lands, run every check again against
-the real server (`./run.sh` in default mode, see README) with B1 merged.
+K11 and K12 use accounts mode instead (README).
 
 ```bash
 FX=tests/manual/fixtures      # make_fixtures.py writes these
@@ -25,8 +19,7 @@ FX=tests/manual/fixtures      # make_fixtures.py writes these
 
 Use a mix: two or three PDFs from `$FX` (one with 5+ pages), a `.docx`, a
 `.md` and a photo. For the touch checks, open the page from a phone on the
-same network (start the server with `DOCIST_HOST=0.0.0.0`, or the fake with
-the same host change) — `crypto.subtle` needs HTTPS or localhost, so on a
+same network (start the server with `DOCIST_HOST=0.0.0.0`) — `crypto.subtle` needs HTTPS or localhost, so on a
 phone use a tunnel with HTTPS; on plain HTTP the page says it needs a
 secure connection.
 
@@ -105,13 +98,13 @@ screen and a sideways swipe steps between pages.
 - [ ] Pass on Android
 
 ## K8 Card states
-Drop `fail.md` (fake) or a corrupt PDF, an encrypted PDF, and a file of an
-unsupported type (e.g. `.zip`).
+Drop a corrupt PDF, an encrypted PDF, and a file of an unsupported type
+(e.g. `.zip`).
 **Expect:** each card says why ("Couldn't convert this file: …", "This PDF
 needs a password…", "This file type isn't supported.") and offers Remove;
 Retry where the file can be sent again. Other cards are unaffected and
-Build waits ("1 file not ready yet."). Over your staging limit (`quota`
-name on the fake) the card says how much this packet holds and how much is
+Build waits ("1 file not ready yet."). Over your staging limit (more than
+100 files, or more than 200 MB, staged at once) the card says how much this packet holds and how much is
 held elsewhere, with Remove and Retry.
 - [ ] Pass
 
@@ -119,7 +112,7 @@ held elsewhere, with Remove and Retry.
 Arrange a packet, then reload the tab.
 **Expect:** the arrangement returns. Open `/packet` in a new tab: it offers
 "Restore your last packet?" and Restore brings the same cards back ready.
-Restart the server (fake) or wait past the staging TTL (real): cards read
+Wait past the staging TTL (two minutes with the command above): cards read
 "Expired, re-add this file" and keep their places; Re-add with the same
 file restores it in place with its page edits; Re-add with a different
 file adds a new card after it and says so.
@@ -132,8 +125,8 @@ convert again and how many have page edits that may reset. After, the
 `.docx` card converts again ("Converting again for A4…"); PDFs don't.
 Undo switches back and the card converts for Letter.
 
-Then, mid-conversion: drop a non-PDF that converts slowly (with the dev fake
-server, a name containing `slow`, such as `slow-race.txt`) and switch the
+Then, mid-conversion: drop a non-PDF that converts slowly (a long `.docx`
+works) and switch the
 paper while its card still says "Uploading and converting…".
 **Expect:** when that request finishes, the card converts again for the new
 paper on its own, then reads ready. It is never left on "Converting again
@@ -156,7 +149,7 @@ waiting cards say "Waiting…" and carry on by themselves after the
 Retry-After, with no card failing. The page stays usable while it works.
 - [ ] Pass
 
-## K13 Sections, cover and dividers (B3)
+## K13 Sections, cover and dividers
 Add three files. Press Add section and type "References", then rename the
 first section "Resume" in its heading. Use Move to section… on one card,
 and on two cards selected together through the bulk bar. From a "+",
@@ -179,7 +172,7 @@ cover title: the form says Ł and ź can't be printed, and the card and the
 PDF both show "■ód■".
 - [ ] Pass
 
-## K14 Contents page (B5)
+## K14 Contents page
 Add 35 or more files and spread them over three sections. Add a cover,
 turn on "Add a contents page" and "Start each section on a right-hand
 page", and set "Start numbering at" to 5. Rename one card by keyboard:
@@ -199,8 +192,8 @@ the right-hand pages off and build again: the contents is page 1 and the
 links still land.
 - [ ] Pass
 
-## K15 Page numbers on the page images (B7)
-Run against the real server. Add a Letter PDF of three pages, a landscape
+## K15 Page numbers on the page images
+Add a Letter PDF of three pages, a landscape
 PDF, and an A4 PDF whose first page carries its own rotation (it shows
 sideways in its file). Insert a blank page after the Letter file and another
 after the landscape file, add a cover, add a second section holding a blank
