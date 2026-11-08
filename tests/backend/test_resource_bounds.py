@@ -1,13 +1,13 @@
-"""B2 adds no new route to the resource holes the 2026-10-02 critic review
-found on main (notes: jpluto/projects/docist/reports/2026-10-02-critic-docist-main.md).
+"""Resource bounds: the paid upload limit and the Word engine open no way to
+make the server unpack, decode or hold more than it can.
 
-  * Blocker 3 (archive expansion): every Word file bound for the Word engine
-    passes an archive-expansion check before LibreOffice opens it, and one
-    that fails is refused, never handed to the reflow.
-  * Blockers 2, 4, 6, 7 and the paid limit: the paid limit applies only to
-    Merge and Convert, and there only to PDFs and Word files the engine
-    renders.
-  * Blocker 7 (results in memory): /api/v1/merge and /api/v1/convert stream.
+  * Archive expansion: every Word file bound for the Word engine passes an
+    archive-expansion check before LibreOffice opens it, and one that fails
+    is refused, never handed to the reflow.
+  * The paid limit applies only to Merge and Convert, and there only to PDFs
+    and Word files the engine renders; images, SVG, data and text files keep
+    the free limit.
+  * Results are not held in memory: /api/v1/merge and /api/v1/convert stream.
 """
 import io
 import os
@@ -33,8 +33,8 @@ ARCHIVE_REFUSAL = 'This file unpacks to more than Docist can open'
 
 
 def archive_detail(exc):
-    """The archive check's own text, under the ruled refusal (launch-hardening
-    §16 puts one sentence on every archive refusal; the detail is chained)."""
+    """The archive check's own text, under the user-facing refusal (every
+    archive refusal shows one fixed sentence; the detail is chained)."""
     while exc is not None and not isinstance(exc, office.ArchiveError):
         exc = exc.__cause__
     assert exc is not None, 'no ArchiveError in the chain'
@@ -60,17 +60,17 @@ def no_libreoffice(monkeypatch):
 
 
 def bomb_docx(path, size=30 * MIB):
-    """A valid .docx whose document.xml deflates about 1000:1 (the critic's
+    """A valid .docx whose document.xml deflates about 1000:1 (a
     30 KB file holding 30 MB of text)."""
     body = '<w:p><w:r><w:t>' + 'a' * size + '</w:t></w:r></w:p>'
     return wf.write_docx(path, {'word/document.xml': wf.document(body, wf.sect(wf.LETTER_TWIPS))})
 
 
 # --------------------------------------------------------------------------
-# Blocker 3: the archive-expansion check
+# The archive-expansion check
 # --------------------------------------------------------------------------
-def test_the_critics_bomb_is_refused_before_anything_opens_it(tmp_path, no_reflow,
-                                                              no_libreoffice):
+def test_a_compression_bomb_is_refused_before_anything_opens_it(tmp_path, no_reflow,
+                                                                 no_libreoffice):
     src = bomb_docx(tmp_path / 'bomb.docx')
     assert os.path.getsize(src) < 100 * 1024
     with pytest.raises(ConversionError, match=ARCHIVE_REFUSAL) as info:
@@ -164,9 +164,9 @@ def test_a_large_word_file_is_never_re_flowed(tmp_path, monkeypatch, no_reflow):
 
 
 def test_the_reflow_budget_is_shared_across_the_request(tmp_path, monkeypatch):
-    """verification-b2-bounds-recheck MINOR 1: two Word files that each fit the
-    free limit but not together; the engine fails on both. Only the first is
-    re-flowed, as a free request could carry only one of them."""
+    """Two Word files that each fit the free limit but not together; the
+    engine fails on both. Only the first is re-flowed, as a free request could
+    carry only one of them."""
     reflowed = []
     monkeypatch.setattr(docx_converter, '_reflow', lambda i, o, opts: reflowed.append(i))
 
@@ -184,14 +184,14 @@ def test_the_reflow_budget_is_shared_across_the_request(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# The paid limit only where B2 bounds the work
+# The paid limit only where the work is bounded
 # --------------------------------------------------------------------------
 class ZeroBody(io.RawIOBase):
     """multipart: one file part of ``size`` bytes starting with ``head``, plus
     optional text fields."""
 
     def __init__(self, size, field, filename, head=b'', fields=()):
-        b = 'b2boundsboundary'
+        b = 'boundsboundary'
         self.content_type = f'multipart/form-data; boundary={b}'
         pre = b''
         for name, value in fields:
@@ -279,11 +279,11 @@ def test_other_api_endpoints_keep_the_free_limit_for_paid_keys(client, make_user
 
 
 @pytest.mark.parametrize('filename,head', [
-    ('big.png', b'\x89PNG\r\n\x1a\n'),     # blocker 2
+    ('big.png', b'\x89PNG\r\n\x1a\n'),
     ('big.gif', b'GIF89a'),
-    ('big.svg', b'<svg'),                  # blocker 6
-    ('big.yaml', b'a: 1\n'),               # blocker 1
-    ('big.xlsx', b'PK'),                   # blocker 3, no engine for it
+    ('big.svg', b'<svg'),
+    ('big.yaml', b'a: 1\n'),
+    ('big.xlsx', b'PK'),                   # no engine for it
     ('big.txt', b'text'),
 ])
 def test_merge_holds_other_files_to_the_free_limit(client, paid, filename, head):
@@ -300,7 +300,7 @@ class MultiZeroBody(ZeroBody):
     """Several file parts of ``size`` bytes each."""
 
     def __init__(self, count, size, field, filename, head=b''):
-        b = 'b2boundsboundary'
+        b = 'boundsboundary'
         self.content_type = f'multipart/form-data; boundary={b}'
         part = (f'--{b}\r\nContent-Disposition: form-data; name="{field}"; '
                 f'filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'
@@ -316,8 +316,8 @@ class MultiZeroBody(ZeroBody):
 
 def test_files_that_cant_be_large_share_the_free_limit_per_request(client, paid,
                                                                     monkeypatch):
-    """verification-b2-bounds MAJOR 1: two 44 MiB SVGs in one paid Merge carried
-    twice what a free request can. Such files now share the free limit."""
+    """Two 44 MiB SVGs in one paid Merge would carry twice what a free
+    request can. Such files share the free limit."""
     from utils import uploads
     monkeypatch.setitem(app.config, 'MAX_CONTENT_LENGTH', 3 * MIB)   # small, for speed
     one = post(client, '/upload', MultiZeroBody(1, 2 * MIB, 'files[]', 'a.svg', b'<svg'))
@@ -340,9 +340,11 @@ def test_api_merge_shares_the_free_limit_too(client, make_user, monkeypatch):
     assert "in one request" in response.get_json()['error']
 
 
+@pytest.mark.skipif(not office.available(), reason='LibreOffice not installed')
 def test_a_lying_archive_is_refused_not_re_flowed(tmp_path, monkeypatch, no_reflow):
-    """verification-b2-bounds MINOR 1: zipfile stops a lying entry with a CRC
-    error; that is an archive failure, so the file is refused."""
+    """zipfile stops a lying entry with a CRC error; that is an archive
+    failure, so the file is refused. The lie only surfaces inside the Word
+    engine's own read, so without LibreOffice there is nothing to test."""
     src = tmp_path / 'liar.docx'
     wf.write_docx(src, {'word/document.xml': wf.document(wf.para('x'), '')})
     with zipfile.ZipFile(src, 'a', zipfile.ZIP_DEFLATED) as zf:
@@ -402,12 +404,12 @@ def test_api_convert_holds_a_large_png_to_the_free_limit(client, make_user):
 
 
 # --------------------------------------------------------------------------
-# Blocker 7: merge and convert stream their results
+# Merge and convert stream their results
 # --------------------------------------------------------------------------
 @pytest.fixture
 def no_memory_send(monkeypatch):
     """Fail on the in-memory senders; record what send_file is handed."""
-    # launch-hardening §10.4 deleted the in-memory senders outright.
+    # The in-memory senders are gone outright, not just unused.
     assert not hasattr(api_routes, '_send_bytes')
     assert not hasattr(api_routes, '_send_path')
     sent = []

@@ -30,8 +30,8 @@ jobs:
       # tesseract-ocr and ghostscript run OCR (ocrmypdf, pytesseract),
       # tesseract-ocr-spa lets the Spanish read-back test run, and
       # fonts-liberation gives the OCR fixtures a TrueType font.
-      # LibreOffice runs the Word engine: one archive test fails without it
-      # rather than skipping. Carlito and Caladea let its font test run.
+      # LibreOffice is left out: the Word engine's tests skip without it,
+      # and its Carlito and Caladea fonts matter only to those tests.
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -39,10 +39,7 @@ jobs:
             tesseract-ocr \
             tesseract-ocr-spa \
             ghostscript \
-            fonts-liberation \
-            libreoffice-writer-nogui \
-            fonts-crosextra-carlito \
-            fonts-crosextra-caladea
+            fonts-liberation
 
       - name: Install Python packages
         run: |

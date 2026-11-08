@@ -241,7 +241,7 @@ def test_every_tool_page_carries_the_limit_and_script(client, page):
     assert '/static/upload-limit.js' in html
 
 
-def test_page_limit_equals_limit_bytes(client, make_user, login):
+def test_page_limit_equals_limit_bytes(client, make_user, login, monkeypatch):
     assert meta_limit(client.get('/').get_data(as_text=True)) == 50 * MIB
     free_user = make_user(email='f@x.io')
     login(client, free_user)
@@ -255,6 +255,9 @@ def test_page_limit_equals_limit_bytes(client, make_user, login):
     # Pages whose uploads keep the free limit say so, for paid users too.
     for page in ('/pages', '/print', '/export', '/security'):
         assert meta_limit(client.get(page).get_data(as_text=True)) == 50 * MIB, page
+    # Convert's large file is a Word file for the Word engine, so its page
+    # shows the paid limit only where LibreOffice is installed.
+    monkeypatch.setattr(uploads.office, 'available', lambda: True)
     assert meta_limit(client.get('/convert').get_data(as_text=True)) == 90 * MIB
 
 
