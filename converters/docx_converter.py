@@ -28,6 +28,13 @@ log = logging.getLogger(__name__)
 
 EXTENSIONS = ['.docx']
 
+# Word's Title and Subtitle paragraph styles become headings; mammoth's
+# default map leaves them as plain paragraphs.
+STYLE_MAP = (
+    "p[style-name='Title'] => h1:fresh\n"
+    "p[style-name='Subtitle'] => h2:fresh"
+)
+
 FALLBACK_NOTE = ("The Word engine couldn't convert this file, so it was converted "
                  "with the basic converter.")
 
@@ -200,7 +207,7 @@ def _reflow(input_path, output_path, opts):
     name = upload_name(input_path)
     try:
         with open(input_path, 'rb') as docx_file:
-            result = mammoth.convert_to_html(docx_file)
+            result = mammoth.convert_to_html(docx_file, style_map=STYLE_MAP)
     except OSError as exc:
         raise logged_error(
             ConversionError, f"Could not read '{name}'. Try uploading it again.", exc

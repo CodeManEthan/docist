@@ -29,6 +29,27 @@ function isAccepted(filename, acceptedExtensions) {
     return acceptedExtensions.includes(getExt(filename));
 }
 
+// Split dropped or picked files into those Merge takes and the names of
+// those it skips: { accepted: [File, ...], rejected: ['data.json', ...] }.
+function splitAccepted(files, acceptedExtensions) {
+    const accepted = [];
+    const rejected = [];
+    for (const file of files) {
+        if (isAccepted(file.name, acceptedExtensions)) accepted.push(file);
+        else rejected.push(file.name);
+    }
+    return { accepted, rejected };
+}
+
+// What Merge says about the files it skipped: "data.json isn't a supported
+// file type." / "a.json and b.exe aren't supported file types." '' for none.
+function rejectedMessage(names) {
+    if (!names.length) return '';
+    if (names.length === 1) return `${names[0]} isn't a supported file type.`;
+    const list = names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    return `${list} aren't supported file types.`;
+}
+
 // "Supported: PDF, MD, ..." hint string. Dedups, strips the leading dot and
 // uppercases each label, preserving first-seen order.
 function buildFormatHint(extensions) {
@@ -298,10 +319,6 @@ function initApp() {
         uploadHint.textContent = buildFormatHint(acceptedExtensions);
     }
 
-    function fileAccepted(file) {
-        return isAccepted(file.name, acceptedExtensions);
-    }
-
     // ---- Upload via click or drag-drop ----
     uploadArea.addEventListener('click', () => {
         fileInput.click();
@@ -320,14 +337,24 @@ function initApp() {
         e.preventDefault();
         uploadArea.classList.remove('dragover');
         // Only OS files carry data; internal row reordering has none.
-        const files = Array.from(e.dataTransfer.files).filter(fileAccepted);
-        handleFiles(files);
+        takeFiles(e.dataTransfer.files);
     });
 
     fileInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files).filter(fileAccepted);
-        handleFiles(files);
+        takeFiles(e.target.files);
     });
+
+    // Add the files Merge takes and say which ones it skipped.
+    function takeFiles(list) {
+        const { accepted, rejected } = splitAccepted(Array.from(list), acceptedExtensions);
+        handleFiles(accepted);
+        fileInput.value = '';
+        if (rejected.length) {
+            message.className = 'message error';
+            message.textContent = rejectedMessage(rejected);
+            message.style.display = 'block';
+        }
+    }
 
     function handleFiles(files) {
         if (files.length === 0) return;
@@ -445,9 +472,9 @@ function initApp() {
                 <span class="file-info"><span class="file-number">${index + 1}.</span>${escapeHtml(file.name)}</span>
                 <span class="file-size">${formatFileSize(file.size)}</span>
                 <span class="file-actions">
-                    <button class="icon-btn move-up" title="Move up" ${index === 0 ? 'disabled' : ''}>▲</button>
-                    <button class="icon-btn move-down" title="Move down" ${index === selectedFiles.length - 1 ? 'disabled' : ''}>▼</button>
-                    <button class="icon-btn remove-btn" title="Remove">✕</button>
+                    <button class="icon-btn move-up" title="Move up" aria-label="Move up" ${index === 0 ? 'disabled' : ''}>▲</button>
+                    <button class="icon-btn move-down" title="Move down" aria-label="Move down" ${index === selectedFiles.length - 1 ? 'disabled' : ''}>▼</button>
+                    <button class="icon-btn remove-btn" title="Remove" aria-label="Remove">✕</button>
                 </span>
             `;
 
@@ -638,6 +665,8 @@ if (typeof module !== 'undefined' && module.exports) {
         formatFileSize,
         getExt,
         isAccepted,
+        splitAccepted,
+        rejectedMessage,
         buildFormatHint,
         dedupeExtensions,
         moveItem,

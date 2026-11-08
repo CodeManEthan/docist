@@ -13,6 +13,11 @@ from pypdf import PdfReader, PdfWriter
 from pdf_ops import limits
 
 
+def _pages(count):
+    """'1 page', '3 pages'."""
+    return f"{count} page{'' if count == 1 else 's'}"
+
+
 def parse_page_ranges(spec, page_count):
     """Parse a page-range spec into a sorted list of unique 0-based indices.
 
@@ -54,7 +59,7 @@ def parse_page_ranges(spec, page_count):
                 )
             if end > page_count:
                 raise ValueError(
-                    f"Page {end} is out of range (the PDF has {page_count} pages)."
+                    f"Page {end} is out of range (the PDF has {_pages(page_count)})."
                 )
             for p in range(start, end + 1):
                 indices.add(p - 1)
@@ -66,7 +71,7 @@ def parse_page_ranges(spec, page_count):
                 raise ValueError("Page numbers start at 1.")
             if page > page_count:
                 raise ValueError(
-                    f"Page {page} is out of range (the PDF has {page_count} pages)."
+                    f"Page {page} is out of range (the PDF has {_pages(page_count)})."
                 )
             indices.add(page - 1)
 
@@ -89,7 +94,7 @@ def extract_pages(input_path, output_path, indices):
     for idx in indices:
         if idx < 0 or idx >= page_count:
             raise ValueError(
-                f"Page index {idx} is out of range (the PDF has {page_count} pages)."
+                f"Page index {idx} is out of range (the PDF has {_pages(page_count)})."
             )
         writer.add_page(reader.pages[idx])
     with open(output_path, "wb") as fh:
@@ -108,7 +113,7 @@ def remove_pages(input_path, output_path, indices):
     for idx in remove:
         if idx < 0 or idx >= page_count:
             raise ValueError(
-                f"Page index {idx} is out of range (the PDF has {page_count} pages)."
+                f"Page index {idx} is out of range (the PDF has {_pages(page_count)})."
             )
     keep = [i for i in range(page_count) if i not in remove]
     if not keep:
@@ -138,7 +143,7 @@ def rotate_pages(input_path, output_path, angle, indices=None):
         for idx in targets:
             if idx < 0 or idx >= page_count:
                 raise ValueError(
-                    f"Page index {idx} is out of range (the PDF has {page_count} pages)."
+                    f"Page index {idx} is out of range (the PDF has {_pages(page_count)})."
                 )
     writer = PdfWriter()
     for i in range(page_count):

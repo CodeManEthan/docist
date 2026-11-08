@@ -19,6 +19,19 @@ function buildTargetLabel(ext) {
     return clean.toUpperCase();
 }
 
+// The target's label in the format list: an OCR target says so, 'TXT (OCR)'.
+function targetLabel(target, ocrTargets) {
+    const label = buildTargetLabel(target);
+    return Array.isArray(ocrTargets) && ocrTargets.includes(target) ? `${label} (OCR)` : label;
+}
+
+// The line under the format list once a file's targets are loaded. A PDF
+// source points to Export, which has the DPI choice and OCR.
+function targetsHint(ext, count) {
+    const line = `${count} format(s) available for ${buildTargetLabel(ext)}.`;
+    return getExt(ext) === '.pdf' ? `${line} For DPI choice or OCR, use Export.` : line;
+}
+
 // Escape a string for safe interpolation into HTML.
 function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c => ({
@@ -155,12 +168,11 @@ function initConvertApp() {
             currentTargets.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t;
-                opt.textContent = buildTargetLabel(t);
+                opt.textContent = targetLabel(t, ocrTargets);
                 targetSelect.appendChild(opt);
             });
             targetSelect.disabled = false;
-            targetHint.textContent =
-                `${currentTargets.length} format(s) available for ${buildTargetLabel(ext)}.`;
+            targetHint.textContent = targetsHint(ext, currentTargets.length);
             updateRunBtn();
         } catch (err) {
             resetTargets('Error');
@@ -338,6 +350,8 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         getExt,
         buildTargetLabel,
+        targetLabel,
+        targetsHint,
         formatMatrix,
         validateConvertState,
         targetOptions,

@@ -24,6 +24,7 @@
             <div class="upload-hint">Single PDF file only</div>
             <input type="file" id="fileInput" accept=".pdf">
         </div>
+        {% include '_where_files_go.html' %}
 
         <div class="file-list">
             <div class="file-item" id="fileName" style="display:none"></div>
@@ -45,10 +46,10 @@
                     <option value="4">4-up (2×2 grid, portrait)</option>
                 </select>
             </label>
-            <p class="upload-hint">
-                Places 2 or 4 source pages, scaled to fit and centered, onto each
-                output sheet in reading order (left→right, top→bottom). Great for
-                handouts and saving paper.
+            <p class="upload-hint" id="nupHint">
+                2-up puts two pages side by side on one sheet; 4-up puts four.
+                Pages are scaled to fit and centered, in reading order
+                (left→right, top→bottom). Great for handouts and saving paper.
             </p>
         </div>
 

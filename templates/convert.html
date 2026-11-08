@@ -24,6 +24,7 @@
             <div class="upload-hint">Any supported file — pick the target format after selecting</div>
             <input type="file" id="fileInput">
         </div>
+        {% include '_where_files_go.html' %}
 
         <div class="file-list">
             <div class="file-item" id="fileName" style="display:none"></div>
@@ -42,6 +43,7 @@
             </div>
             <div id="ocrRow" style="display:none">
                 {% with ocr_disabled = False %}{% include '_ocr_language.html' %}{% endwith %}
+                <p class="upload-hint" id="ocrPathsHint">OCR reads the text in this image into a .txt file. For a scanned PDF, <a href="/pages">Page Tools</a> adds a searchable text layer and <a href="/export">Export</a> extracts its text.</p>
             </div>
         </div>
 

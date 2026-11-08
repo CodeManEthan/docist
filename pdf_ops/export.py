@@ -131,6 +131,9 @@ def pdf_to_text_report(input_path, output_path, *, ocr_fallback=False, language=
     * ``ocr_pages`` — sorted list of 1-based page numbers whose text was
       recovered via OCR (empty when ``ocr_fallback`` is False or every page
       already had a text layer).
+    * ``empty_pages`` — sorted list of 1-based page numbers whose text is
+      still empty or whitespace-only in the output (with OCR off, every page
+      with no text layer; with OCR on, those OCR couldn't read either).
 
     When ``ocr_fallback`` is True, each page whose extracted text is empty or
     whitespace-only is rasterized at :data:`OCR_DPI`, flattened to RGB and run
@@ -179,7 +182,13 @@ def pdf_to_text_report(input_path, output_path, *, ocr_fallback=False, language=
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write(body)
 
-    return {"output_path": output_path, "pages": len(page_texts), "ocr_pages": ocr_pages}
+    empty_pages = [i for i, t in enumerate(page_texts, start=1) if not t.strip()]
+    return {
+        "output_path": output_path,
+        "pages": len(page_texts),
+        "ocr_pages": ocr_pages,
+        "empty_pages": empty_pages,
+    }
 
 
 def _ocr_render_pages(input_path, page_indices, language):

@@ -47,6 +47,7 @@ import fcntl
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -56,6 +57,8 @@ import time
 
 from pdf_ops import limits
 from pdf_ops.limits import LimitError
+
+log = logging.getLogger(__name__)
 
 MIB = 1024 * 1024
 
@@ -756,6 +759,13 @@ def page_sizes(reader):
     return runs
 
 
+def _cant_convert(upload_path):
+    """The refusal for a conversion that failed in a way the converter didn't
+    explain, naming the upload as the visitor sent it."""
+    return (f"Docist couldn't convert '{os.path.basename(upload_path)}' to PDF. "
+            "Try again, or try another file.")
+
+
 def stage_work(upload_path, ext, render_opts, entry_dir):
     """One stage request's work, run in its job (design §4.2 Convert).
 
@@ -775,7 +785,7 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
     import pypdfium2 as pdfium
     from pypdf import PdfReader
 
-    from converters import get_converter
+    from converters import ConversionError, get_converter
     from pdf_ops.pdfium_lock import PDFIUM_LOCK
 
     os.makedirs(entry_dir)
@@ -788,9 +798,18 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
             raise StageRefusal('rejected', f"Docist can't convert {ext} files.")
         try:
             converter(upload_path, pdf_path, render_opts)
+        except (MemoryError, LimitError):
+            raise
+        except ConversionError as exc:
+            # Its message names the upload and carries no library text. A
+            # MemoryError or LimitError in its chain still wins (jobs.classify).
+            raise StageRefusal('rejected', str(exc) or _cant_convert(upload_path)) from exc
         except Exception as exc:
-            # MemoryError and LimitError in the chain still win (jobs.classify).
-            raise StageRefusal('rejected', str(exc) or type(exc).__name__) from exc
+            # Anything else is the library's own text, which can hold a server
+            # path: it goes to the log, the visitor gets a fixed sentence.
+            log.warning('staging: converting %s failed (%s: %s)',
+                        os.path.basename(upload_path), type(exc).__name__, exc)
+            raise StageRefusal('rejected', _cant_convert(upload_path)) from exc
 
     try:
         reader = PdfReader(pdf_path)

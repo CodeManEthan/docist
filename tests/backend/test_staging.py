@@ -291,11 +291,85 @@ def test_a_converter_failure_is_rejected_with_its_reason(client, monkeypatch):
     import converters
 
     def boom(src, dst, opts=None):
-        raise ValueError("the table is too wide")
+        raise converters.ConversionError("'notes.md' has a table too wide for the page.")
 
     monkeypatch.setitem(converters._REGISTRY, ".md", boom)
     body = ph.assert_shape(ph.stage(client, MD, "notes.md"), "stage", "rejected")
-    assert body["error"] == "the table is too wide"
+    assert body["error"] == "'notes.md' has a table too wide for the page."
+
+
+def test_any_other_converter_failure_is_a_fixed_refusal_naming_the_file(client, monkeypatch):
+    # A library's own exception text can carry a server path: it goes to the
+    # log, and the visitor gets a fixed sentence that names the upload.
+    import converters
+
+    def boom(src, dst, opts=None):
+        raise RuntimeError("internal-detail-xyz")
+
+    monkeypatch.setitem(converters._REGISTRY, ".md", boom)
+    response = ph.stage(client, MD, "notes.md")
+    body = ph.assert_shape(response, "stage", "rejected")
+    assert body["error"] == ("Docist couldn't convert 'notes.md' to PDF. "
+                             "Try again, or try another file.")
+    assert b"internal-detail-xyz" not in response.get_data()
+
+
+def test_the_fixed_refusal_logs_the_exception_at_warning(tmp_path, monkeypatch, caplog):
+    # stage_work is called directly here: in the route it runs in a forked
+    # job, whose log records don't reach caplog.
+    import logging
+
+    import converters
+    from converters.options import resolve
+
+    def boom(src, dst, opts=None):
+        raise RuntimeError("internal-detail-xyz")
+
+    monkeypatch.setitem(converters._REGISTRY, ".md", boom)
+    upload = tmp_path / "notes.md"
+    upload.write_bytes(MD)
+    with caplog.at_level(logging.WARNING, logger="utils.staging"):
+        with pytest.raises(staging.StageRefusal) as caught:
+            staging.stage_work(str(upload), ".md", resolve(None), str(tmp_path / "entry"))
+    assert caught.value.code == "rejected"
+    assert "internal-detail-xyz" not in caught.value.message
+    assert any("internal-detail-xyz" in r.getMessage() and r.levelno == logging.WARNING
+               for r in caplog.records)
+
+
+@pytest.mark.parametrize("raised, kind", [
+    (lambda: MemoryError("simulated"), "memory"),
+    (lambda: __import__("pdf_ops.limits", fromlist=["LimitError"]).LimitError(
+        "This sheet has too many cells.", kind="cells"), "cells"),
+])
+def test_a_limit_raised_by_the_converter_keeps_its_own_message(client, monkeypatch, raised, kind):
+    import converters
+    from pdf_ops import limits
+
+    def boom(src, dst, opts=None):
+        raise raised()
+
+    monkeypatch.setitem(converters._REGISTRY, ".md", boom)
+    body = ph.assert_shape(ph.stage(client, MD, "notes.md"), "stage", "rejected")
+    expected = limits.memory_message() if kind == "memory" else "This sheet has too many cells."
+    assert body["error"] == expected
+
+
+def test_a_limit_behind_a_conversion_error_still_wins(client, monkeypatch):
+    # jobs.classify walks the cause chain, so a LimitError a converter
+    # wrapped keeps its own message.
+    import converters
+    from pdf_ops.limits import LimitError
+
+    def boom(src, dst, opts=None):
+        try:
+            raise LimitError("This sheet has too many cells.", kind="cells")
+        except LimitError as exc:
+            raise converters.ConversionError("'notes.md' couldn't be converted.") from exc
+
+    monkeypatch.setitem(converters._REGISTRY, ".md", boom)
+    body = ph.assert_shape(ph.stage(client, MD, "notes.md"), "stage", "rejected")
+    assert body["error"] == "This sheet has too many cells."
 
 
 def test_a_limit_in_the_stage_job_is_rejected_with_its_message(client, monkeypatch):

@@ -24,6 +24,7 @@
             <div class="upload-hint">Single PDF file only</div>
             <input type="file" id="fileInput" accept=".pdf">
         </div>
+        {% include '_where_files_go.html' %}
 
         <div class="file-list">
             <div class="file-item" id="fileName" style="display:none"></div>
@@ -61,7 +62,7 @@
             {% if not ocr_available %}
             <p class="upload-hint" id="ocrHint">OCR is unavailable: requires Tesseract + Ghostscript on the server.</p>
             {% else %}
-            <p class="upload-hint">OCR only runs on pages with no text layer, so pages that already have text are never re-scanned. Pick a second language for documents that mix two.</p>
+            <p class="upload-hint" id="ocrPathsHint">OCR only runs on pages with no text layer, so pages that already have text are never re-scanned. Pick a second language for documents that mix two. To make the PDF itself searchable, use <a href="/pages">Page Tools</a>; to read the text in an image, use <a href="/convert">Convert</a>.</p>
             {% endif %}
         </div>
 

@@ -2661,8 +2661,6 @@ function initPacket() {
         fileInput.setAttribute('accept', accepted.join(','));
         $('#pkFormats').textContent = 'Accepts ' + accepted.map(e => e.replace(/^\./, '').toUpperCase()).join(', ') + '.';
     }).catch(() => { $('#pkFormats').textContent = ''; });
-    $('#pkRetention').textContent = 'Files stay on this server while you work and are deleted after '
-        + plural(Math.max(1, Math.round(cfg.ttlMinutes / 60)), 'hour') + ' without use.';
 
     if (store) PM.pruneDrafts(store, Date.now(), cfg.maxHours * 3600 * 1000, PM.DRAFTS_KEPT);
     const own = store ? PM.loadDraft(store, tabId) : null;

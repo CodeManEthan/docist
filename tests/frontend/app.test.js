@@ -8,6 +8,8 @@ const {
     formatFileSize,
     getExt,
     isAccepted,
+    splitAccepted,
+    rejectedMessage,
     buildFormatHint,
     dedupeExtensions,
     moveItem,
@@ -370,4 +372,31 @@ test('SAMPLE_FILES: a PDF, a Markdown note and a PNG, each committed under stati
     }
     // Only the PDF gets a thumbnail, as for any dropped file.
     assert.deepEqual(SAMPLE_FILES.map(s => wantsThumb(s.name)), [true, false, false]);
+});
+
+// --------------------------------------------------------------------------
+// splitAccepted / rejectedMessage: Merge says which files it skipped
+// --------------------------------------------------------------------------
+test('splitAccepted keeps accepted files in order and names the rest', () => {
+    const files = [{ name: 'a.pdf' }, { name: 'data.json' }, { name: 'B.MD' }, { name: 'noext' }];
+    const { accepted, rejected } = splitAccepted(files, ['.pdf', '.md']);
+    assert.deepEqual(accepted.map(f => f.name), ['a.pdf', 'B.MD']);
+    assert.deepEqual(rejected, ['data.json', 'noext']);
+});
+
+test('splitAccepted with nothing dropped returns two empty lists', () => {
+    assert.deepEqual(splitAccepted([], ['.pdf']), { accepted: [], rejected: [] });
+});
+
+test('splitAccepted returns the same File objects, not copies', () => {
+    const file = { name: 'x.pdf' };
+    assert.equal(splitAccepted([file], ['.pdf']).accepted[0], file);
+});
+
+test('rejectedMessage names the skipped files', () => {
+    assert.equal(rejectedMessage([]), '');
+    assert.equal(rejectedMessage(['data.json']), "data.json isn't a supported file type.");
+    assert.equal(rejectedMessage(['a.json', 'b.exe']), "a.json and b.exe aren't supported file types.");
+    assert.equal(rejectedMessage(['a.json', 'b.exe', 'c.zip']),
+        "a.json, b.exe and c.zip aren't supported file types.");
 });

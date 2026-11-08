@@ -232,7 +232,7 @@ function initSecurityApp() {
         div.innerHTML = `
             <span class="file-info">${escapeHtml(selectedFile.name)}</span>
             <span class="file-actions">
-                <button class="icon-btn remove-btn" title="Remove">✕</button>
+                <button class="icon-btn remove-btn" title="Remove" aria-label="Remove">✕</button>
             </span>
         `;
         div.querySelector('.remove-btn').addEventListener('click', () => {

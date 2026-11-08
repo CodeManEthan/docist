@@ -242,15 +242,21 @@ def html_to_txt(input_path, output_path):
 # --------------------------------------------------------------------------
 # DOCX -> HTML / Markdown / Text
 # --------------------------------------------------------------------------
+def _with_style_map(mammoth_func):
+    """A mammoth reader that maps Word's Title and Subtitle to h1 and h2."""
+    from converters.docx_converter import STYLE_MAP
+    return lambda docx_file: mammoth_func(docx_file, style_map=STYLE_MAP)
+
+
 def docx_to_html(input_path, output_path):
     """DOCX -> standalone styled HTML document (via mammoth)."""
-    result = _read_docx_result(input_path, mammoth.convert_to_html)
+    result = _read_docx_result(input_path, _with_style_map(mammoth.convert_to_html))
     _write_text(output_path, _wrap_html(result.value))
 
 
 def docx_to_md(input_path, output_path):
     """DOCX -> Markdown (via mammoth.convert_to_markdown)."""
-    result = _read_docx_result(input_path, mammoth.convert_to_markdown)
+    result = _read_docx_result(input_path, _with_style_map(mammoth.convert_to_markdown))
     _write_text(output_path, result.value or '')
 
 

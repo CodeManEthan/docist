@@ -253,8 +253,12 @@ def kept_for(seconds):
 def _inject_limits_text():
     # The intro strip on / (templates/index.html): the anonymous daily limit
     # (the one the nav's usage line shows a visitor) and how long results stay.
+    # kept_for itself serves the tool pages' where-files-go line
+    # (templates/_where_files_go.html), which the Packet Builder fills with
+    # its staging lifetimes.
     return {'anon_limit': app.config['LIMIT_ANON'],
-            'results_kept': kept_for(app.config['OUTPUT_MAX_AGE'])}
+            'results_kept': kept_for(app.config['OUTPUT_MAX_AGE']),
+            'kept_for': kept_for}
 
 for _removed in ('DOCIST_PASSWORD', 'DOCIST_PUBLIC_DEMO'):
     if os.environ.get(_removed):
