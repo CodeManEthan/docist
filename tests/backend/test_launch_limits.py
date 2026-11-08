@@ -660,13 +660,19 @@ def test_webp_encoder_out_of_memory_is_the_memory_refusal(api, monkeypatch, path
     assert '/tmp' not in error(response)
 
 
-def test_other_webp_encoder_errors_stay_ordinary(tmp_path, monkeypatch):
+def test_other_webp_encoder_errors_stay_ordinary(tmp_path, monkeypatch, caplog):
+    """Any other encoder error is an ordinary refusal naming the upload;
+    Pillow's text goes to the log, not the message."""
     from transforms import images
     _webp_save_fails(monkeypatch, 'encoding error 6')
     src = tmp_path / 'a.png'
     src.write_bytes(png_bytes())
-    with pytest.raises(TransformError, match='encoding error 6'):
-        images._convert(str(src), str(tmp_path / 'a.webp'), 'WEBP')
+    with caplog.at_level('WARNING', logger='converters'):
+        with pytest.raises(TransformError, match="Could not save 'a.png' as WEBP") as info:
+            images._convert(str(src), str(tmp_path / 'a.webp'), 'WEBP')
+    assert 'encoding error 6' not in str(info.value)
+    assert str(tmp_path) not in str(info.value)
+    assert 'encoding error 6' in caplog.text
 
 
 @pytest.mark.parametrize('mode,color', [('RGBA', (255, 0, 0, 128)), ('LA', (0, 128))])

@@ -18,7 +18,7 @@ import zipfile
 import mammoth
 from xhtml2pdf import pisa
 
-from . import ConversionError
+from . import ConversionError, logged_error, upload_name
 from .options import paper_css, resolve
 from .safe_links import link_callback
 from pdf_ops import limits, office
@@ -152,8 +152,8 @@ def convert(input_path, output_path, opts=None):
                 size = os.path.getsize(input_path)
                 if size > opts.reflow_max_bytes:
                     raise ConversionError(
-                        "The Word engine couldn't convert this file, and it is too "
-                        "large for the basic converter.") from exc
+                        f"The Word engine couldn't convert '{upload_name(input_path)}', "
+                        "and it is too large for the basic converter.") from exc
                 opts.reflow_max_bytes -= size
             if FALLBACK_NOTE not in opts.notes:
                 opts.notes.append(FALLBACK_NOTE)
@@ -172,10 +172,13 @@ def check_docx(input_path, error_type):
     except office.ArchiveError as exc:
         raise error_type(limits.archive_message()) from limits.archive_refusal(exc)
     except office.OfficeError as exc:
-        raise error_type(
-            f"'{os.path.basename(input_path)}' is not a valid .docx file. It may be "
-            f"corrupt, empty, or an older .doc file renamed to .docx."
-        ) from exc
+        raise error_type(invalid_docx_message(input_path)) from exc
+
+
+def invalid_docx_message(input_path):
+    """The message for a file that isn't a readable ``.docx``."""
+    return (f"'{upload_name(input_path)}' is not a valid .docx file. It may be "
+            "corrupt, empty, or an older .doc file renamed to .docx.")
 
 
 def _reflow(input_path, output_path, opts):
@@ -194,23 +197,23 @@ def _reflow(input_path, output_path, opts):
     # A .docx is a ZIP archive of OOXML parts. mammoth surfaces a variety of
     # exceptions for bad input; catch broadly and translate to ConversionError
     # with a message that hints at the most common cause (wrong format).
+    name = upload_name(input_path)
     try:
         with open(input_path, 'rb') as docx_file:
             result = mammoth.convert_to_html(docx_file)
     except OSError as exc:
-        raise ConversionError(
-            f"Could not read DOCX file '{input_path}': {exc}"
+        raise logged_error(
+            ConversionError, f"Could not read '{name}'. Try uploading it again.", exc
         ) from exc
     except (zipfile.BadZipFile, KeyError, ValueError) as exc:
-        raise ConversionError(
-            f"'{input_path}' is not a valid .docx file. It may be corrupt, "
-            f"empty, or an older .doc file renamed to .docx (original error: "
-            f"{exc})."
+        raise logged_error(
+            ConversionError, invalid_docx_message(input_path), exc
         ) from exc
     except Exception as exc:
-        raise ConversionError(
-            f"Failed to read '{input_path}' as a Word document. It may be "
-            f"corrupt or not a real .docx file (original error: {exc})."
+        raise logged_error(
+            ConversionError,
+            f"Could not read '{name}' as a Word document. It may be corrupt "
+            "or not a real .docx file.", exc
         ) from exc
 
     body_html = result.value or ''
@@ -224,16 +227,19 @@ def _reflow(input_path, output_path, opts):
                 link_callback=link_callback,
             )
     except OSError as exc:
-        raise ConversionError(
-            f"Could not write PDF to '{output_path}': {exc}"
+        raise logged_error(
+            ConversionError,
+            f"Could not write the PDF for '{name}'. Try again, or try another file.", exc
         ) from exc
     except Exception as exc:
-        raise ConversionError(
-            f"Failed to render PDF from '{input_path}': {exc}"
+        raise logged_error(
+            ConversionError,
+            f"Could not make a PDF from '{name}'. It may use something the "
+            "converter can't handle; try saving it again from Word.", exc
         ) from exc
 
     if pdf_result.err:
         raise ConversionError(
             f"PDF rendering reported {pdf_result.err} error(s) while "
-            f"converting '{input_path}'."
+            f"converting '{name}'."
         )

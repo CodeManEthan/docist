@@ -12,8 +12,11 @@ is the operator's call. OCRmyPDF runs at most ``DOCIST_OCR_JOBS`` Tesseract
 processes at once (default 2).
 """
 import functools
+import logging
 import os
 import shutil
+
+log = logging.getLogger(__name__)
 
 # Shown wherever OCR is requested but the system binaries are missing.
 UNAVAILABLE_HINT = (
@@ -182,12 +185,19 @@ def make_searchable(input_path, output_path, language='eng', deskew=False,
             '"Force re-OCR" to replace it.'
         ) from exc
     except MissingDependencyError as exc:
+        log.warning('OCR component missing (%s)', exc)
         raise ValueError(
-            'A required OCR component is missing: {}'.format(exc)
+            'A program OCR needs is missing on the server, so OCR is not '
+            'available right now.'
         ) from exc
     except ValueError:
         raise
     except Exception as exc:
-        raise ValueError('Could not OCR this PDF: {}'.format(exc)) from exc
+        name = os.path.basename(input_path)
+        log.warning('Could not OCR %s (%s: %s)', name, type(exc).__name__, exc)
+        raise ValueError(
+            "Could not OCR '{}'. It may be damaged or password-protected; try "
+            'another file.'.format(name)
+        ) from exc
 
     return {'pages': _page_count(output_path), 'language': language}

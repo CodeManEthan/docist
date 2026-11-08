@@ -26,11 +26,16 @@ Two merge modes are supported:
     phase 2, preserving the corruption-avoiding two-phase structure.
 """
 import io
+import logging
 import os
 import tempfile
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
+
+from pdf_ops.limits import LimitError
+
+log = logging.getLogger(__name__)
 
 VALID_POSITIONS = ('bottom-right', 'bottom-center', 'bottom-left')
 VALID_MODES = ('standard', 'interleave')
@@ -268,7 +273,7 @@ def convert_and_merge(items, options, render_opts, out_path):
     ``{'count': files merged, 'notes': renderer notes}``. A conversion
     failure is a :class:`SourceError` naming the file, chained to its cause.
     """
-    from converters import get_converter   # converters import pdf_ops
+    from converters import ConversionError, get_converter   # converters import pdf_ops
 
     sources = []
     scratch = None
@@ -282,13 +287,29 @@ def convert_and_merge(items, options, render_opts, out_path):
         try:
             get_converter(ext)(path, converted, render_opts)
         except Exception as exc:
-            raise SourceError(f'Could not convert {shown}: {exc}') from exc
+            raise SourceError(_source_message(shown, exc, ConversionError)) from exc
         sources.append((converted, title))
     writer = merge_pipeline(sources, options)
     with open(out_path, 'wb') as fh:
         writer.write(fh)
     notes = list(render_opts.notes) if render_opts is not None else []
     return {'count': len(sources), 'notes': notes}
+
+
+def _source_message(shown, exc, conversion_error):
+    """What a merge says when ``shown`` couldn't be converted.
+
+    A converter's own message (a ``conversion_error``) or a limit's is ours
+    and safe to show; it gets the file's name when it doesn't already carry
+    it. Anything else is a library's text, which can carry a server path:
+    it goes to the log and the visitor gets a fixed sentence.
+    """
+    if isinstance(exc, (conversion_error, LimitError)):
+        text = str(exc)
+        return text if shown in text else f'Could not convert {shown}: {text}'
+    log.warning('Could not convert %s (%s: %s)', shown, type(exc).__name__, exc)
+    return (f'Could not convert {shown}. It may be damaged, or not the kind of '
+            'file its name says.')
 
 
 def _resolve_source(source):

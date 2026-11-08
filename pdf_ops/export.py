@@ -16,6 +16,7 @@ Pure PDF-processing functions with no Flask dependency.
   how many pages needed OCR. :func:`pdf_to_text` is a thin wrapper over it that
   preserves the historical return value (``output_path``).
 """
+import logging
 import os
 
 import pypdfium2 as pdfium
@@ -26,6 +27,8 @@ from pdf_ops.pdfium_lock import PDFIUM_LOCK
 
 from pdf_ops.ocr import is_available as _ocr_is_available
 from pdf_ops.ocr import validate_language
+
+log = logging.getLogger(__name__)
 
 # Accepted raster formats and the sane DPI window we render within.
 VALID_FORMATS = {"png", "jpg"}
@@ -206,7 +209,7 @@ def _ocr_render_pages(input_path, page_indices, language):
             try:
                 results[i] = pytesseract.image_to_string(image, lang=language)
             except pytesseract.TesseractError as exc:
-                raise ValueError(_map_tesseract_error(exc, language))
+                raise ValueError(_map_tesseract_error(exc, language, input_path))
             finally:
                 del image
     finally:
@@ -215,8 +218,9 @@ def _ocr_render_pages(input_path, page_indices, language):
     return results
 
 
-def _map_tesseract_error(exc, language):
-    """Turn a raw ``pytesseract.TesseractError`` into a readable message."""
+def _map_tesseract_error(exc, language, input_path=None):
+    """Turn a raw ``pytesseract.TesseractError`` into a readable message.
+    Tesseract's own text goes to the log, never into the message."""
     msg = str(exc)
     lowered = msg.lower()
     if "failed loading language" in lowered or "error opening data file" in lowered \
@@ -225,4 +229,6 @@ def _map_tesseract_error(exc, language):
             f"OCR language '{language}' is not available on this system. "
             "Install the matching Tesseract language pack, or use 'eng'."
         )
-    return f"OCR failed: {msg}"
+    log.warning('Tesseract failed (%s)', msg)
+    name = f"'{os.path.basename(input_path)}'" if input_path else 'this PDF'
+    return f"OCR could not read {name}. Try again, or try another file."

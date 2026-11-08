@@ -8,7 +8,7 @@ This single module supplies both halves of the ``.pdf`` pivot that the
   :func:`converters.supported_extensions`, each one delegating to the matching
   :func:`converters.get_converter`. A converter
   :class:`converters.ConversionError` is re-raised as a
-  :class:`transforms.TransformError` with the original message chained.
+  :class:`transforms.TransformError` with the same message, chained to it.
 
 * **.pdf -> .png / .jpg / .txt** using :mod:`pdf_ops.export`.
 
@@ -44,7 +44,7 @@ import tempfile
 import zipfile
 
 import converters
-from converters import ConversionError
+from converters import ConversionError, logged_error, upload_name
 
 from pdf_ops.export import pdf_to_images, pdf_to_text
 from pdf_ops.limits import LimitError
@@ -67,9 +67,9 @@ def _make_to_pdf(ext):
         try:
             return convert(input_path, output_path, opts)
         except ConversionError as exc:
-            raise TransformError(
-                f"Could not convert '{ext}' file to PDF: {exc}"
-            ) from exc
+            # The converter's message names the upload and holds no library
+            # text, so it is passed on as it is.
+            raise TransformError(str(exc)) from exc
 
     to_pdf.__name__ = f"convert_{ext.lstrip('.')}_to_pdf"
     to_pdf.__qualname__ = to_pdf.__name__
@@ -93,12 +93,15 @@ def _pdf_to_image(input_path, output_path, fmt, opts=None):
                 # (bad fmt/dpi) -- passed through either way.
                 raise
             except Exception as exc:
-                raise TransformError(
-                    f"Could not read PDF for rasterizing: {exc}"
+                raise logged_error(
+                    TransformError,
+                    f"Could not read '{upload_name(input_path)}' as a PDF. It may "
+                    "be damaged or password-protected.", exc
                 ) from exc
 
             if not images:
-                raise TransformError("PDF has no pages to render.")
+                raise TransformError(
+                    f"'{upload_name(input_path)}' has no pages to render.")
 
             if len(images) == 1:
                 # Single page: hand back the requested output_path itself.
@@ -115,7 +118,11 @@ def _pdf_to_image(input_path, output_path, fmt, opts=None):
     except (TransformError, LimitError):
         raise
     except Exception as exc:  # pragma: no cover - defensive catch-all
-        raise TransformError(f"PDF to {fmt} failed: {exc}") from exc
+        raise logged_error(
+            TransformError,
+            f"Could not turn '{upload_name(input_path)}' into {fmt.upper()} images. "
+            "Try again, or try another file.", exc
+        ) from exc
 
 
 def pdf_to_png(input_path, output_path, opts=None):
@@ -136,8 +143,10 @@ def pdf_to_txt(input_path, output_path):
     try:
         return pdf_to_text(input_path, output_path)
     except Exception as exc:
-        raise TransformError(
-            f"Could not extract text from PDF: {exc}"
+        raise logged_error(
+            TransformError,
+            f"Could not read the text in '{upload_name(input_path)}'. It may be "
+            "damaged or password-protected.", exc
         ) from exc
 
 

@@ -14,7 +14,7 @@ a default rule beside a document ``@page`` would override the document.
 import os
 import re
 
-from . import ConversionError
+from . import ConversionError, logged_error, upload_name
 from .options import paper_css
 from .safe_links import link_callback
 
@@ -154,10 +154,13 @@ def convert(input_path, output_path, opts=None):
             'xhtml2pdf is not available; cannot convert HTML files.'
         ) from exc
 
+    name = upload_name(input_path)
     try:
         source = _read_html(input_path)
     except OSError as exc:
-        raise ConversionError(f'Could not read HTML file: {exc}') from exc
+        raise logged_error(
+            ConversionError, f"Could not read '{name}'. Try uploading it again.", exc
+        ) from exc
 
     try:
         with open(output_path, 'wb') as out:
@@ -166,13 +169,17 @@ def convert(input_path, output_path, opts=None):
                 default_css=_default_css(source, opts),
             )
     except Exception as exc:  # noqa: BLE001 - surface any pisa failure
-        raise ConversionError(f'Failed to render HTML to PDF: {exc}') from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not make a PDF from '{name}'. It may use markup the "
+            "converter can't handle.", exc
+        ) from exc
 
     # pisa reports trouble via result.err; treat a truthy error count OR an
     # empty/missing output file as a failure.
     produced_output = os.path.exists(output_path) and os.path.getsize(output_path) > 0
     if getattr(result, 'err', 0) or not produced_output:
         raise ConversionError(
-            'xhtml2pdf could not render the HTML document '
-            '(the file may contain unsupported markup or no renderable content).'
+            f"xhtml2pdf could not render '{name}' (the file may contain "
+            "unsupported markup or no renderable content)."
         )
