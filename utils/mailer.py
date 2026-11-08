@@ -33,6 +33,9 @@ log = logging.getLogger(__name__)
 RESEND_URL = 'https://api.resend.com/emails'
 TIMEOUT = 10
 DEFAULT_FROM = 'Docist <no-reply@localhost>'
+# Resend's edge refuses urllib's default User-Agent ("error code: 1010"),
+# so every request names the client.
+USER_AGENT = 'docist-mailer/1.0'
 
 
 def backend():
@@ -118,6 +121,7 @@ def _send_resend(to, subject, text):
         headers={
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
+            'User-Agent': USER_AGENT,
         },
     )
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:

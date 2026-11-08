@@ -153,6 +153,8 @@ class TestResend:
         assert captured["method"] == "POST"
         assert captured["headers"]["authorization"] == "Bearer re_test_123"
         assert captured["headers"]["content-type"] == "application/json"
+        # urllib's default "Python-urllib/x.y" is refused at Resend's edge.
+        assert captured["headers"]["user-agent"] == "docist-mailer/1.0"
         assert captured["body"] == {
             "from": "Docist <no-reply@localhost>", "to": ["a@x.io"],
             "subject": "Subj", "text": "Body",
