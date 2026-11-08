@@ -1,4 +1,4 @@
-"""Merge (design launch-hardening v0.4 §13, critic majors 2 and 3)."""
+"""Merge: same-named uploads, unsupported files, non-ASCII names and empty parts."""
 import io
 
 import pytest

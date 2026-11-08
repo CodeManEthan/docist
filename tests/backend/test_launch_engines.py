@@ -1,5 +1,4 @@
-"""LibreOffice and OCR inside a job at the default caps (design launch-hardening
-v0.4 §3.4, §15). Skipped where the binaries aren't installed."""
+"""LibreOffice and OCR inside a job at the default caps. Skipped where the binaries aren't installed."""
 import os
 import time
 

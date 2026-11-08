@@ -1,8 +1,7 @@
-"""The packet render and build endpoints (design §4.3, §4.4, §6).
-
-Stage B1, with B3's cover and divider builds and B5's contents page. Responses are checked against
+"""The packet render and build endpoints, with cover, divider and contents
+page builds. Responses are checked against
 ``tests/fixtures/packet-api.json`` with ``packet_helpers.assert_shape``; the
-page-plan vectors tagged this stage or earlier run through the real build
+shared page-plan vectors run through the real build
 endpoint as well as through ``test_packet_pipeline.py``.
 """
 import io
@@ -285,7 +284,7 @@ def test_build_is_named_after_the_cover_or_packet(client):
 
 
 def test_build_with_a_cover_and_dividers_is_named_after_the_cover(client):
-    """B3: cover and divider pages build through the endpoint in the build's
+    """Cover and divider pages build through the endpoint in the build's
     job, and the stored name comes from the cover title."""
     a = ph.staged(client, ph.pdf_bytes(2, marker="A"))
     b = ph.staged(client, ph.pdf_bytes(1, marker="B"))
@@ -412,8 +411,8 @@ def test_build_byte_cap_counts_distinct_staged_pdfs(client, monkeypatch, jobs_ru
 
 
 def test_a_contents_page_builds_with_its_links(client):
-    """B5 registers the contents renderer: a contents page is no longer
-    refused, and each of its rows links to its file's first page."""
+    """A contents page builds (it has a renderer, so it is not refused),
+    and each of its rows links to its file's first page."""
     a = ph.staged(client, ph.pdf_bytes(2, marker="A"))
     b = ph.staged(client, ph.pdf_bytes(1, marker="B"))
     pkt = ph.packet(ph.file_item("i1", a), ph.file_item("i2", b), contents=True)
@@ -582,7 +581,7 @@ def test_a_paid_users_per_build_cap_is_the_paid_limit(client, make_user, login):
 
 
 # ---------------------------------------------------------------------------
-# The page-plan vectors through the real endpoint (B1 and earlier)
+# The page-plan vectors through the real endpoint
 # ---------------------------------------------------------------------------
 def _vector_params():
     return [pytest.param(vector, id=vector["name"]) for vector in PLAN["vectors"]]
@@ -593,8 +592,8 @@ def test_page_plan_vectors_through_the_build_endpoint(client, vector):
     """Stage a PDF for each ready hash, rewrite the vector's hashes and keys to
     the staged ones, and build. A hash with no ready row is ``expired`` (the
     page never sends one); the rest build page for page, cover and dividers
-    included (B3). A vector with a contents page builds at the length the
-    build measures (B5), which a vector may set otherwise to test the plan,
+    included. A vector with a contents page builds at the length the
+    build measures, which a vector may set otherwise to test the plan,
     so its pages are planned again with the measured length."""
     rows, real = {}, {}
     for fake, count in vector["page_counts"].items():

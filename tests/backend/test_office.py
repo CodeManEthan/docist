@@ -1,4 +1,4 @@
-"""The Word engine, pdf_ops/office.py (round prelaunch-fixes B2, design §5.2, §8).
+"""The Word engine, pdf_ops/office.py.
 
 Tests marked ``real_lo`` need a real LibreOffice and skip when
 ``office.available()`` is false. The rest drive a fake ``soffice`` written into
@@ -321,8 +321,7 @@ def test_strip_bounds_scanned_part_size(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# The strip's cost stays linear and inside the deadline (verification-b2
-# MAJOR 1, MINOR 1)
+# The strip's cost stays linear and inside the deadline
 # --------------------------------------------------------------------------
 def _unreferenced_rels(n):
     return ('<?xml version="1.0" encoding="UTF-8"?>'
@@ -401,7 +400,7 @@ def test_scanning_a_huge_part_keeps_memory_flat():
 
 
 def test_deep_nesting_is_refused_with_flat_memory():
-    """verification-b2-recheck MINOR 1: 10 million nested elements from a 69 KB
+    """10 million nested elements from a 69 KB
     upload took 3 GB of stack. Past MAX_XML_DEPTH the scan stops."""
     import io
     import tracemalloc
@@ -431,7 +430,7 @@ def test_normal_nesting_passes():
     '\n  rI<![CDATA[d]]>5  \n',  # split across character-data calls
 ])
 def test_text_references_match_the_tree_walk(text):
-    """verification-b2-recheck MINOR 2: a text use of a hyperlink's id is a
+    """A text use of a hyperlink's id is a
     non-hyperlink use, however the text is laid out."""
     body = f'<w:p><w:hyperlink r:id="rId5"/></w:p><w:p><w:t>{text}</w:t></w:p>'
     _, removed = _strip([('rId5', 'hyperlink', 'http://x.example/', True)], body)
@@ -446,7 +445,7 @@ def test_text_that_is_not_the_id_is_not_a_reference(text):
 
 
 def test_text_scan_is_linear_in_a_long_id():
-    """verification-b2-recheck2 MAJOR 1: a 900,000-character id and 450,000
+    """A 900,000-character id and 450,000
     entity references (one CharacterData call each) took 17 s on 3 MB when
     each call rebuilt the buffer. Each call now costs its own data only."""
     import io
@@ -490,7 +489,7 @@ def test_the_deadline_stops_the_strip(tmp_path, fake_soffice):
 
 
 # --------------------------------------------------------------------------
-# Shapes the strip can't vouch for are refused (verification-b2 MINOR 2)
+# Shapes the strip can't vouch for are refused
 # --------------------------------------------------------------------------
 def _docx_with(tmp_path, name, parts):
     base = {'word/document.xml': wf.document(wf.para('x'), '')}
@@ -564,7 +563,7 @@ def test_utf16_xml_is_refused(tmp_path):
 
 
 def test_any_error_in_the_strip_becomes_office_error(tmp_path, fake_soffice, monkeypatch, docx):
-    """verification-b2 NIT 2: whatever a malformed package raises, the caller
+    """Whatever a malformed package raises, the caller
     gets OfficeError and so the reflow and its note."""
     fake_soffice('pdf')
 
@@ -774,7 +773,7 @@ def test_not_installed_raises(tmp_path, monkeypatch, docx):
 
 
 # --------------------------------------------------------------------------
-# The deadline counts from g.request_started (render_opts, design §5.2 step 4)
+# The deadline counts from g.request_started (render_opts)
 # --------------------------------------------------------------------------
 def test_deadline_is_set_from_request_start(client):
     with app.test_request_context('/upload', method='POST'):
@@ -784,7 +783,7 @@ def test_deadline_is_set_from_request_start(client):
 
 
 def test_deadline_is_none_when_request_start_is_missing(client):
-    """Verification MINOR 3: a request the tier step never reached, or a call
+    """A request the tier step never reached, or a call
     outside any request, gets no deadline instead of an AttributeError."""
     with app.test_request_context('/upload', method='POST'):
         assert render_opts.from_form(MultiDict()).deadline is None
@@ -806,7 +805,7 @@ def test_a_request_that_spent_85s_uploading_skips_libreoffice(tmp_path, client,
 
 
 # --------------------------------------------------------------------------
-# A two-file Merge with a hanging soffice (design §8)
+# A two-file Merge with a hanging soffice
 # --------------------------------------------------------------------------
 def test_two_file_merge_with_hanging_soffice_finishes_in_budget(
         tmp_path, client, make_user, login, fake_soffice, monkeypatch):

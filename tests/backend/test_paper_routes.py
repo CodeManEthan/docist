@@ -1,7 +1,6 @@
-"""The paper choice and OCR language selects on the browser routes
-(round prelaunch-fixes, design §3.4, §4.2): Merge, Convert and Print Prep
-take `paper`; Convert takes `language` for image to .txt; notes reach the
-page message.
+"""The paper choice and OCR language selects on the browser routes: Merge,
+Convert and Print Prep take `paper`; Convert takes `language` for image to
+.txt; notes reach the page message.
 """
 import io
 

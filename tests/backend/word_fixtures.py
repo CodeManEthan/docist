@@ -1,6 +1,6 @@
 """Hand-zipped .docx fixtures for the Word engine tests (no python-docx).
 
-The four documents design prelaunch-fixes §8 names for the engine: a 1-page
+The four documents the engine is tested on: a 1-page
 letter, a 36-page document with a table, an A4 document with a header and a
 footer, and one set in Calibri and Cambria. Plus the network-guard document
 (external targets of every kind, pointed at a local server) and an ODT.

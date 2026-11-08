@@ -1,4 +1,4 @@
-"""Paper choice in every converter (round prelaunch-fixes, design §3.2).
+"""Paper choice in every converter.
 
 Each converter that decides its page size lays out on Letter with no options
 and on A4 with ``paper='a4'``. HTML that sets its own page size keeps it;

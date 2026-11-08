@@ -1,10 +1,10 @@
-"""The tiered upload limit, utils/uploads.py (round prelaunch-fixes B2, design §7.2, §8).
+"""The tiered upload limit, utils/uploads.py.
 
 Free and anonymous requests get DOCIST_MAX_UPLOAD_MB (50 MiB), paid ones
 DOCIST_MAX_UPLOAD_MB_PAID (90 MiB). Bodies are streamed from a generator, so
 the 91 MiB cases don't hold 91 MiB in memory. The chunked case calls the WSGI
 app directly: Werkzeug's test client always sets a length and never sets
-``wsgi.input_terminated`` (verification MINOR 4).
+``wsgi.input_terminated``.
 """
 import io
 import re

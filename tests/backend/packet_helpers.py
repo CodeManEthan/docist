@@ -1,4 +1,4 @@
-"""Helpers shared by the packet server's tests (stage B1).
+"""Helpers shared by the packet server's tests.
 
 ``assert_shape`` checks a response against ``tests/fixtures/packet-api.json``:
 the status, the body's field names and their JSON types, the ``code``, and

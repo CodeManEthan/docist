@@ -212,8 +212,7 @@ def test_upload_with_options_succeeds_and_bookmarks_disabled(client, tmp_path, b
 
 
 # ---------------------------------------------------------------------------
-# Padding blanks and number overlays on any paper (round prelaunch-fixes,
-# design §3.3): a blank matches the page it follows in size and /Rotate.
+# Padding blanks and number overlays on any paper: a blank matches the page it follows in size and /Rotate.
 # ---------------------------------------------------------------------------
 from pdf_ops.merge import merge_pdfs_with_blanks  # noqa: E402
 
@@ -303,7 +302,7 @@ def test_legacy_helper_blank_matches_page(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Where the number sits (packet-builder design section 3.3 rule 7, [B7]).
+# Where the number sits, the same rule the Packet Builder's page images use.
 # Merge stamps on the media box and does not turn its overlay, so only
 # unturned pages are checked here; the packet's turned pages are in
 # test_packet_pipeline.py.
@@ -325,7 +324,7 @@ def test_merge_numbers_sit_where_rule_7_puts_them(tmp_path, position, size):
     elif position == "bottom-right":
         assert x == pytest.approx(size[0] - 50, abs=0.01)
     else:
-        # Round note [C10]: centred on the midline, within 1 pt.
+        # Centred on the midline, within 1 pt.
         assert abs(x + width / 2 - size[0] / 2) <= 1
 
 

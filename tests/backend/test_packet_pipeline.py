@@ -1,9 +1,8 @@
-"""Tests for the packet page plan and pipeline (design sections 3.3 and 4.8).
+"""Tests for the packet page plan and pipeline.
 
-Stage B6's parts of the design section 6 list, B1's build-route cases at the
-end, B3's cover, divider and outline cases, B5's contents page, and B7's
-number placement. The shared page-plan vectors
-come from tests/fixtures/packet-plan.json; every source PDF is built here with
+The page plan and page edits, the build route's byte cap and fit check, the
+cover, divider and outline, the contents page, and where the page number
+sits. The shared page-plan vectors come from tests/fixtures/packet-plan.json; every source PDF is built here with
 reportlab and pypdf.
 """
 import json
@@ -184,7 +183,7 @@ def _placement_params():
 
 @pytest.mark.parametrize("vector", _placement_params())
 def test_number_placement_vectors(vector):
-    """Design section 3.3 rule 7: the stamp's placement, as the page script's."""
+    """The stamp's placement, the same as the page script's."""
     x, y, align = _number_xy(vector["number_position"], vector["width"])
     want = vector["expect"]
     assert x == pytest.approx(want["x"], abs=1e-6)
@@ -447,7 +446,7 @@ def _used_fonts(page):
 
 
 def test_mixed_converted_docx_and_scanned_pdf_keep_sound_fonts(tmp_path, builders):
-    """Font-dict safety (design section 4.8): numbers stamped on a converted
+    """Font-dict safety: numbers stamped on a converted
     DOCX and an image-only scan, interleaved and with one DOCX page used
     twice, leave every font whole and every font the content selects in place.
 
@@ -758,7 +757,7 @@ def test_nothing_to_build_is_empty(tmp_path):
 
 
 def test_a_generated_page_without_its_renderer_is_unsupported(tmp_path, monkeypatch):
-    """Since B5 every generated kind the plan makes has a renderer; the rule
+    """Every generated kind the plan makes has a renderer; the rule
     still refuses one that has none, before any work."""
     monkeypatch.delitem(packet_mod._RENDERERS, "contents")
     a = _pdf(tmp_path / "a.pdf", pages=1)
@@ -777,7 +776,7 @@ def test_a_divider_on_an_empty_section_needs_no_renderer(tmp_path):
 
 
 def test_pipeline_imports_no_job_or_limit_module_and_no_tempfile():
-    """Design section 4.8: B1 runs the pipeline in its job, so it brings none."""
+    """The build route runs the pipeline in its job, so the pipeline brings none."""
     source = Path(packet_mod.__file__).read_text(encoding="utf-8")
     imports = re.findall(r"^\s*(?:from|import)\s+([\w.]+)", source, re.M)
     assert not [m for m in imports if m in ("pdf_ops.jobs", "pdf_ops.limits", "tempfile")]
@@ -808,7 +807,7 @@ def test_copies_of_one_source_page_are_stamped_and_turned_apart(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Stage B1: the build route's byte cap and fit check (design sections 4.3, 4.6)
+# The build route's byte cap and fit check
 # ---------------------------------------------------------------------------
 def test_build_route_refuses_a_packet_over_the_byte_cap(client, monkeypatch):
     """A build reads no more staged PDF bytes than one Merge request may carry:
@@ -847,8 +846,7 @@ def test_build_route_refuses_refs_that_dont_fit_their_stage_as_stale(client):
 
 
 # ---------------------------------------------------------------------------
-# Stage B3: cover and divider pages, the nested outline (design sections 2.1,
-# 3.3, 4.8)
+# Cover and divider pages, the nested outline
 # ---------------------------------------------------------------------------
 def _cover(title="Application", subtitle="J. Pluto", date="October 3, 2026", note=""):
     return {"title": title, "subtitle": subtitle, "date": date, "note": note}
@@ -984,7 +982,7 @@ def test_long_text_wraps_inside_the_margins_and_is_cut_with_an_ellipsis(tmp_path
 
 
 def test_cover_and_divider_text_is_cut_before_it_is_fitted(tmp_path, monkeypatch):
-    """Verification-b3 n3: a crafted megabyte title is cut to _TEXT_CUT
+    """A crafted megabyte title is cut to _TEXT_CUT
     characters before the wrap-and-shrink loop, and still ends in an
     ellipsis on the page."""
     a = _pdf(tmp_path / "a.pdf", pages=1)
@@ -1046,7 +1044,7 @@ def _reportlab_prints():
 
 
 def test_the_page_scripts_printable_table_is_what_reportlab_prints():
-    """Verification-b3 m2: the preview draws a box for each character the PDF
+    """The preview draws a box for each character the PDF
     can't print, from static/packet-model.js's PDF_TEXT_RANGES. That table
     must be exactly the set ReportLab prints."""
     source = (Path(__file__).resolve().parents[2] / "static" / "packet-model.js").read_text(encoding="utf-8")
@@ -1082,7 +1080,7 @@ def test_cover_fields_that_are_not_text_are_invalid(tmp_path, cover):
 
 
 def test_outline_nests_files_under_their_sections(tmp_path):
-    """Design section 3.3 rule 6: each section points at its divider when it
+    """Each section points at its divider when it
     has one, else its first page; its file items nest under it; blanks, empty
     items and sections that give no page get no bookmark."""
     a = _pdf(tmp_path / "a.pdf", pages=2)
@@ -1110,7 +1108,7 @@ def test_bookmarks_off_adds_no_outline_with_sections(tmp_path):
 
 
 def test_a_blank_after_a_divider_matches_the_body_page_before_the_divider(tmp_path):
-    """Design section 2.1: a blank skips any cover or divider to size itself."""
+    """A blank skips any cover or divider to size itself."""
     a4 = _pdf(tmp_path / "a4.pdf", pages=1, size=A4)
     packet = _packet(("One", [_file("i1", "h4")]), ("Two", [_blank("x")], True),
                      paper="letter")
@@ -1128,7 +1126,7 @@ def test_a_blank_after_only_a_cover_takes_the_packet_paper(tmp_path):
 
 
 def test_generated_pages_keep_sound_fonts_beside_a_converted_docx(tmp_path, builders):
-    """Font-dict safety (design section 4.8): a cover and a numbered divider
+    """Font-dict safety: a cover and a numbered divider
     (reportlab Helvetica, as the converter and the overlay use) built beside
     converted DOCX pages leave every font the content selects whole."""
     docx = builders.docx(tmp_path / "doc.docx")
@@ -1148,7 +1146,7 @@ def test_generated_pages_keep_sound_fonts_beside_a_converted_docx(tmp_path, buil
 
 
 # ---------------------------------------------------------------------------
-# Stage B5: the contents page (design sections 2.1, 3.3, 4.8)
+# The contents page
 # ---------------------------------------------------------------------------
 def _rows(page):
     """The contents page's lines as [(text, label)], top to bottom: the text
@@ -1359,7 +1357,7 @@ def test_a_long_title_is_cut_with_an_ellipsis_and_unprintable_text_is_a_box(tmp_
 
 
 def test_the_contents_length_depends_only_on_its_row_count():
-    """Design section 3.3: measured before any page is placed. The measuring
+    """Measured before any page is placed. The measuring
     layout, the plan's own measure and the count rule agree for every count."""
     for rows in range(0, 200):
         entries = [{"kind": "item", "id": f"i{k}", "section": "s1", "title": "x" * (k % 50),
@@ -1407,7 +1405,7 @@ def test_the_contents_page_keeps_sound_fonts_beside_a_converted_docx(tmp_path, b
 
 
 # ---------------------------------------------------------------------------
-# B7: where the number sits (design section 3.3 rule 7)
+# Where the number sits
 # ---------------------------------------------------------------------------
 LANDSCAPE = (792.0, 612.0)
 
@@ -1441,7 +1439,7 @@ def test_the_stamped_number_sits_where_rule_7_puts_it(tmp_path, position, size, 
     elif position == "bottom-right":
         assert left == pytest.approx(width - 50, abs=0.01)
     else:
-        # [C10]: centred on the midline, within 1 pt.
+        # Centred on the midline, within 1 pt.
         assert abs((left + right) / 2 - width / 2) <= 1
         assert left == pytest.approx(width / 2 - stringWidth("128", "Helvetica", 10) / 2,
                                      abs=0.01)
