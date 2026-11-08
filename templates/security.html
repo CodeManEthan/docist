@@ -24,6 +24,7 @@
             <div class="upload-hint" id="uploadHint">Supported: PDF</div>
             <input type="file" id="fileInput" accept=".pdf">
         </div>
+        {% include '_where_files_go.html' %}
 
         <div class="file-list" id="fileList"></div>
 
@@ -43,7 +44,7 @@
         <div class="options-panel" id="watermarkOptions">
             <label>
                 Watermark text
-                <input type="text" id="text" placeholder="CONFIDENTIAL">
+                <input type="text" id="text" placeholder="e.g. CONFIDENTIAL">
             </label>
             <label>
                 Position
@@ -125,6 +126,7 @@
                     <option value="top-left">Top left</option>
                 </select>
             </label>
+            <p class="upload-hint" id="batesHint">Bates numbers give every page a unique sequential ID, like ACME000001, the way legal teams label documents.</p>
         </div>
 
         <div class="options-panel" id="stampCommonOptions" style="display:none;">

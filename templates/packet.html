@@ -43,7 +43,7 @@
             <p class="pk-hint" id="pkFormats">Loading supported formats…</p>
             <p class="pk-hint">Up to {{ upload_limit_mb }} MB per file and {{ packet_limit_mb }} MB of files per packet.</p>
             <p class="pk-hint" id="pkEmptyOps"></p>
-            <p class="pk-hint" id="pkRetention"></p>
+            {% with staging = True %}{% include '_where_files_go.html' %}{% endwith %}
         </section>
 
         <div class="pk-work" id="pkWork" hidden>

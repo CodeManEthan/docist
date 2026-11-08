@@ -7,6 +7,8 @@ const path = require('node:path');
 const {
     getExt,
     buildTargetLabel,
+    targetLabel,
+    targetsHint,
     formatMatrix,
     validateConvertState,
     escapeHtml,
@@ -118,4 +120,22 @@ test('targetOptions: paper for page-laying targets, OCR for image to text', () =
 test('targetOptions: no target or missing lists means neither', () => {
     assert.deepEqual(targetOptions('', ['.pdf'], ['.txt']), { paper: false, ocr: false });
     assert.deepEqual(targetOptions('.pdf', undefined, null), { paper: false, ocr: false });
+});
+
+// --------------------------------------------------------------------------
+// targetLabel / targetsHint: the OCR paths
+// --------------------------------------------------------------------------
+test('targetLabel marks an OCR target', () => {
+    assert.equal(targetLabel('.txt', ['.txt']), 'TXT (OCR)');
+    assert.equal(targetLabel('.pdf', ['.txt']), 'PDF');
+    assert.equal(targetLabel('.txt', []), 'TXT');
+    assert.equal(targetLabel('.txt', undefined), 'TXT');
+});
+
+test('targetsHint points a PDF source to Export', () => {
+    assert.equal(targetsHint('.pdf', 3),
+        '3 format(s) available for PDF. For DPI choice or OCR, use Export.');
+    assert.equal(targetsHint('.PDF', 3),
+        '3 format(s) available for PDF. For DPI choice or OCR, use Export.');
+    assert.equal(targetsHint('.png', 4), '4 format(s) available for PNG.');
 });

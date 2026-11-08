@@ -1,0 +1,8 @@
+{#- Where an upload and its result go, under each tool's drop zone.
+    `results_kept` and `kept_for` come from app.py's context processor. The
+    Packet Builder sets `staging` and states its own lifetimes. -#}
+{% if staging %}
+<p class="pk-hint" id="pkRetention">Files you add stay on this server while you work, and only your browser session can fetch them. They are deleted after {{ kept_for(staging_ttl_minutes * 60) }} without use, or {{ kept_for(staging_max_hours * 3600) }} after you add them, whichever comes first.</p>
+{% else %}
+<div class="upload-hint" id="whereFilesGo">Uploads are deleted when the request ends. Results are kept {{ results_kept }} for download, and only your browser session can fetch them.</div>
+{% endif %}

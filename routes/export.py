@@ -37,6 +37,36 @@ def _truthy(value):
     return str(value).strip().lower() in {'1', 'true', 'on', 'yes'}
 
 
+def _page_runs(pages):
+    """Sorted 1-based page numbers in words, consecutive runs as ranges:
+    [1, 3] -> '1 and 3', [1, 2, 3, 7] -> '1-3 and 7'."""
+    runs = []
+    for n in pages:
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    parts = [str(a) if a == b else f"{a}-{b}" for a, b in runs]
+    if len(parts) == 1:
+        return parts[0]
+    return ', '.join(parts[:-1]) + ' and ' + parts[-1]
+
+
+def empty_pages_note(empty_pages, ocr_ready=True):
+    """What the text export says about pages with no text layer (OCR off):
+    'Pages 1 and 3 have no text layer. Turn on Use OCR for scanned pages to
+    read them.' Empty when every page had text. Without OCR on the server the
+    checkbox is disabled, so the second sentence is left out."""
+    if not empty_pages:
+        return ''
+    single = len(empty_pages) == 1
+    note = (f"{'Page' if single else 'Pages'} {_page_runs(empty_pages)} "
+            f"{'has' if single else 'have'} no text layer.")
+    if ocr_ready:
+        note += ' Turn on Use OCR for scanned pages to read them.'
+    return note
+
+
 @bp.route('/export')
 def export_index():
     return render_template('export.html', ocr_available=ocr_is_available(),
@@ -79,6 +109,7 @@ def run_export():
             # Only the OCR fallback reads `language`; a bad one is a
             # RenderOptionsError, a ValueError, so a 400 below.
             language = 'eng'
+            ocr_ready = ocr_fallback or ocr_is_available()
             if ocr_fallback:
                 language = from_form(request.form, paper=False, ocr=True).ocr_language
             out_ext = '.txt'
@@ -124,10 +155,9 @@ def run_export():
                         f"Extracted text from {report['pages']} page(s). "
                         "No pages needed OCR."
                     )
-                return (
-                    f"Extracted text from {report['pages']} page(s). "
-                    "Scanned pages with no text layer come out empty."
-                )
+                note = empty_pages_note(report['empty_pages'], ocr_ready)
+                done = f"Extracted text from {report['pages']} page(s)."
+                return f"{done} {note}" if note else done
 
             message = run_in_job(work, tmpdir)
             if operation == 'images':

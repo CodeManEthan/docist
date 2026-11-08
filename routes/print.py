@@ -23,6 +23,26 @@ bp = Blueprint('print', __name__)
 VALID_OPERATIONS = {'nup', 'booklet'}
 
 
+def _article(number):
+    """'a' or 'an' before a number read aloud: an 8, an 11, an 18, an 80, an
+    800, an 11000; a 4, a 12, a 100."""
+    digits = str(number)
+    lead = int(digits[:len(digits) % 3 or 3])
+    return 'an' if str(lead).startswith('8') or lead in (11, 18) else 'a'
+
+
+def booklet_message(page_count):
+    """'Built an 8-page booklet: 4 sides on 2 sheets of paper.' The page count
+    is rounded up to a multiple of 4; each side holds two pages and each sheet
+    two sides."""
+    padded = page_count + (-page_count % 4)
+    sides, sheets = padded // 2, padded // 4
+    return (
+        f"Built {_article(padded)} {padded}-page booklet: {sides} sides on "
+        f"{sheets} {'sheet' if sheets == 1 else 'sheets'} of paper."
+    )
+
+
 @bp.route('/print')
 def print_index():
     return render_template('print.html')
@@ -87,10 +107,9 @@ def run_print():
                         f"into {sheets} sheet(s)."
                     )
                 booklet_pdf(input_path, out_path, paper=paper)
-                padded = page_count + (-page_count % 4)
                 return (
-                    f"Built a {padded}-page booklet ({padded // 2} sheet(s)). "
-                    "Print duplex, flip on the short edge, and fold in half."
+                    booklet_message(page_count)
+                    + " Print duplex, flip on the short edge, and fold in half."
                 )
 
             message = run_in_job(work, tmpdir)
