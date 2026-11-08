@@ -3,7 +3,7 @@ FROM python:3.12-slim
 
 # System deps: tesseract + ghostscript for OCR (ocrmypdf), fonts for PDF rendering.
 # OCR language packs: English (with OSD) comes with tesseract-ocr; the rest are
-# 14 more languages, about 30 MB. Names for each are in pdf_ops/ocr_langs.py.
+# 13 more languages, about 30 MB. Names for each are in pdf_ops/ocr_langs.py.
 # The Word engine (pdf_ops/office.py, paid): LibreOffice Writer without the
 # GUI, plus Carlito and Caladea, metric-compatible with Calibri and Cambria.
 # Liberation covers Arial, Times New Roman and Courier New. Microsoft's own
