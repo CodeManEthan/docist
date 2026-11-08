@@ -1,8 +1,8 @@
-"""The packet staging store and its stage and hold endpoints (design §4.2, §6).
+"""The packet staging store and its stage and hold endpoints.
 
-Stage B1. Responses are checked against ``tests/fixtures/packet-api.json``
+Responses are checked against ``tests/fixtures/packet-api.json``
 with ``packet_helpers.assert_shape``. Limits are scaled down through the app
-config, as launch-hardening's tests do (its §15): no test builds a full-size
+config, as the other limit tests do: no test builds a full-size
 file.
 """
 import io
@@ -122,7 +122,7 @@ def test_a_pdf_key_is_the_same_under_either_paper(client, job_calls):
 
 
 # ---------------------------------------------------------------------------
-# B7: each page's size, for its number on the page images (§4.2 Convert)
+# Each page's size, for its number on the page images
 # ---------------------------------------------------------------------------
 def _sized_pdf(pages, crop=None, rotate=None):
     """A PDF with one page per size in ``pages``. ``crop`` maps a page index
@@ -229,8 +229,8 @@ def _damaged_page_pdf(damage):
 
 @pytest.mark.parametrize("damage", ["no-mediabox", "bad-rotate"])
 def test_a_page_whose_boxes_cant_be_read_stages_without_sizes(client, damage):
-    """Design §4.2: one damaged page never fails a stage. The file has no
-    sizes, so its pages show no number (§2.1), and it builds with numbers off."""
+    """One damaged page never fails a stage. The file has no
+    sizes, so its pages show no number, and it builds with numbers off."""
     data = _damaged_page_pdf(damage)
     with pytest.raises(Exception):
         staging.page_sizes(PdfReader(io.BytesIO(data)))   # the case is real

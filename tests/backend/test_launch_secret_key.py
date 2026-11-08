@@ -1,4 +1,4 @@
-"""The secret-key file (design launch-hardening v0.4 §14, critic minor 2)."""
+"""The secret-key file: created when missing, replaced when empty, kept when whole."""
 import os
 import re
 

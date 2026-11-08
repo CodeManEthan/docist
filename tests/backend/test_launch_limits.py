@@ -1,4 +1,4 @@
-"""Launch-hardening limits through the routes (design v0.4 §3.5, §5 to §11, §15).
+"""The resource limits of pdf_ops.limits, through the routes.
 
 Limits are patched low in ``pdf_ops.limits``, the one place each is read, and
 fixtures are small. Nothing here builds a full-size bomb.
@@ -97,7 +97,7 @@ def outputs(client):
 
 
 # --------------------------------------------------------------------------
-# §3.5, §15: every route answers a limit with a 400 and its message
+# Every route answers a limit with a 400 and its message
 # --------------------------------------------------------------------------
 def _route_cases(builders, tmp_path):
     pdf = text_pdf_bytes(builders, tmp_path, pages=2)
@@ -171,9 +171,9 @@ def test_a_limit_error_reaching_the_app_handler_is_a_json_400(client):
 
 
 # --------------------------------------------------------------------------
-# §5 YAML
+# YAML
 # --------------------------------------------------------------------------
-CRITIC_YAML = (
+ALIAS_BOMB_YAML = (
     'a: &a ["lol","lol","lol","lol","lol","lol","lol","lol","lol"]\n'
     'b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]\n'
     'c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]\n'
@@ -186,12 +186,12 @@ CRITIC_YAML = (
 ).encode()
 
 
-def test_yaml_the_critics_alias_file_is_refused_at_the_file_cap(api, monkeypatch):
+def test_a_yaml_alias_bomb_is_refused_at_the_file_cap(api, monkeypatch):
     monkeypatch.setattr(limits, 'RESULT_BYTES', 1 * MIB)
-    assert len(CRITIC_YAML) < 400
+    assert len(ALIAS_BOMB_YAML) < 400
     for path in ('/convert/run', '/api/v1/convert'):
         started = time.monotonic()
-        response = post(api, path, {'file': (CRITIC_YAML, 'lol.yaml')}, target='.json')
+        response = post(api, path, {'file': (ALIAS_BOMB_YAML, 'lol.yaml')}, target='.json')
         assert response.status_code == 400, path
         assert error(response) == limits.file_message(), path
         assert time.monotonic() - started < 20
@@ -215,7 +215,7 @@ def test_yaml_a_recursive_alias_or_deep_nesting_is_a_400(client, src):
 
 
 # --------------------------------------------------------------------------
-# §6 rasters
+# Rasters
 # --------------------------------------------------------------------------
 def test_a_frame_over_the_limit_is_refused_on_every_image_path(api, tmp_path, monkeypatch):
     from pdf_ops import ocr as ocr_ops
@@ -311,7 +311,7 @@ def test_optimize_leaves_an_image_over_the_limit_alone(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# §7 PDF rendering
+# PDF rendering
 # --------------------------------------------------------------------------
 TALL = (30, 300_000)   # points: 120 x 1,200,000 pixels at thumbnail scale 4
 
@@ -411,7 +411,7 @@ def test_export_counts_bytes_across_pages(client, builders, tmp_path, monkeypatc
 
 
 # --------------------------------------------------------------------------
-# §8 split
+# Split
 # --------------------------------------------------------------------------
 def test_split_parts_are_counted_before_any_range_is_parsed(api, builders, tmp_path,
                                                            monkeypatch):
@@ -455,7 +455,7 @@ def test_split_bytes_are_counted_across_parts(api, builders, tmp_path, monkeypat
 
 
 # --------------------------------------------------------------------------
-# §9 SVG temp files
+# SVG temp files
 # --------------------------------------------------------------------------
 _PNG_URI = 'data:image/png;base64,' + base64.b64encode(png_bytes((8, 8))).decode()
 SVG = (f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
@@ -527,7 +527,7 @@ def test_svg_temp_files_go_when_the_job_is_killed(tmp_path, system_tmp, shared_l
 
 
 # --------------------------------------------------------------------------
-# §10 results
+# Results
 # --------------------------------------------------------------------------
 def test_refused_export_split_and_merge_leave_nothing_in_output(client, builders, tmp_path,
                                                                 monkeypatch):
@@ -579,7 +579,7 @@ def test_the_three_small_api_endpoints_stream(api, builders, tmp_path, sent_file
 
 
 # --------------------------------------------------------------------------
-# §11 text fields
+# Text fields
 # --------------------------------------------------------------------------
 def _paid_key(make_user):
     user = make_user(email='key@x.io', plan='monthly')
@@ -624,7 +624,7 @@ def test_a_text_field_one_byte_over_is_refused(client, builders, tmp_path):
         assert response.status_code == status, size
 
 
-def test_minor_1_a_small_body_limit_still_answers_json(api, monkeypatch):
+def test_a_small_body_limit_still_answers_json(api, monkeypatch):
     monkeypatch.setitem(app.config, 'MAX_CONTENT_LENGTH', 100)
     response = api.post('/api/v1/convert', data={
         'file': (io.BytesIO(b'#' * 200), 'a.md'), 'target': '.pdf',
@@ -635,7 +635,7 @@ def test_minor_1_a_small_body_limit_still_answers_json(api, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Fixes after build verification
+# Image encoders, image opens and deep JSON
 # --------------------------------------------------------------------------
 def _webp_save_fails(monkeypatch, text, error=ValueError):
     real = Image.Image.save
@@ -650,7 +650,7 @@ def _webp_save_fails(monkeypatch, text, error=ValueError):
 @pytest.mark.parametrize('path', ['/convert/run', '/api/v1/convert'])
 @pytest.mark.parametrize('error_type', [ValueError, OSError])
 def test_webp_encoder_out_of_memory_is_the_memory_refusal(api, monkeypatch, path, error_type):
-    """Build verification MAJOR-2 (a): libwebp's error 1 is
+    """libwebp's error 1 is
     VP8_ENC_ERROR_OUT_OF_MEMORY; Pillow 12.3 raises it as a plain ValueError."""
     _webp_save_fails(monkeypatch, 'encoding error 1', error_type)
     response = post(api, path, {'file': (png_bytes((40, 30), 'RGBA', (1, 2, 3, 4)), 'a.png')},
@@ -677,7 +677,7 @@ def test_other_webp_encoder_errors_stay_ordinary(tmp_path, monkeypatch, caplog):
 
 @pytest.mark.parametrize('mode,color', [('RGBA', (255, 0, 0, 128)), ('LA', (0, 128))])
 def test_images_flatten_to_rgb_matches_compositing_onto_white(mode, color):
-    """Build verification MINOR-4: the alpha-mask paste gives what
+    """The alpha-mask paste gives what
     alpha_composite onto white gave."""
     from transforms import images
     src = Image.new(mode, (50, 40), color)
@@ -710,7 +710,7 @@ def _bomb_png(width=20000, height=20000):
 
 
 def test_an_image_over_pillows_own_limit_gets_the_image_sentence(api, monkeypatch):
-    """Build verification MINOR-1: Image.open's DecompressionBombError, at all
+    """Image.open's DecompressionBombError, at all
     three open sites (image to PDF, image to image, image to text)."""
     from pdf_ops import ocr as ocr_ops
     from transforms import ocr_text
@@ -731,7 +731,7 @@ def test_an_image_over_pillows_own_limit_gets_the_image_sentence(api, monkeypatc
 
 @pytest.mark.parametrize('target', ['.yaml', '.csv'])
 def test_deeply_nested_json_is_a_400_with_the_couldnt_convert_sentence(client, target):
-    """Build verification MINOR-2: was a 500 ("Stack overflow ...")."""
+    """Not a 500 ("Stack overflow ...")."""
     src = b'[' * 100_000 + b']' * 100_000
     response = post(client, '/convert/run', {'file': (src, 'deep.json')}, target=target)
     assert response.status_code == 400

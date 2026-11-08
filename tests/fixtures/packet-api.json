@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "description": "Packet builder endpoint shapes (design.md §4.3). B2's fake server serves these bodies; B1's route tests assert their responses against them. A change to an endpoint's shape is a change to this file, made on the branch that owns it at the time, in a fixture-only commit.",
+  "description": "Packet builder endpoint shapes. The node tests' fake server (tests/frontend/fake-packet-server.js) serves these bodies; the route tests assert the real responses against them. A change to an endpoint's shape is a change to this file.",
   "conventions": {
-    "refusal_body": "Every refusal is JSON with a human `error` string. Every packet refusal also carries a `code`. Only two shared refusals have no code: the CSRF 400 and the POST rate-limit 429 (see shared below). A launch-hardening limit (LimitError) in a packet route's own job is answered by that route with a code, never by the app-wide handler, which has none: `rejected` on stage, `limit` on thumb, page and build.",
+    "refusal_body": "Every refusal is JSON with a human `error` string. Every packet refusal also carries a `code`. Only two shared refusals have no code: the CSRF 400 and the POST rate-limit 429 (see shared below). A job limit (LimitError) in a packet route's own job is answered by that route with a code, never by the app-wide handler, which has none: `rejected` on stage, `limit` on thumb, page and build.",
     "ids": "stage_id is secrets.token_urlsafe(16): 22 characters of [A-Za-z0-9_-]. holder (the tab id) is 22 to 32 characters of the same alphabet.",
     "key": "hash:engine:paper. hash is the sha256 of the uploaded bytes in lowercase hex. A PDF has empty engine and paper, so its key is '<hash>::' whatever the paper.",
     "type": "The upload's extension, lowercase, without the dot.",
-    "sizes": "From B7 (design §4.2 Convert): each page's size for placing its number on the page images, as runs [count, crop_w, crop_h, rotate, media_w, media_h] in source page order whose counts add up to pages. crop is the crop box clipped to the media box, in points rounded to 0.01; rotate is the page's own /Rotate reduced modulo 360. Consecutive pages with equal values share a run. Kept in the entry's meta.json and returned again on a dedup hit. An entry staged before B7 has no sizes and its answer leaves the field out.",
+    "sizes": "Each page's size for placing its number on the page images, as runs [count, crop_w, crop_h, rotate, media_w, media_h] in source page order whose counts add up to pages. crop is the crop box clipped to the media box, in points rounded to 0.01; rotate is the page's own /Rotate reduced modulo 360. Consecutive pages with equal values share a run. Kept in the entry's meta.json and returned again on a dedup hit. An entry staged before sizes were kept has none and its answer leaves the field out.",
     "not_found": "A bad id, a bad page index, an expired id and another owner's id all get the same 404. The client reads any 404 on a staged id as expired.",
-    "build_refusal": "A build refusal from the packet checks or from packet_pipeline's PacketError is 400 {error, code, items}: code is PacketError.code (the first item's code when items is not empty), items lists {id, code} for each bad item and is empty for a packet-wide refusal. Item codes: expired, stale, out_of_range, unreadable, encrypted, invalid. Packet-wide codes: invalid, empty, too_large (over the per-build byte cap, or over 2000 output pages), limit (a launch-hardening limit in the build's job). unsupported is retired: cover and divider pages build since B3 and the contents page since B5, so no packet the server plans has a page without a renderer.",
+    "build_refusal": "A build refusal from the packet checks or from packet_pipeline's PacketError is 400 {error, code, items}: code is PacketError.code (the first item's code when items is not empty), items lists {id, code} for each bad item and is empty for a packet-wide refusal. Item codes: expired, stale, out_of_range, unreadable, encrypted, invalid. Packet-wide codes: invalid, empty, too_large (over the per-build byte cap, or over 2000 output pages), limit (a job limit in the build's job). unsupported is retired: cover, divider and contents pages all build, so no packet the server plans has a page without a renderer.",
     "json_bodies": "hold and build read a JSON body of at most 1 MiB (pdf_ops/limits.FORM_FIELD_BYTES). A larger body is the 413 upload_too_large with limit_mb 1, before it is parsed."
   },
   "samples": {
@@ -71,7 +71,7 @@
         },
         "rejected": {
           "status": 400,
-          "note": "The file can't be read or converted: validate_upload, a converter error, or one of launch-hardening's limits. `error` is the short reason the card shows. A PDF the job can't open is `unreadable`; one that needs a password is `encrypted` (below).",
+          "note": "The file can't be read or converted: validate_upload, a converter error, or one of the job limits. `error` is the short reason the card shows. A PDF the job can't open is `unreadable`; one that needs a password is `encrypted` (below).",
           "body": {
             "error": "This file is not a valid PDF.",
             "code": "rejected"
@@ -93,7 +93,7 @@
         },
         "too_large": {
           "status": 400,
-          "note": "The converted PDF is over the tier's per-build cap (§4.6), so no build could use it.",
+          "note": "The converted PDF is over the tier's per-build cap, so no build could use it.",
           "body": {
             "error": "This file is 61 MB as a PDF. A packet can use at most 50 MB of files.",
             "code": "too_large",
@@ -112,7 +112,7 @@
             "holder_bytes": 188743680,
             "holder_files": 27
           },
-          "note": "The ruled caps (round note [C5]): 200 MB and 100 files per subject."
+          "note": "The staging caps: 200 MB and 100 files per subject."
         },
         "staging_full": {
           "status": 400,
@@ -226,7 +226,7 @@
         },
         "limit": {
           "status": 400,
-          "note": "A launch-hardening limit other than the frame limit (memory, time) stopped the render. The client leaves the tile's placeholder.",
+          "note": "A job limit other than the frame limit (memory, time) stopped the render. The client leaves the tile's placeholder.",
           "body": {
             "error": "This took longer than Docist allows for one request (90 seconds, counting the upload). Try a smaller file or fewer pages.",
             "code": "limit"
@@ -275,7 +275,7 @@
         },
         "limit": {
           "status": 400,
-          "note": "A launch-hardening limit other than the frame limit (memory, time) stopped the render. The client leaves the tile's placeholder.",
+          "note": "A job limit other than the frame limit (memory, time) stopped the render. The client leaves the tile's placeholder.",
           "body": {
             "error": "This took longer than Docist allows for one request (90 seconds, counting the upload). Try a smaller file or fewer pages.",
             "code": "limit"
@@ -306,7 +306,7 @@
       "request": {
         "content_type": "application/json",
         "body": {
-          "packet": "the packet document (design.md §3.1)",
+          "packet": "the packet document (the JSON static/packet-model.js builds)",
           "stages": {
             "<hash>": "<stage_id>"
           },
@@ -358,7 +358,7 @@
         },
         "too_large": {
           "status": 400,
-          "note": "Over the per-build byte cap (§4.6).",
+          "note": "Over the per-build byte cap.",
           "body": {
             "error": "This packet uses 62 MB of files. A packet can use at most 50 MB.",
             "code": "too_large",
@@ -399,7 +399,7 @@
         },
         "limit": {
           "status": 400,
-          "note": "A launch-hardening limit (memory, time, a file over the size cap) stopped the build's job. error is the limit's own message.",
+          "note": "A job limit (memory, time, a file over the size cap) stopped the build's job. error is the limit's own message.",
           "body": {
             "error": "This file needs more memory to convert than Docist allows for one request. Try a smaller file or split it.",
             "code": "limit",

@@ -256,7 +256,7 @@ def test_upload_csv_merges_successfully(client):
 
 
 # --------------------------------------------------------------------------
-# The Word engine through the converter and the API (prelaunch-fixes B2, §5.4)
+# The Word engine through the converter and the API
 # --------------------------------------------------------------------------
 import word_fixtures as wf  # noqa: E402
 from converters import docx_converter  # noqa: E402

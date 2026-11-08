@@ -1,16 +1,16 @@
 // ---------------------------------------------------------------------------
-// Docist packet builder: the /packet page (design.md §2, §3, §4.3)
+// Docist packet builder: the /packet page
 //
 // Three parts, as in the other static scripts:
 //   1. Client functions with no DOM: response classification, the request
 //      helpers (each takes the fetch function, so node:test can hand them a
-//      fake server), and the stage flow with quota relief (§3.2).
+//      fake server), and the stage flow with quota relief.
 //   2. DOM wiring: one model state changed only through static/packet-model.js,
 //      a full re-render after each change, SortableJS when it loaded and the
 //      Move menus always.
 //   3. The CommonJS export guard.
 //
-// The rule from §2.2 holds throughout: a key or click handler acts only when
+// One rule holds throughout: a key or click handler acts only when
 // its own element is the event's target, and stops the event there.
 // ---------------------------------------------------------------------------
 
@@ -92,7 +92,7 @@ function itemCodeText(code) {
     return ITEM_CODE_TEXT[code] || "This file couldn't be used.";
 }
 
-// The card's text for a quota refusal that remains after relief (§3.2).
+// The card's text for a quota refusal that remains after relief.
 function quotaMessage(body) {
     const b = body || {};
     const capMb = formatMb(b.cap_bytes || 0);
@@ -200,7 +200,7 @@ async function postBuild(fetchFn, state, holder) {
     };
 }
 
-// Stage one file and bind it, with quota relief (§3.2). `io` gives:
+// Stage one file and bind it, with quota relief. `io` gives:
 //   fetch, holder, update(fn) to change the page state, get() to read it,
 //   release(ids) to POST the releases, toast(text), sleep(ms).
 // Resolves the final classification kind ('ok', 'quota', ...).
@@ -277,12 +277,12 @@ async function stageWithRelief(io, hash, file) {
     }
 }
 
-// The staging queue: one stage request in flight, matching the work lane
-// (§4.3). `files` maps hash -> File for the files this page still has.
+// The staging queue: one stage request in flight, matching the server's
+// single work lane for staging. `files` maps hash -> File for the files this page still has.
 // `hooks`: blocked() is true once the session is lost; done(hash, kind)
 // runs after each request.
 //
-// The rule (§3.1 Paper): when a stage request finishes, every row is checked
+// The paper rule: when a stage request finishes, every row is checked
 // against the paper the packet has now, and a row that reads stale is queued
 // again while the page has its file. A request carries the paper of the
 // moment it was sent, so a paper change while it is open binds the old
@@ -330,7 +330,7 @@ function createStageQueue(io, files, hooks) {
     };
 }
 
-// What the "+" in a gap of section `sectionId` offers (§2.1). Dividers are
+// What the "+" in a gap of section `sectionId` offers. Dividers are
 // offered once sections show as headings (more than one section), since a
 // divider shows its section's title; the cover while the packet has none.
 function plusEntries(packet, sectionId) {
@@ -349,7 +349,7 @@ function plusEntries(packet, sectionId) {
     return out;
 }
 
-// Where a file drop at height `y` lands (§2.1 Drop files). `layout` lists
+// Where a file drop at height `y` lands. `layout` lists
 // the sections as drawn, in order: {id, top, bottom, start, count, collapsed,
 // cards}. `start` is where the section's items begin (below its heading and
 // divider card), `count` is how many items it holds, and `cards` are its
@@ -375,7 +375,7 @@ function dropTarget(y, layout) {
 }
 
 // The focus key after section `deletedId` of `before` was deleted, giving
-// `after` (§2.2: focus stays with what was acted on). While headings show,
+// `after` (focus stays with what was acted on). While headings show,
 // the section that took its contents keeps focus on its menu. With one
 // section left there are no headings, so focus goes to the first item that
 // moved; null when none did (the caller focuses the first card).
@@ -392,7 +392,7 @@ function sectionDeleteFocus(after, before, deletedId) {
 
 // One deferred action that can be run early. A section rename that lands on
 // a blur waits for the click that caused it; Undo and Redo flush it first,
-// so they act on the step the user sees (verification-b3 n4). Setting a new
+// so they act on the step the user sees. Setting a new
 // action runs the one before it.
 function createPending() {
     let fn = null;
@@ -421,20 +421,20 @@ function statusText(status, row, paper, haveFile) {
     }
 }
 
-// The file name for the result: the cover title, else packet.pdf (§2.1).
+// The file name for the result: the cover title, else packet.pdf.
 function resultName(packet) {
     const title = packet.cover && packet.cover.title ? packet.cover.title : '';
     const safe = title.replace(/[^\w .-]+/g, '').trim().slice(0, 80);
     return (safe || 'packet') + '.pdf';
 }
 
-// ---- Page numbers on the page images ([B7]) ----
-// Design §2.1 "Page numbers on the page images", §3.3 rule 7. A page's
+// ---- Page numbers on the page images ----
+// A page's
 // number is a layer over its image, placed in PDF points of the page as
 // displayed (PM.pageGeometry, PM.numberPlacement) and scaled to the box the
 // image is drawn in. The layer sits inside the sheet but undoes the sheet's
-// turn and its .77 scale, so it is upright and its pixels are screen pixels
-// (verification v0.20 m2). Lengths are in cqw, hundredths of the sheet's
+// turn and its .77 scale, so it is upright and its pixels are screen pixels.
+// Lengths are in cqw, hundredths of the sheet's
 // own width, so no layout is measured. The number is an SVG text in a 1 px
 // SVG (a 0 px one is not drawn) whose bottom edge is the baseline.
 const NUMBER_FLOOR_PX = 9;        // tiles and card thumbnails: never smaller
@@ -471,7 +471,7 @@ function numberBox(geo, position, sheetRatio) {
 // The number layer's HTML, or '' when the page shows no number. `small` is
 // a tile or a card thumbnail: the number is at least 9 px there, and a
 // left-aligned number that would pass the image's right edge is moved left
-// to end inside it (verification v0.20 M1); the pop-up draws it to scale.
+// to end inside it; the pop-up draws it to scale.
 function numberLayer(geo, label, position, sheetRatio, small) {
     if (!geo || label == null) return '';
     const b = numberBox(geo, position, sheetRatio);
@@ -493,7 +493,7 @@ function numberLayer(geo, label, position, sheetRatio, small) {
 
 // Is this the server's "too large to preview" tile? It carries a PNG text
 // chunk before its image data; its shape is not the page's, so a page shown
-// by it gets no number (verification v0.20 m4). `bytes` is the image's start.
+// by it gets no number. `bytes` is the image's start.
 function isPlaceholderPng(bytes) {
     const want = Array.from(PLACEHOLDER_MARK, c => c.charCodeAt(0));
     for (let i = 0; i + want.length <= bytes.length; i++) {
@@ -613,7 +613,7 @@ function initPacket() {
         render();
     }
     // An update that may turn rows expired (a hold answer, a render's 404):
-    // the cards change, so say which (§2.2).
+    // the cards change, so say which.
     function updateExpiring(fn) {
         const before = S.table;
         update(fn);
@@ -682,7 +682,7 @@ function initPacket() {
         return draft && PM.itemOrder(draft.packet).length > 0;
     }
 
-    // ---- Staging queue: one request in flight (§4.3 lanes) ----
+    // ---- Staging queue: one request in flight (the server's work lane) ----
     const io = {
         fetch: (...args) => fetch(...args),
         holder: tabId,
@@ -739,7 +739,7 @@ function initPacket() {
             const row = table[hash];
             files.set(hash, file);
             if (row) {
-                // Bytes this tab already knows (§3.1 Restore). An expired,
+                // Bytes this tab already knows. An expired,
                 // failed or stale row binds again by hash, so every card of
                 // this file comes back. A plain drop also adds a card here,
                 // unless one of this file's cards is expired and is the one
@@ -800,7 +800,7 @@ function initPacket() {
     $('#pkEmptyAdd').addEventListener('click', () => pickFiles(null));
 
     // Native file drops on the workspace, with an insertion line. Sortable
-    // runs with forceFallback, so the two never collide (§3.4).
+    // runs with forceFallback, so the two never collide.
     const main = $('#pkMain');
     const dropline = $('#pkDropline');
     const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
@@ -854,7 +854,7 @@ function initPacket() {
 
     // ---- Thumbnails: lazy, one render request in flight, retry on busy ----
     const thumbUrls = new Map();        // url -> object URL
-    const thumbPlaceholders = new Set(); // urls answered with the too-large tile ([B7])
+    const thumbPlaceholders = new Set(); // urls answered with the too-large tile
     const thumbSizes = new Map();       // url -> [width, height] once an image loaded
     document.addEventListener('load', e => {
         const img = e.target;
@@ -957,7 +957,7 @@ function initPacket() {
             + (thumbUrls.has(url) ? ' src="' + thumbUrls.get(url) + '"' + (thumbPlaceholders.has(url) ? ' class="pk-ph"' : '') : '')
             + ' draggable="false">';
     }
-    // Page numbers for one render ([B7]): each planned page's displayed size
+    // Page numbers for one render: each planned page's displayed size
     // and the number it shows (PM.pageGeometry, PM.shownNumbers), and where
     // each item page sits in the plan.
     function numbersFor(plan) {
@@ -976,8 +976,8 @@ function initPacket() {
         const ratio = geo.image ? paper[1] / paper[0] : geo.h / geo.w;
         return numberLayer(geo, nums.shown[i], S.packet.options.number_position, ratio, small);
     }
-    // A blank or pad sheet takes its computed size (§2.1 Insert pages;
-    // verification v0.20 m5), or the paper while it isn't known.
+    // A blank or pad sheet takes its computed size, or the paper while it
+    // isn't known.
     function drawnShape(nums, i) {
         const geo = i == null || i < 0 ? null : nums.geo[i];
         return geo ? [geo.w, geo.h] : null;
@@ -1007,7 +1007,7 @@ function initPacket() {
         return '<span class="pk-sheet pk-sheet-gen ' + (extraClass || '') + ' pk-' + S.packet.options.paper + '">'
             + genSheetInner(kind, section) + (num || '') + '</span>';
     }
-    // The contents page ([B5]): its rows from the plan, laid out as the
+    // The contents page: its rows from the plan, laid out as the
     // server lays them out (pdf_ops/packet.py _render_contents): a heading,
     // then one line per row with its label, a title too wide cut with an
     // ellipsis. `part` is which contents page. In the preview (`links`) each
@@ -1094,7 +1094,7 @@ function initPacket() {
         const text = statusText(status, row, S.packet.options.paper, !isBlank && files.has(item.hash));
         const ctx = isBlank ? 'blank page' : name;
         const type = isBlank ? 'NEW' : ((row && row.type) || PM.fileType(item.label) || 'file').toUpperCase();
-        // The thumbnail shows the item's first page, with its number ([B7]).
+        // The thumbnail shows the item's first page, with its number.
         const first = nums.at.get(item.id + ':0');
         let thumb;
         if (isBlank) thumb = sheet(0, '', 'pk-sheet-blank', numberHtml(nums, first, true), drawnShape(nums, first));
@@ -1964,7 +1964,7 @@ function initPacket() {
         if (all[j]) all[j].focus();
     }
 
-    // ---- Touch: long press enters selection mode (§2.3) ----
+    // ---- Touch: long press enters selection mode ----
     let press = null;
     list.addEventListener('pointerdown', e => {
         // A long press swallows the click that follows it. Some platforms
@@ -2083,7 +2083,7 @@ function initPacket() {
         if (el) { el.focus(); el.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' }); }
     });
 
-    // ---- Cover and divider forms (§2.1: a small form edits a generated
+    // ---- Cover and divider forms (a small form edits a generated
     // page's text; each save is one undo step) ----
     const coverDialog = $('#pkCoverDialog');
     const dividerDialog = $('#pkDividerDialog');
@@ -2095,7 +2095,7 @@ function initPacket() {
         else if (key === 'g:cover') openCoverForm(opener);
         else openDividerForm(key.slice('g:div:'.length), opener);
     }
-    // The forms say which typed characters the PDF can't print (m2): the
+    // The forms say which typed characters the PDF can't print: the
     // preview draws them as boxes, as the PDF does.
     const coverInputs = ['#pkCoverTitle', '#pkCoverSubtitle', '#pkCoverDate', '#pkCoverNote'];
     function printNote(note, values) {
@@ -2168,7 +2168,7 @@ function initPacket() {
     });
     $('#pkDividerCancel').addEventListener('click', () => dividerDialog.close());
     // Rename a file card: its label is its line in the contents and its
-    // bookmark (§2.1 Contents page, §3.1). One undo step.
+    // bookmark. One undo step.
     const renameDialog = $('#pkRenameDialog');
     let renameItem = null;
     const renameNote = () => printNote($('#pkRenamePrint'), [$('#pkRenameLabel').value]);
@@ -2234,7 +2234,7 @@ function initPacket() {
         if (e.key === 'Escape' && menu.hidden && !ui.grab && (ui.sel.size || ui.selecting)) clearSel();
     });
 
-    // ---- Preview dialog (§2.1) ----
+    // ---- Preview dialog ----
     const dialog = $('#pkPreview');
     function previewSeq() {
         return PM.pagePlan(S.packet, counts()).pages;
@@ -2313,7 +2313,7 @@ function initPacket() {
         if (!seq.length) { closePreview(); return; }
         pv.pos = Math.max(0, Math.min(pv.pos, seq.length - 1));
         const p = seq[pv.pos];
-        // The page's number, drawn to scale over the image ([B7]).
+        // The page's number, drawn to scale over the image.
         const nums = numbersFor(PM.pagePlan(S.packet, counts()));
         const num = numberHtml(nums, pv.pos, false);
         const found = p.item ? PM.findItem(S.packet, p.item) : null;
@@ -2334,7 +2334,7 @@ function initPacket() {
             }
         } else if (p.kind === 'contents') {
             // Drawn from the plan's labels; the build plans again, so a
-            // file still converting can move them (§2.1).
+            // file still converting can move them.
             const plan = PM.pagePlan(S.packet, counts());
             const first = seq.findIndex(x => x.kind === 'contents');
             const n = seq.filter(x => x.kind === 'contents').length;
@@ -2349,7 +2349,7 @@ function initPacket() {
             what = { blank: 'Blank page', pad: 'Blank page added for double-sided printing' }[p.kind];
             const shape = drawnShape(nums, pv.pos);
             page.innerHTML = sheet(0, '<span class="pk-sheet-note">' + escapeHtml(what) + '</span>', 'pk-sheet-large pk-sheet-blank', num, shape);
-            // A row staged before [B7] has no sizes: the page before's
+            // A row staged before the server sent page sizes has none: the page before's
             // image gives the shape, as it did before.
             const before = !shape && shapeBefore(seq, pv.pos);
             if (before) {
@@ -2368,7 +2368,7 @@ function initPacket() {
         $('#pkPvPrev').disabled = pv.pos === 0;
         $('#pkPvNext').disabled = pv.pos === seq.length - 1;
     }
-    // The shape a blank or padding page had before [B7], from the nearest
+    // The shape a blank or padding page had before page sizes, from the nearest
     // file page's loaded render; only a row without sizes still needs it
     // (drawnShape gives everything else). Without a render, the packet's
     // paper stands in.

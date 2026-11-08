@@ -107,7 +107,7 @@ test('escapeHtml escapes special characters', () => {
 });
 
 // --------------------------------------------------------------------------
-// targetOptions: which extra choices a target needs (round prelaunch-fixes)
+// targetOptions: which extra choices a target needs
 // --------------------------------------------------------------------------
 const { targetOptions } = require(path.join(__dirname, '..', '..', 'static', 'convert.js'));
 

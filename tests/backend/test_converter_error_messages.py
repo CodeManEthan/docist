@@ -157,7 +157,7 @@ def test_merge_hides_a_library_exception_from_a_converter(api, system_tmp,
 
 
 def test_merge_names_the_file_when_the_converter_message_does_not(monkeypatch, tmp_path):
-    """A converter's own sentence that doesn't name the file (a ruled limit
+    """A converter's own sentence that doesn't name the file (a limit
     message, say) gets the name in front of it."""
     from pdf_ops import merge
 

@@ -1,6 +1,6 @@
-"""Office files (design launch-hardening v0.4 §4): the central-directory check,
-the archive check in front of every mammoth and openpyxl open, s31.2, and
-the spreadsheet cell count. Limits are patched low; fixtures are a few KB.
+"""Office files: the central-directory check, the archive check in front of
+every mammoth and openpyxl open, the reflow's own check after the Word engine
+refuses a file, and the spreadsheet cell count. Limits are patched low; fixtures are a few KB.
 """
 import io
 import re
@@ -72,7 +72,7 @@ def _call(func, src, tmp_path, opts=None):
 
 
 # --------------------------------------------------------------------------
-# §4.1 the central directory, before zipfile reads it
+# The central directory, before zipfile reads it
 # --------------------------------------------------------------------------
 def test_central_directory_over_the_limit_is_refused(tmp_path, monkeypatch):
     src = small_docx(tmp_path / 'a.docx')
@@ -124,7 +124,7 @@ def test_a_file_that_isnt_a_zip_is_left_to_zipfile(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# §4.2 the archive check in front of every Office open
+# The archive check in front of every Office open
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize('src_ext', ['.docx', '.xlsx'])
 def test_every_office_reader_runs_the_archive_check(tmp_path, monkeypatch, src_ext):
@@ -171,7 +171,7 @@ def test_a_damaged_docx_gets_the_word_message(tmp_path):
         assert 'not a valid .docx file' in str(info.value), label
 
 
-def test_s31_2_a_paid_file_the_strip_refuses_is_checked_again_in_the_reflow(
+def test_a_paid_file_the_strip_refuses_is_checked_again_in_the_reflow(
         tmp_path, monkeypatch):
     src = small_docx(tmp_path / 'paid.docx')
     calls = []
@@ -192,7 +192,7 @@ def test_s31_2_a_paid_file_the_strip_refuses_is_checked_again_in_the_reflow(
     assert docx_converter.FALLBACK_NOTE in opts.notes
 
 
-def test_s31_2_the_reflows_own_check_refuses(tmp_path, monkeypatch):
+def test_the_reflows_own_check_refuses(tmp_path, monkeypatch):
     src = small_docx(tmp_path / 'paid.docx')
     monkeypatch.setattr(office, 'docx_to_pdf',
                         lambda *_a, **_k: (_ for _ in ()).throw(office.OfficeError('refused')))
@@ -211,7 +211,7 @@ def test_s31_2_the_reflows_own_check_refuses(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# §4.4 table cells, counted as openpyxl yields them
+# Table cells, counted as openpyxl yields them
 # --------------------------------------------------------------------------
 def test_a_declared_dimension_is_refused_by_the_cell_count_quickly(tmp_path):
     src = dimension_bomb(tmp_path / 'dim.xlsx')

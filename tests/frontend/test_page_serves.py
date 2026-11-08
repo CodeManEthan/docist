@@ -90,7 +90,7 @@ def test_packet_page_serves_with_its_assets(client):
     assert '<meta name="csrf-token"' in body
     assert "/static/csrf.js" in body
     assert 'href="/login"' in body          # the account nav
-    # SortableJS is pinned with SRI (design §3.4).
+    # SortableJS is pinned with SRI, since it loads from a CDN.
     assert "sortablejs@1.15.7/Sortable.min.js" in body
     assert 'integrity="sha384-' in body
     # It loads async, so a hung CDN never holds the deferred page scripts.
@@ -155,7 +155,7 @@ def test_served_pages_link_to_the_packet_builder(client):
 
 
 def test_the_merge_page_links_to_the_packet_builder(client):
-    # Round note [C2]: the packet builder sits beside the merge page, with a
+    # The packet builder sits beside the merge page, with a
     # link from it, outside the nav.
     body = client.get("/").get_data(as_text=True)
     page = NAV_RE.sub("", body)
@@ -164,7 +164,7 @@ def test_the_merge_page_links_to_the_packet_builder(client):
 
 def test_packet_fixture_csrf_text_matches_the_server():
     # The page tells the CSRF refusal from other code-less 400s by the
-    # error text, which packet-api.json pins (B2 deviation 7). If the
+    # error text, which packet-api.json pins. If the
     # server's message changes, this fails before the page stops seeing it.
     fixture = os.path.join(PROJECT_ROOT, "tests", "fixtures", "packet-api.json")
     with open(fixture, encoding="utf-8") as fh:

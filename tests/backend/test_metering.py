@@ -141,7 +141,7 @@ class TestSummary:
 
 
 class TestTier:
-    """``metering.tier`` is the one answer to "paid?" (prelaunch-fixes §5.3)."""
+    """``metering.tier`` is the one answer to "paid?"."""
 
     @pytest.mark.parametrize("make,expected", [
         (None, "anon"),

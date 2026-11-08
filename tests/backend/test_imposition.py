@@ -325,7 +325,7 @@ def test_run_missing_file_is_400(client):
 
 
 # --------------------------------------------------------------------------
-# Paper choice (round prelaunch-fixes, design §3.2): the sheet is the paper.
+# Paper choice: the sheet is the paper.
 # --------------------------------------------------------------------------
 _A4_PORTRAIT = (595.276, 841.89)
 _A4_LANDSCAPE = (841.89, 595.276)

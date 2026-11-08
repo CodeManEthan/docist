@@ -520,7 +520,7 @@ class TestDocsPage:
 
 
 # --------------------------------------------------------------------------
-# Paper, OCR language and notes (round prelaunch-fixes, design §2, §3.5, §4.2)
+# Paper, OCR language and notes
 # --------------------------------------------------------------------------
 def _first_size(response):
     box = PdfReader(io.BytesIO(response.data)).pages[0].mediabox

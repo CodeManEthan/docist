@@ -2,7 +2,7 @@
  *
  * Every class here carries the pk- prefix, and every colour and font comes
  * from the :root tokens in style.css, so the page follows the shared theme
- * when the tokens change (design.md §5). Nothing here restyles a shared
+ * when the tokens change. Nothing here restyles a shared
  * class. Page sheets are drawn in --ink, the lightest token, as paper.
  */
 
@@ -452,7 +452,7 @@
     text-align: center;
 }
 
-/* ---- Page numbers on the page images ([B7], design §2.1) ----
+/* ---- Page numbers on the page images ----
    packet.js numberLayer: a layer the size of the image's drawn box, centred
    on the sheet, that undoes the sheet's turn and scale, so the number stays
    upright and its pixels are screen pixels. The number is drawn as an SVG
@@ -1011,7 +1011,7 @@
     height: min(68vh, 640px);
 }
 
-/* The page fits the box at its own shape ([B7]): a landscape blank or pad
+/* The page fits the box at its own shape: a landscape blank or pad
    sheet is as wide as the box allows, never wider, and never squashed, since
    the number layer is placed by the sheet's shape. --ar is the sheet's width
    over its height. */
@@ -1119,7 +1119,7 @@
 }
 
 /* One column; expanded pages in a two-column grid; bulk bar at the bottom;
-   preview full screen (§2.3). */
+   preview full screen. */
 @media (max-width: 640px) {
     .pk-wrap {
         margin-top: 20px;
@@ -1186,7 +1186,7 @@
     }
 }
 
-/* ---- Sections ([B3]): a heading row with its name field and actions ---- */
+/* ---- Sections: a heading row with its name field and actions ---- */
 .pk-sec-head {
     display: flex;
     align-items: center;
@@ -1308,7 +1308,7 @@
     font-size: 2cqw;
 }
 
-/* The contents page ([B5]), laid out as pdf_ops/packet.py draws it, in
+/* The contents page, laid out as pdf_ops/packet.py draws it, in
    points of the page width: 72 pt margins, a 24 pt heading, then rows of
    11 pt text, 20 pt apart, the first 120 pt from the top. */
 .pk-sheet-contents {

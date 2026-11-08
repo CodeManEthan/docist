@@ -1,7 +1,7 @@
-"""What paid and free users see (round prelaunch-fixes B2, design §5.5).
+"""What paid and free users see.
 
 Until checkout exists the wording for everyone but paid users doesn't name
-paid plans ([Q5], ruled 2026-10-02, round note [C1]).
+paid plans.
 """
 import pytest
 

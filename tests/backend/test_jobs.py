@@ -1,5 +1,5 @@
-"""pdf_ops.jobs: one test per invariant J1 to J7 (design launch-hardening v0.4
-§3.1, §15). Limits are patched low; nothing here allocates more than a few
+"""pdf_ops.jobs: one test per invariant J1 to J7 (listed in pdf_ops/jobs.py).
+Limits are patched low; nothing here allocates more than a few
 tens of MiB or runs longer than a few seconds.
 
 After each, the worker's own VmData is unchanged and the next job succeeds.
@@ -454,7 +454,7 @@ def test_no_deadline_uses_the_default_budget(tmp_path, monkeypatch, worker_uncha
 
 @pytest.mark.parametrize('exc', [SystemExit(3), KeyboardInterrupt(), GeneratorExit()])
 def test_j2_a_base_exception_from_the_work_is_a_runtime_error(tmp_path, worker_unchanged, exc):
-    """Build verification MINOR-3: never re-raise SystemExit and friends in
+    """Never re-raise SystemExit and friends in
     the worker."""
     def work():
         raise exc
@@ -464,7 +464,7 @@ def test_j2_a_base_exception_from_the_work_is_a_runtime_error(tmp_path, worker_u
 
 
 def test_a_reaped_child_is_not_signalled_by_pid(tmp_path, monkeypatch, worker_unchanged):
-    """Build verification NIT-2: after the child is reaped only its group is
+    """After the child is reaped only its group is
     killed, never its (possibly reused) pid."""
     calls = []
     real_kill, real_killpg = os.kill, os.killpg

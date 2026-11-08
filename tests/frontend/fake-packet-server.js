@@ -1,6 +1,6 @@
 'use strict';
 
-// A fake of B1's packet endpoints for node:test (build note m-a). It answers
+// A fake of the packet endpoints for node:test. It answers
 // /packet/stage, /packet/hold and /packet/build through a fetch function,
 // with bodies shaped like tests/fixtures/packet-api.json, and keeps a
 // per-subject staging cap so the quota-relief path can be driven end to end.
