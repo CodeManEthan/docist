@@ -1427,3 +1427,56 @@ body .login-form input[type="text"] {
         padding: 6px 12px;
     }
 }
+
+/* ---- First visit: the intro strip on / and the footer on every page ---- */
+.intro-strip {
+    margin-bottom: 26px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--tint);
+    color: var(--ink-soft);
+    font-size: 0.92em;
+    line-height: 1.55;
+}
+
+.intro-strip p + p {
+    margin-top: 6px;
+    color: var(--muted);
+}
+
+.intro-btn {
+    margin-top: 12px;
+    font: inherit;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+}
+
+.intro-btn:hover:not(:disabled) {
+    background: var(--tint-strong);
+}
+
+.intro-btn:disabled {
+    color: var(--faint);
+    cursor: progress;
+}
+
+.site-footer {
+    margin-top: 40px;
+    text-align: center;
+    color: var(--faint);
+    font-size: 0.85em;
+}
+
+.site-footer a {
+    color: var(--muted);
+}
+
+.site-footer a:hover {
+    color: var(--ink);
+}

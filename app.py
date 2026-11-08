@@ -238,6 +238,24 @@ metering.init_app(app)
 # The Merge and Convert pages' Word hint (templates/_word_hint.html).
 app.jinja_env.globals['word_engine_available'] = lambda: office.available()
 
+
+def kept_for(seconds):
+    """How long results are kept, in words: whole hours, or the minutes when
+    that is under an hour ("24 hours", "1 hour", "30 minutes")."""
+    if seconds >= 3600:
+        count, unit = seconds // 3600, 'hour'
+    else:
+        count, unit = max(1, seconds // 60), 'minute'
+    return f"{count} {unit}{'' if count == 1 else 's'}"
+
+
+@app.context_processor
+def _inject_limits_text():
+    # The intro strip on / (templates/index.html): the anonymous daily limit
+    # (the one the nav's usage line shows a visitor) and how long results stay.
+    return {'anon_limit': app.config['LIMIT_ANON'],
+            'results_kept': kept_for(app.config['OUTPUT_MAX_AGE'])}
+
 for _removed in ('DOCIST_PASSWORD', 'DOCIST_PUBLIC_DEMO'):
     if os.environ.get(_removed):
         app.logger.warning(

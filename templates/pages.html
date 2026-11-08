@@ -12,18 +12,8 @@
     {% include "_csrf_head.html" %}
 </head>
 <body>
-    <nav class="tool-nav">
-        <span class="nav-brand">Docist</span>
-        <a href="/">Merge</a>
-        <a href="/packet">Packet Builder</a>
-        <a href="/convert">Convert Files</a>
-        <a href="/pages" class="active">Page Tools</a>
-        <a href="/print">Print Prep</a>
-        <a href="/export">Export</a>
-        <a href="/security">Watermark &amp; Security</a>
-        <a href="/api">API</a>
-        {% include "_account_nav.html" %}
-    </nav>
+    {% set active = '/pages' %}
+    {% include "_nav.html" %}
     <div class="container">
         <h1><span class="h1-icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><defs><linearGradient id="h1-grad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#ff8a3d"/><stop offset="0.5" stop-color="#ff4d5e"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient></defs><g fill="none" stroke="url(#h1-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9"/><path d="M14.5 14.5 20 20"/><path d="M8.1 8.1 12 12"/></g></svg></span>Page Tools</h1>
         <p class="subtitle">Extract, remove, rotate or split pages in a single PDF.</p>
@@ -134,6 +124,7 @@
         <div class="message" id="message"></div>
     </div>
 
+    {% include "_footer.html" %}
     <script src="/static/ocr-langs.js"></script>
     <script src="/static/pages.js"></script>
 </body>

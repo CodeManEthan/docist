@@ -179,6 +179,14 @@ function canMerge(state) {
     return count >= 1;
 }
 
+// The files behind "Try with sample files" on / (static/samples/, written by
+// tests/manual/make_samples.py), in the order they join the merge list.
+const SAMPLE_FILES = [
+    { url: '/static/samples/sample-report.pdf', name: 'sample-report.pdf', type: 'application/pdf' },
+    { url: '/static/samples/sample-note.md', name: 'sample-note.md', type: 'text/markdown' },
+    { url: '/static/samples/sample-chart.png', name: 'sample-chart.png', type: 'image/png' },
+];
+
 // ============================== DOM wiring =================================
 
 function initApp() {
@@ -332,6 +340,30 @@ function initApp() {
         message.style.display = 'none';
         // Clear the file input so the same files can be selected again if needed
         fileInput.value = '';
+    }
+
+    // ---- Sample files ----
+    // Fetch the three samples and add them as if the visitor had dropped
+    // them, so they take the same path (thumbnail, stale-result reset).
+    const sampleBtn = document.getElementById('sampleBtn');
+    if (sampleBtn) {
+        sampleBtn.addEventListener('click', async () => {
+            sampleBtn.disabled = true;
+            try {
+                const files = await Promise.all(SAMPLE_FILES.map(async (sample) => {
+                    const res = await fetch(sample.url);
+                    if (!res.ok) throw new Error(sample.name);
+                    return new File([await res.blob()], sample.name, { type: sample.type });
+                }));
+                handleFiles(files);
+            } catch (err) {
+                message.className = 'message error';
+                message.textContent = "Couldn't load the sample files. Try again in a moment.";
+                message.style.display = 'block';
+            } finally {
+                sampleBtn.disabled = false;
+            }
+        });
     }
 
     // ---- Thumbnails ----
@@ -621,5 +653,6 @@ if (typeof module !== 'undefined' && module.exports) {
         firstThumb,
         thumbCellHtml,
         THUMB_ENDPOINT,
+        SAMPLE_FILES,
     };
 }
