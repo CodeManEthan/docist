@@ -87,3 +87,17 @@ Run M1 twice without deleting anything.
 the `filename=` in each download URL starts with a different 32-character
 hex key.
 - [ ] Pass
+
+## M13 ⚡ One download button, always for the current list
+a) Add `odd-3p.pdf` + `even-4p.pdf` → Merge.
+**Expect:** one **Download Merged PDF** button and **Start Over**; the
+Merge button is hidden. Download → `odd-3p-merged.pdf`, 7 pages.
+b) Add `single-1p.pdf`.
+**Expect:** the download and Start Over buttons are gone and the Merge
+button is back.
+c) Merge again.
+**Expect:** one download button; it fetches an 8-page
+`odd-3p-merged.pdf` (the `filename=` key differs from a).
+d) Each of these also removes the button and brings Merge back: move a
+row with ▲/▼, remove a row with ✕, switch Standard ↔ Interleave.
+- [ ] Pass

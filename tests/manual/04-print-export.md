@@ -28,6 +28,18 @@ Upload `photo.png` here.
 server answers `Only .pdf files are supported`).
 - [ ] Pass
 
+### PR5 ⚡ One download button, always for the current file and operation
+a) `report-12p.pdf`, N-up 2 per sheet → Run.
+**Expect:** one **Download Result** button; it fetches `report-12p_2up.pdf`.
+b) Switch to Booklet.
+**Expect:** the download button is gone.
+c) Run.
+**Expect:** one button; it fetches `report-12p_booklet.pdf`.
+d) Choose `odd-3p.pdf`.
+**Expect:** the button is gone. Run Booklet again: one button, fetching
+`odd-3p_booklet.pdf`.
+- [ ] Pass
+
 ## Export
 
 ### E1 ⚡ PDF → images (zip)
@@ -59,4 +71,17 @@ pages are pictures.
 Same file, OCR fallback ON, language `eng`.
 **Expect:** `SCANMARK 1` through `SCANMARK 3` all appear. (Skip if the OCR
 checkbox is disabled.)
+- [ ] Pass
+
+### E6 ⚡ One download button, always for the current file and operation
+a) `report-12p.pdf`, Export as images → Run.
+**Expect:** one **Download Result** button; it fetches
+`report-12p_images.zip`.
+b) Switch to Extract text.
+**Expect:** the download button is gone.
+c) Run.
+**Expect:** one button; it fetches `report-12p.txt`.
+d) Choose `odd-3p.pdf`.
+**Expect:** the button is gone. Run Extract text again: one button,
+fetching `odd-3p.txt`.
 - [ ] Pass

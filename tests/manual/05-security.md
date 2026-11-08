@@ -67,3 +67,19 @@ network request needed.
 **Expect:** 400: `The file does not look like a .pdf file (its content
 doesn't match the extension).`
 - [ ] Pass
+
+## S11 ⚡ One download button, always for the current file and operation
+a) `report-12p.pdf`, Watermark, text `DRAFT` → Apply.
+**Expect:** one **Download PDF** button; it fetches
+`report-12p-watermarked.pdf`.
+b) Switch the operation to Protect.
+**Expect:** the download button is gone (the watermarked copy can no
+longer be fetched from this page).
+c) Password `docist-test` → Protect.
+**Expect:** one button; it fetches `report-12p-protected.pdf`.
+d) Choose `odd-3p.pdf`.
+**Expect:** the button is gone. Protect again: one button, fetching
+`odd-3p-protected.pdf`.
+e) Remove the file with ✕.
+**Expect:** the button is gone.
+- [ ] Pass
