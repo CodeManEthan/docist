@@ -42,6 +42,7 @@ from utils.render_opts import (
 )
 from utils.uploads import charge_uploads, convert_large_ok
 from utils.validation import UploadValidationError, validate_upload
+from routes.errors import server_error
 
 bp = Blueprint('convert', __name__)
 
@@ -174,8 +175,8 @@ def run_convert():
         return jsonify({'error': str(exc)}), 400
     except TransformError as exc:
         return jsonify({'error': str(exc)}), 400
-    except Exception as exc:  # pragma: no cover - defensive
-        return jsonify({'error': f'Unexpected error: {exc}'}), 500
+    except Exception:
+        return server_error('convert failed')
 
     if actual_ext != target:
         message = (

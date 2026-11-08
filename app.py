@@ -45,6 +45,10 @@ local development):
                                    it was staged, however often it is renewed
                                    (default 24)
     DOCIST_COOKIE_SECURE           set to 1 when serving over HTTPS
+    DOCIST_COMMIT                  the deployed commit, shown (first 12
+                                   characters) as "commit" in /healthz; when
+                                   unset, Railway's RAILWAY_GIT_COMMIT_SHA is
+                                   used, else "commit" is null
     FLASK_DEBUG                    set to 1 for the dev server's debugger
 
 Email settings (DOCIST_EMAIL_*, DOCIST_SMTP_*, DOCIST_RESEND_API_KEY,
@@ -71,12 +75,14 @@ from datetime import timedelta
 
 import click
 from flask import Flask, jsonify, request
+from werkzeug.exceptions import InternalServerError
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import StaticPool
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import routes
+from routes import errors
 from models import User, database_url, db, utcnow
 from pdf_ops import jobs, office
 from pdf_ops.limits import LimitError
@@ -334,13 +340,37 @@ def healthz():
     """Unauthenticated liveness probe for reverse proxies / uptime checks.
     ``job_limits`` is false when the start-time canary found the per-job
     memory cap doesn't work on this platform (pdf_ops/jobs.py, J7)."""
-    return jsonify({'status': 'ok', 'job_limits': bool(jobs.limits_enforced)})
+    return jsonify({'status': 'ok', 'job_limits': bool(jobs.limits_enforced),
+                    'commit': deployed_commit()})
+
+
+def deployed_commit():
+    """The first 12 characters of DOCIST_COMMIT, else of Railway's
+    RAILWAY_GIT_COMMIT_SHA, else None. Read per request: it is two lookups."""
+    for name in ('DOCIST_COMMIT', 'RAILWAY_GIT_COMMIT_SHA'):
+        value = os.environ.get(name, '').strip()
+        if value:
+            return value[:12]
+    return None
 
 
 @app.errorhandler(LimitError)
 def _limit_refused(exc):
     # Any route that doesn't answer a LimitError itself: the same JSON 400.
     return jsonify({'error': str(exc)}), 400
+
+
+@app.errorhandler(InternalServerError)
+def _server_error(exc):
+    """Every 500: an exception no route caught (Flask has already logged it,
+    and passes it here wrapped) or an explicit 500. The answer carries none of
+    the exception's text: the fixed message as JSON under /api/v1/ and for
+    every request but a page load, the HTML message page otherwise."""
+    if getattr(exc, 'original_exception', None) is None:
+        app.logger.error('500 on %s %s: %s', request.method, request.path, exc.description)
+    if errors.wants_json():
+        return errors.server_error_json()
+    return errors.server_error_page()
 
 
 def _user_by_email(email):

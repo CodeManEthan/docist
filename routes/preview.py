@@ -17,6 +17,7 @@ from pdf_ops.limits import LimitError
 from pdf_ops.preview import MAX_THUMBS, render_thumbnails
 from utils.render_opts import run_in_job
 from utils.validation import UploadValidationError, validate_upload
+from routes.errors import server_error
 
 bp = Blueprint('preview', __name__)
 
@@ -54,7 +55,7 @@ def thumbs():
                 # Unreadable, corrupt or password-locked: the client only
                 # needs to know the preview is unavailable.
                 return jsonify({'error': 'Could not read the PDF file.'}), 400
-    except Exception as exc:  # pragma: no cover - defensive
-        return jsonify({'error': f'Unexpected error: {exc}'}), 500
+    except Exception:
+        return server_error('preview failed')
 
     return jsonify(result)
