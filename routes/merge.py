@@ -21,6 +21,7 @@ from utils.naming import display_name, owner_of, result_name
 from utils.render_opts import RenderOptionsError, from_form, run_in_job, take_notes, with_notes
 from utils.uploads import charge_uploads, merge_large_ok, merge_plan, upload_ext
 from utils.validation import UploadValidationError, validate_upload
+from routes.errors import server_error
 
 bp = Blueprint('merge', __name__)
 
@@ -126,8 +127,8 @@ def upload_files():
         except OptionsError as e:
             # e.g. interleave page-count mismatch -> a user-fixable 400.
             return jsonify({'error': str(e)}), 400
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            return server_error('merge failed')
 
 
 @bp.route('/download')

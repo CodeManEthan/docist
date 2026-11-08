@@ -20,6 +20,7 @@ from pdf_ops.stamp import apply_header_footer, apply_bates_numbers, format_bates
 from utils.naming import result_name
 from utils.render_opts import run_in_job
 from utils.validation import UploadValidationError, validate_upload
+from routes.errors import server_error
 
 bp = Blueprint('security', __name__)
 
@@ -150,8 +151,8 @@ def run():
             shutil.move(output_path, os.path.join(output_folder, output_name))
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
-    except Exception as exc:  # noqa: BLE001 -- surface as 500
-        return jsonify({'error': str(exc)}), 500
+    except Exception:  # noqa: BLE001 -- the fixed 500
+        return server_error('security tool failed')
 
     return jsonify({
         'success': True,

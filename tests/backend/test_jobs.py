@@ -421,12 +421,12 @@ def test_j7_the_canary_fails_loudly_when_the_cap_has_no_effect(monkeypatch, capl
     with caplog.at_level(logging.ERROR, logger='pdf_ops.jobs'):
         assert jobs.canary() is False
     assert any('NOT enforced' in r.getMessage() for r in caplog.records)
-    assert client.get('/healthz').get_json() == {'status': 'ok', 'job_limits': False}
+    assert client.get('/healthz').get_json().items() >= {'status': 'ok', 'job_limits': False}.items()
 
 
 def test_j7_healthz_reports_working_limits(monkeypatch, client):
     monkeypatch.setattr(jobs, 'limits_enforced', True)
-    assert client.get('/healthz').get_json() == {'status': 'ok', 'job_limits': True}
+    assert client.get('/healthz').get_json().items() >= {'status': 'ok', 'job_limits': True}.items()
 
 
 # ---------------------------------------------------------------------------

@@ -67,6 +67,7 @@ from utils.uploads import (
     upload_ext,
 )
 from utils.validation import UploadValidationError, validate_upload
+from routes.errors import server_error
 
 bp = Blueprint('api', __name__)
 
@@ -255,8 +256,8 @@ def api_merge():
                 lambda: convert_and_merge(items, options, render_opts, merged), tmpdir)
         except (LimitError, SourceError, OptionsError) as exc:
             raise ApiError(str(exc))
-        except Exception as exc:  # pragma: no cover - defensive
-            raise ApiError(str(exc), status=500)
+        except Exception:
+            return server_error('api merge failed')
         take_notes(render_opts, done['notes'])
         return notes_header(_stream_path(merged, f'{base}-merged.pdf'), render_opts)
 
@@ -332,8 +333,8 @@ def api_convert():
             done = run_in_job(work, tmpdir)
         except (LimitError, TransformError) as exc:
             raise ApiError(str(exc))
-        except Exception as exc:  # pragma: no cover - defensive
-            raise ApiError(f'Unexpected error: {exc}', status=500)
+        except Exception:
+            return server_error('api convert failed')
 
         take_notes(render_opts, done['notes'])
         return notes_header(_stream_path(done['path']), render_opts)
@@ -434,7 +435,7 @@ def api_watermark():
             ), tmpdir)
         except ValueError as exc:
             raise ApiError(str(exc))
-        except Exception as exc:  # pragma: no cover - defensive
-            raise ApiError(str(exc), status=500)
+        except Exception:
+            return server_error('api watermark failed')
 
         return _stream_path(out_path)
