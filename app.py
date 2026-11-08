@@ -12,7 +12,7 @@ local development):
                                    instance/secret_key (random per process for
                                    in-memory SQLite)
     DOCIST_TRUSTED_PROXIES         reverse-proxy hops to trust for
-                                   X-Forwarded-For/-Proto (default 1 when
+                                   X-Forwarded-For/-Proto (default 2 when
                                    RAILWAY_ENVIRONMENT is set, else 0)
     DOCIST_LIMIT_ANON              daily operations for anonymous visitors and
                                    unverified accounts (default 10)
@@ -223,8 +223,22 @@ with app.app_context():
 
 # Proxy trust: the client address is the N-th X-Forwarded-For entry from the
 # right, so anything a client prepends is ignored. 0 = the socket peer.
+RAILWAY_PROXY_HOPS = 2
+
+
+def default_trusted_proxies(environ):
+    """Proxy hops to trust when DOCIST_TRUSTED_PROXIES is unset.
+
+    Railway's edge sends ``X-Forwarded-For: <client>, <internal proxy>``, and
+    the internal proxy is also the socket peer, so the client is the second
+    entry from the right. Trusting one hop there would count every guest as
+    one of Railway's proxies. Elsewhere nothing is trusted by default.
+    """
+    return RAILWAY_PROXY_HOPS if environ.get('RAILWAY_ENVIRONMENT') else 0
+
+
 _trusted_proxies = _env_int(
-    'DOCIST_TRUSTED_PROXIES', 1 if os.environ.get('RAILWAY_ENVIRONMENT') else 0
+    'DOCIST_TRUSTED_PROXIES', default_trusted_proxies(os.environ)
 )
 if _trusted_proxies > 0:
     app.wsgi_app = ProxyFix(
@@ -279,7 +293,7 @@ if (os.environ.get('DATABASE_URL')
         app.logger.warning(
             'DOCIST_TRUSTED_PROXIES is 0. Behind a reverse proxy every '
             "anonymous visitor then shares the proxy's IP and one daily "
-            'allowance. Set it to the number of proxy hops (Railway: 1).'
+            'allowance. Set it to the number of proxy hops (nginx: 1, Railway: 2).'
         )
 
 # Every upload's work runs in a forked job (pdf_ops/jobs.py). Modules a job

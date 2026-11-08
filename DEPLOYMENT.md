@@ -44,7 +44,7 @@ There is no shared password. Every tool page works without an account:
 | `DATABASE_URL` | `sqlite:///docist.db` (in `instance/`) | Where accounts, keys and usage live. On Railway paste the Postgres add-on's `postgres://…` URL; `postgres://` and `postgresql://` are rewritten to the psycopg 3 driver. |
 | `DOCIST_SECRET_KEY` | persisted in `instance/secret_key` | Signs sessions, and keys the anonymous IP hashes and result owner tags. **Required in production.** Without it the key is generated once into `instance/secret_key`, which survives restarts on a persistent disk but not a fresh container. |
 | `DOCIST_COOKIE_SECURE` | off | Set to `1` whenever you serve over HTTPS, so session cookies are `Secure`. **Required in production**: the cookie now carries real logins. |
-| `DOCIST_TRUSTED_PROXIES` | `1` if `RAILWAY_ENVIRONMENT` is set, else `0` | Reverse-proxy hops to trust for `X-Forwarded-For` / `X-Forwarded-Proto`. `1` behind one proxy (nginx, Railway). Leave `0` when nothing is in front. |
+| `DOCIST_TRUSTED_PROXIES` | `2` if `RAILWAY_ENVIRONMENT` is set, else `0` | Reverse-proxy hops to trust for `X-Forwarded-For` / `X-Forwarded-Proto`. `1` behind one proxy (nginx). `2` on Railway, whose edge sends `<client>, <internal proxy>`. Leave `0` when nothing is in front. |
 | `DOCIST_LIMIT_ANON` | `10` | Daily operations for anonymous visitors and unverified accounts. |
 | `DOCIST_LIMIT_FREE` | `50` | Daily operations for verified free accounts. |
 | `DOCIST_LIMIT_PAID` | `0` | Daily operations for any plan other than `free`; `0` means unlimited. |
@@ -152,7 +152,7 @@ workers fork.
 | `DATABASE_URL` | the Postgres add-on's URL |
 | `DOCIST_SECRET_KEY` | 64 hex chars, generated once and kept (a new key signs everyone out) |
 | `DOCIST_COOKIE_SECURE` | `1` |
-| `DOCIST_TRUSTED_PROXIES` | `1` (the default when `RAILWAY_ENVIRONMENT` is set) |
+| `DOCIST_TRUSTED_PROXIES` | `2` (the default when `RAILWAY_ENVIRONMENT` is set) |
 | `DOCIST_BASE_URL` | the public `https://…` origin |
 | `DOCIST_EMAIL_BACKEND` and its settings | see below |
 | `DOCIST_PASSWORD`, `DOCIST_PUBLIC_DEMO` | removed (left over from the old password gate) |
@@ -179,9 +179,13 @@ before the first signup.
 The app logs a startup warning when `DATABASE_URL` is set but
 `DOCIST_SECRET_KEY` is not, and when `DATABASE_URL` is set but
 `DOCIST_TRUSTED_PROXIES` is `0` (behind a proxy that would put every
-anonymous visitor on the proxy's IP and one shared allowance). After the first
-deploy, check one request's `X-Forwarded-For` to confirm the edge appends the
-client IP as the last hop.
+anonymous visitor on the proxy's IP and one shared allowance). On Railway the
+header arrives as `X-Forwarded-For: <client>, <internal proxy>`: the edge drops
+any `X-Forwarded-For` the client sent, and the internal proxy (one of a few
+addresses) is also the socket peer. Trusting one hop there would count every
+guest as one of those proxies, so the client is two hops back. After the first
+deploy, make a few keyless API calls from one address: `X-Docist-Usage-Remaining`
+should fall by one each time.
 
 ### Email sender
 

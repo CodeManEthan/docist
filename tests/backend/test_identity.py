@@ -44,6 +44,26 @@ class TestClientIp:
         # real address. With one trusted hop only the last entry counts.
         assert _ip_via_proxyfix(1, "10.0.0.1", "6.6.6.6, 203.0.113.9") == "203.0.113.9"
 
+    def test_railway_header_shape_with_two_hops_is_the_client(self):
+        # Railway's edge sends "<client>, <internal proxy>" and the internal
+        # proxy is the socket peer.
+        xff = "203.0.113.9, 152.233.40.1"
+        assert _ip_via_proxyfix(2, "152.233.40.1", xff) == "203.0.113.9"
+
+    def test_railway_header_shape_with_one_hop_is_the_proxy(self):
+        # The old default: every guest became one of Railway's proxies.
+        xff = "203.0.113.9, 152.233.40.1"
+        assert _ip_via_proxyfix(1, "152.233.40.1", xff) == "152.233.40.1"
+
+    def test_two_hops_ignore_a_prepended_xff(self):
+        xff = "6.6.6.6, 203.0.113.9, 152.233.40.2"
+        assert _ip_via_proxyfix(2, "152.233.40.2", xff) == "203.0.113.9"
+
+    def test_default_hops_are_two_on_railway_and_zero_elsewhere(self):
+        assert flask_app_module.default_trusted_proxies(
+            {"RAILWAY_ENVIRONMENT": "production"}) == 2
+        assert flask_app_module.default_trusted_proxies({}) == 0
+
     def test_app_without_proxyfix_ignores_xff(self):
         with app.test_request_context(
             headers={"X-Forwarded-For": "6.6.6.6"},
