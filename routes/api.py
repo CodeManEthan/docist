@@ -25,6 +25,8 @@ each successful POST counts against the caller's daily limit (429 with
 ``code: daily_limit`` once spent; see utils/metering.py), and requests larger
 than ``DOCIST_MAX_UPLOAD_MB`` are rejected with a 413.
 """
+import contextlib
+import logging
 import mimetypes
 import os
 import tempfile
@@ -35,6 +37,7 @@ from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
 from converters import get_converter, supported_extensions
+from pdf_ops.export import pdf_to_images, pdf_to_text_report
 from pdf_ops.imposition import booklet_pdf, nup_pdf
 from pdf_ops.limits import LimitError
 from pdf_ops.merge import OptionsError, SourceError, convert_and_merge, parse_options
@@ -46,6 +49,7 @@ from pdf_ops.pages import (
     rotate_pages,
     split_pdf,
 )
+from pdf_ops.security import protect_pdf, unlock_pdf
 from pdf_ops.stamp import apply_bates_numbers, apply_header_footer
 from pdf_ops.watermark import apply_text_watermark
 from transforms import (
@@ -58,7 +62,8 @@ from transforms import (
     uses_ocr,
 )
 from converters.options import PAPER_SIZES
-from pdf_ops.ocr import installed_languages
+from pdf_ops.ocr import UNAVAILABLE_HINT, installed_languages, make_searchable
+from pdf_ops.ocr import is_available as ocr_is_available
 from pdf_ops.ocr_langs import language_choices
 from utils.identity import current_user
 from utils.render_opts import (
@@ -89,11 +94,15 @@ OPERATIONS = [
     '/api/v1/pages/rotate',
     '/api/v1/pages/remove',
     '/api/v1/pages/compress',
+    '/api/v1/pages/ocr',
     '/api/v1/print/nup',
     '/api/v1/print/booklet',
     '/api/v1/watermark',
     '/api/v1/stamp/header-footer',
     '/api/v1/stamp/bates',
+    '/api/v1/export',
+    '/api/v1/protect',
+    '/api/v1/unlock',
 ]
 
 
@@ -204,19 +213,28 @@ def _paper():
         raise ApiError(str(exc))
 
 
-def _one_pdf(upload, what, out_suffix, operate):
-    """One PDF in, one PDF out, the shape every endpoint here has.
+def _flag(name):
+    """A checkbox-style form field: '1', 'true', 'on' or 'yes' is on."""
+    return str(request.form.get(name, '')).strip().lower() in {'1', 'true', 'on', 'yes'}
+
+
+def _one_pdf(upload, what, out_suffix, operate, count_pages=True):
+    """One PDF in, one file out (``<name><out_suffix>``), the shape every
+    tool endpoint here has.
 
     ``operate(input_path, out_path, page_count)`` runs in the request's job,
     after the upload has passed its extension and magic-bytes checks and the
-    PDF has been opened once. Options that read only the form are checked by
-    the caller before this, so a bad one answers 400 without a job."""
+    PDF has been opened once (``count_pages=False`` skips that and passes
+    None: an encrypted PDF can't be read before it is unlocked). Options that
+    read only the form are checked by the caller before this, so a bad one
+    answers 400 without a job."""
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path, base = _save_pdf(upload, tmpdir)
         out_path = os.path.join(tmpdir, f'{base}{out_suffix}')
 
         def work():
-            operate(input_path, out_path, _page_count(input_path))
+            count = _page_count(input_path) if count_pages else None
+            operate(input_path, out_path, count)
 
         try:
             run_in_job(work, tmpdir)
@@ -525,6 +543,29 @@ def api_pages_compress():
     return _one_pdf(upload, 'compress', '_compressed.pdf', operate)
 
 
+@bp.route('/api/v1/pages/ocr', methods=['POST'])
+def api_pages_ocr():
+    """Add an invisible OCR text layer: ``language`` (Tesseract code(s),
+    '+'-joined, default 'eng'), ``deskew`` and ``force`` (re-OCR pages that
+    already have text) as on/off flags. 400 when Tesseract isn't installed."""
+    upload = _require_upload('file')
+    if not ocr_is_available():
+        raise ApiError(UNAVAILABLE_HINT)
+    try:
+        language = from_form(request.form, current_user(), paper=False,
+                             ocr=True).ocr_language
+    except RenderOptionsError as exc:
+        raise ApiError(str(exc))
+    deskew = _flag('deskew')
+    force = _flag('force')
+
+    def operate(input_path, out_path, count):
+        make_searchable(input_path, out_path, language=language,
+                        deskew=deskew, force=force)
+
+    return _one_pdf(upload, 'ocr', '_searchable.pdf', operate)
+
+
 # ---------------------------------------------------------------------------
 # Print prep
 # ---------------------------------------------------------------------------
@@ -636,3 +677,114 @@ def api_stamp_bates():
                             font_size=font_size, color=color)
 
     return _one_pdf(upload, 'bates', '-bates.pdf', operate)
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+@bp.route('/api/v1/export', methods=['POST'])
+def api_export():
+    """``operation='images'``: every page as an image, zipped (``fmt`` png|jpg,
+    default png; ``dpi`` 30-600, default 150). ``operation='text'``: the text
+    layer as UTF-8 text, a ``--- Page N ---`` header per page; ``ocr_fallback``
+    (a flag) OCRs pages with no text layer, in ``language`` (default 'eng')."""
+    upload = _require_upload('file')
+    operation = (request.form.get('operation') or '').strip().lower()
+
+    if operation == 'images':
+        fmt = (request.form.get('fmt') or 'png').strip().lower()
+        dpi = request.form.get('dpi') or '150'
+
+        def operate(input_path, out_path, count):
+            if count < 1:
+                raise ValueError('The PDF has no pages to export.')
+            images = pdf_to_images(input_path, tempfile.mkdtemp(prefix='images-'),
+                                   fmt=fmt, dpi=dpi)
+            with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for image in images:
+                    zf.write(image, arcname=os.path.basename(image))
+
+        return _one_pdf(upload, 'export', '_images.zip', operate)
+
+    if operation == 'text':
+        ocr_fallback = _flag('ocr_fallback')
+        language = 'eng'
+        if ocr_fallback:
+            if not ocr_is_available():
+                raise ApiError(UNAVAILABLE_HINT)
+            try:
+                language = from_form(request.form, current_user(), paper=False,
+                                     ocr=True).ocr_language
+            except RenderOptionsError as exc:
+                raise ApiError(str(exc))
+
+        def operate(input_path, out_path, count):
+            if count < 1:
+                raise ValueError('The PDF has no pages to export.')
+            pdf_to_text_report(input_path, out_path,
+                               ocr_fallback=ocr_fallback, language=language)
+
+        return _one_pdf(upload, 'export', '.txt', operate)
+
+    raise ApiError("Choose an operation: 'images' or 'text'.")
+
+
+# ---------------------------------------------------------------------------
+# Passwords
+# ---------------------------------------------------------------------------
+# The password reaches no log line, error message or response. pdf_ops's own
+# refusals are fixed sentences and pass through; any other ValueError (a
+# UnicodeEncodeError quotes a character of the password) becomes a fixed
+# message inside the job. Nothing else pypdf or cryptography raises carries
+# the password, so the 500 branch logs as every route does.
+_PASSWORD_REFUSALS = frozenset({
+    'Password must not be empty',
+    'Incorrect password',
+    'PDF is not password-protected',
+})
+
+
+@contextlib.contextmanager
+def _pypdf_quiet():
+    """Silence pypdf's logger: its warning for a password SASLprep rejects
+    names the offending character's code point."""
+    logger = logging.getLogger('pypdf')
+    level = logger.level
+    logger.setLevel(logging.CRITICAL + 1)
+    try:
+        yield
+    finally:
+        logger.setLevel(level)
+
+
+def _password_tool(what, out_suffix, run, count_pages):
+    upload = _require_upload('file')
+    password = request.form.get('password', '')
+    if password == '':
+        raise ApiError("A password is required (send a 'password' field).")
+    refused = f"Docist couldn't {what} this PDF. Check the password, or try another file."
+
+    def operate(input_path, out_path, count):
+        with _pypdf_quiet():
+            try:
+                run(input_path, out_path, password)
+            except LimitError:
+                raise
+            except ValueError as exc:
+                message = str(exc) if str(exc) in _PASSWORD_REFUSALS else refused
+                raise ValueError(message) from None
+
+    return _one_pdf(upload, what, out_suffix, operate, count_pages=count_pages)
+
+
+@bp.route('/api/v1/protect', methods=['POST'])
+def api_protect():
+    """Encrypt with ``password`` (AES-256; required, not logged or echoed)."""
+    return _password_tool('protect', '-protected.pdf', protect_pdf, count_pages=True)
+
+
+@bp.route('/api/v1/unlock', methods=['POST'])
+def api_unlock():
+    """Write a decrypted copy, given the PDF's ``password`` (required, not
+    logged or echoed). A wrong password answers 400 'Incorrect password'."""
+    return _password_tool('unlock', '-unlocked.pdf', unlock_pdf, count_pages=False)
