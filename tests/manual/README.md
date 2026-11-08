@@ -1,9 +1,9 @@
 # Docist manual hand-tests
 
 Checklists for hand-testing every user-facing feature. Automated tests
-(559 pytest + 208 node) cover the logic; these cover what only a human
-can judge — the browser UX, real downloads opened in real viewers, drag
-and drop, and the error messages users actually see.
+(more than 1,700 pytest and 300 node tests) cover the logic; these cover
+what only a person can judge: the browser UX, real downloads opened in real
+viewers, drag and drop, and the error messages users actually see.
 
 ## One-time setup per session
 

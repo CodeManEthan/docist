@@ -1,37 +1,35 @@
-# Docist — Quick Start Guide
+# Docist quick start
 
-## Installation
+## Install
 
-1. Navigate to the project:
-   ```bash
-   cd ~/projects/Docist
-   ```
+Needs Python 3.11+ on Linux (macOS should work; untested).
 
-2. Activate virtual environment:
-   ```bash
-   source .venv/bin/activate
-   ```
+```bash
+git clone https://github.com/CodeManEthan/docist.git
+cd docist
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+OCR needs system packages (`tesseract` and `ghostscript`; see the README's
+Requirements). Without them the app runs and the OCR options are greyed out.
 
-## Run the Application
+## Run
 
-**Option 1: Using the run script (easiest)**
 ```bash
 ./run.sh          # dev server
 ./run.sh prod     # gunicorn, production settings
 ```
 
-**Option 2: Manual**
-```bash
-source .venv/bin/activate
-python app.py
-```
+Then open **http://localhost:5010**. The port is configurable:
+`DOCIST_PORT=8080 ./run.sh`.
 
-Then open your browser to: **http://localhost:5010**
+Or with Docker (the image listens on 5010):
+
+```bash
+docker build -t docist .
+docker run -p 5010:5010 docist
+```
 
 No login is needed to use the tools. Anonymous visitors get 10 operations a
 day; the nav shows how many are left. For more, sign up at
@@ -43,15 +41,23 @@ under `instance/`.
 See `DEPLOYMENT.md` for the full production setup (secret key, database,
 email sender, reverse proxy, systemd, environment variables).
 
-## Quick Test
+## Quick test
 
-1. Visit http://localhost:5010
-2. Click the upload area
-3. Select 2-3 files — PDFs, or a mix of PDFs, Markdown, Word, images and more
-4. Each PDF shows a first-page thumbnail; reorder rows with ▲/▼ or by dragging
-5. Click "Merge Files"
-6. Download your merged, numbered PDF
+1. Visit http://localhost:5010 and click **Try with sample files**: a PDF, a
+   Markdown note and a PNG chart are queued, the PDF with a first-page
+   thumbnail.
+2. Reorder rows with ▲/▼ or by dragging, or add your own files: PDFs, Word,
+   Markdown, images, spreadsheets and more.
+3. Click **Merge Files** and download your merged, numbered PDF.
 
-Beyond merging, the nav bar reaches every tool: Convert Files, Page Tools, Print Prep, Export, and Watermark & Security. The same operations are available over HTTP — see the API reference at http://localhost:5010/api.
+Then try the **Packet Builder** at http://localhost:5010/packet: add files of
+any kind, click **All pages** to see every page, drag pages between files, add
+a cover, sections and a contents page, and build one PDF. Undo works on every
+change, and a reload offers to restore your draft.
 
-The port is configurable: `DOCIST_PORT=8080 ./run.sh`. Full variable list in `DEPLOYMENT.md`.
+The nav bar reaches every tool: Merge & Convert, Packet Builder, Convert
+Files, Page Tools, Print Prep, Export, and Watermark & Security. Every
+one-file tool is also on the REST API; see the reference at
+http://localhost:5010/api.
+
+The full variable list is in `DEPLOYMENT.md`.
