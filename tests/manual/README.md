@@ -12,7 +12,7 @@ source .venv/bin/activate
 python tests/manual/make_fixtures.py     # writes tests/manual/fixtures/ (~20 MB, gitignored)
 ```
 
-OCR checks (03/P8–P9, 04/E4–E5, 02/C10) need `tesseract` and `gs` on the
+OCR checks (03/P8–P9, 04/E4–E5, 02/C10, 06/A12) need `tesseract` and `gs` on the
 host — the UI greys those controls out if they're missing, and you can
 skip those items.
 
@@ -40,7 +40,7 @@ fires without 30 rapid submits.
 3. `03-pages.md` — Page Tools (12 checks)
 4. `04-print-export.md` — Print Prep + Export (11 checks)
 5. `05-security.md` — Watermark & Security (11 checks)
-6. `06-api.md` — REST API via curl (8 checks)
+6. `06-api.md` — REST API via curl, every `/api/v1` endpoint (20 checks)
 7. `07-auth-hardening.md` — accounts, daily limits, API keys, owner-bound downloads, CSRF, throttles (16 checks)
 8. `08-packet.md` — Packet Builder at /packet: drag, touch, keyboard, screen reader, card states, drafts, sections, contents, page numbers (15 checks)
 
