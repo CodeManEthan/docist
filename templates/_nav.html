@@ -1,0 +1,13 @@
+{#- The tool nav on every page. A tool page sets `active` to its own path
+    before the include ({% set active = '/convert' %}); a page that sets
+    nothing (sign-in, account, messages) marks no link active. -#}
+    <nav class="tool-nav">
+        <span class="nav-brand">Docist</span>
+{%- for href, label in [('/', 'Merge'), ('/packet', 'Packet Builder'),
+                        ('/convert', 'Convert Files'), ('/pages', 'Page Tools'),
+                        ('/print', 'Print Prep'), ('/export', 'Export'),
+                        ('/security', 'Watermark & Security'), ('/api', 'API')] %}
+        <a href="{{ href }}"{% if active == href %} class="active"{% endif %}>{{ label }}</a>
+{%- endfor %}
+        {% include "_account_nav.html" %}
+    </nav>

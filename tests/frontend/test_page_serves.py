@@ -112,46 +112,39 @@ def test_packet_static_assets_served(client):
 
 TEMPLATES = os.path.join(PROJECT_ROOT, "templates")
 NAV_RE = re.compile(r'<nav class="tool-nav">(.*?)</nav>', re.S)
+NAV_PAGES = ("/", "/packet", "/convert", "/pages", "/print", "/export",
+             "/security", "/api", "/login", "/signup", "/forgot")
 
 
-def _tool_navs():
-    """Each template with a tool nav, and that nav's markup."""
-    navs = {}
+def test_no_template_carries_its_own_tool_nav():
+    # The nav lives in templates/_nav.html only; a page includes it.
     for name in sorted(os.listdir(TEMPLATES)):
-        if not name.endswith(".html"):
+        if not name.endswith(".html") or name == "_nav.html":
             continue
         with open(os.path.join(TEMPLATES, name), encoding="utf-8") as fh:
             src = fh.read()
-        found = NAV_RE.findall(src)
-        if found or "tool-nav" in src:
-            assert len(found) == 1, name
-            navs[name] = found[0]
-    return navs
+        assert "tool-nav" not in src, name
 
 
-def test_every_tool_nav_links_to_the_packet_builder():
-    # The nav has no shared partial: each template carries its own. A new
-    # template with a tool nav fails here until it links to /packet.
-    navs = _tool_navs()
-    assert "packet.html" in navs and "index.html" in navs
-    for name, nav in navs.items():
+def test_every_tool_nav_links_to_the_packet_builder(client):
+    for path in NAV_PAGES:
+        nav = NAV_RE.search(client.get(path).get_data(as_text=True)).group(1)
         links = re.findall(r'<a href="(/[^"]*)"([^>]*)>([^<]*)</a>', nav)
         tools = [href for href, _, _ in links]
-        assert tools.count("/packet") == 1, name
+        assert tools.count("/packet") == 1, path
         # Beside Merge, as the packet builder sits beside the merge page.
-        assert tools.index("/packet") == tools.index("/") + 1, name
+        assert tools.index("/packet") == tools.index("/") + 1, path
         attrs = dict((href, (a, text)) for href, a, text in links)
-        assert attrs["/packet"][1] == "Packet Builder", name
+        assert attrs["/packet"][1] == "Packet Builder", path
         active = [href for href, a, _ in links if 'class="active"' in a]
-        if name == "packet.html":
-            assert active == ["/packet"], name
+        if path == "/packet":
+            assert active == ["/packet"], path
         else:
-            assert "/packet" not in active, name
+            assert "/packet" not in active, path
 
 
 def test_served_pages_link_to_the_packet_builder(client):
-    for path in ("/", "/packet", "/convert", "/pages", "/print", "/export",
-                 "/security", "/api", "/login", "/signup", "/forgot"):
+    for path in NAV_PAGES:
         body = client.get(path).get_data(as_text=True)
         nav = NAV_RE.search(body)
         assert nav, path

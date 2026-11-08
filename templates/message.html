@@ -12,18 +12,7 @@
 {% include '_csrf_head.html' %}
 </head>
 <body>
-    <nav class="tool-nav">
-        <span class="nav-brand">Docist</span>
-        <a href="/">Merge</a>
-        <a href="/packet">Packet Builder</a>
-        <a href="/convert">Convert Files</a>
-        <a href="/pages">Page Tools</a>
-        <a href="/print">Print Prep</a>
-        <a href="/export">Export</a>
-        <a href="/security">Watermark &amp; Security</a>
-        <a href="/api">API</a>
-{% include '_account_nav.html' %}
-    </nav>
+    {% include "_nav.html" %}
     <div class="container login-container">
         <h1>{{ title }}</h1>
         <p class="subtitle">{{ body }}</p>
@@ -31,5 +20,6 @@
         <p class="auth-links"><a href="{{ link_href }}">{{ link_text or link_href }}</a></p>
         {% endif %}
     </div>
+    {% include "_footer.html" %}
 </body>
 </html>
