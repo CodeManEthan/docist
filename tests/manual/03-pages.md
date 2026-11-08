@@ -75,3 +75,16 @@ Upload `corrupt.pdf`, any operation.
 **Expect:** 400: `Could not read the PDF file.` (this page trusts the
 parser rather than magic-byte sniffing).
 - [ ] Pass
+
+## P12 ⚡ One download button, always for the current file and operation
+a) `report-12p.pdf`, Extract, ranges `1-2` → Run.
+**Expect:** one **Download Result** button; it fetches
+`report-12p_extracted.pdf`.
+b) Switch the operation to Rotate.
+**Expect:** the download button is gone.
+c) Ranges `1` → Run.
+**Expect:** one button; it fetches `report-12p_rotated.pdf`.
+d) Choose `odd-3p.pdf`.
+**Expect:** the button is gone. Run Rotate again: one button, fetching
+`odd-3p_rotated.pdf`.
+- [ ] Pass

@@ -1,19 +1,19 @@
 // ---------------------------------------------------------------------------
-// Docist packet builder: the client model (design.md §3)
+// Docist packet builder: the client model
 //
 // Pure functions only. The page script (static/packet.js) holds one state
 // object and changes it only through these, then re-renders:
 //
 //   state = { packet, past, future, table }
 //
-// - packet: the JSON document sent to /packet/build (§3.1). File items name
+// - packet: the JSON document sent to /packet/build. File items name
 //   their file by the SHA-256 of its bytes, never by stage id.
 // - past / future: snapshot undo stacks of earlier packets, capped at 100.
 // - table: the binding table, one row per hash: the bound stage (stage_id,
-//   key, page count, bytes, and from [B7] its pages' sizes), the file's
+//   key, page count, bytes, and its pages' sizes when the server gave them), the file's
 //   name and type, and a status. Rows
 //   change outside the undo history and never change the packet, except
-//   that binding a new stage resets page edits that no longer fit (§3.1).
+//   that binding a new stage resets page edits that no longer fit.
 //
 // Every function takes its inputs and returns new values; nothing here
 // mutates an argument or touches the DOM, storage or the network. Storage
@@ -29,7 +29,7 @@ const ROTATIONS = [0, 90, 180, 270];
 const DRAFT_PREFIX = 'packet-draft:';
 const DRAFTS_KEPT = 10;
 const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;   // DOCIST_STAGING_MAX_HOURS
-// The cover's text fields (§3.1) and the longest text the page lets each
+// The cover's text fields and the longest text the page lets each
 // one hold. The server takes any length and cuts what doesn't fit its page.
 const COVER_FIELDS = ['title', 'subtitle', 'date', 'note'];
 const TEXT_MAX = { title: 120, subtitle: 160, date: 60, note: 200, section: 120, label: 200 };
@@ -113,7 +113,7 @@ function defaultOptions(paper) {
     };
 }
 
-// A new packet: one untitled section, not shown as a heading (§2.1).
+// A new packet: one untitled section, not shown as a heading.
 function emptyPacket(paper) {
     return {
         version: 1,
@@ -164,7 +164,7 @@ function cleanText(value, max) {
     return max ? text.slice(0, max).trim() : text;
 }
 
-// ---- Text on generated pages: what the PDF prints (verification-b3 m2) ----
+// ---- Text on generated pages: what the PDF prints ----
 // pdf_ops/packet.py draws cover and divider text in ReportLab's Helvetica,
 // which falls back to Symbol (Greek, maths) and ZapfDingbats and draws a
 // box (ZapfDingbats "n", ■) for any other character. These are the code
@@ -232,7 +232,7 @@ function unprintable(values) {
 
 // Insert a generated page or flag. 'blank' is an item at the slot. 'divider'
 // turns the slot's section divider on. 'cover' sets the packet's one cover
-// (the plan always puts it first, §3.3).
+// (the plan always puts it first).
 function insertGenerated(packet, kind, at, fields) {
     const next = clone(packet);
     if (kind === 'blank') {
@@ -250,7 +250,7 @@ function insertGenerated(packet, kind, at, fields) {
     return packet;
 }
 
-// ---- Cover and dividers (§2.1, §3.1: flags, not items) ----
+// ---- Cover and dividers (flags, not items) ----
 
 // Set the packet's one cover from {title, subtitle, date, note}. The same
 // text as now is no change.
@@ -279,7 +279,7 @@ function setDivider(packet, sectionId, on) {
     return next;
 }
 
-// "Add dividers to all sections" is one action (§2.1).
+// "Add dividers to all sections" is one action.
 function addDividers(packet) {
     if (sectionsOf(packet).every(sec => sec.divider)) return packet;
     const next = clone(packet);
@@ -329,7 +329,7 @@ function duplicateItems(packet, itemIds) {
     return changed ? next : packet;
 }
 
-// A file item's label: its line in the contents and its bookmark (§2.1).
+// A file item's label: its line in the contents and its bookmark.
 // One line, capped like the other text the page sends; empty keeps the old.
 function setLabel(packet, itemId, label) {
     const found = findItem(packet, itemId);
@@ -357,7 +357,7 @@ function moveItem(packet, itemId, at) {
     return moveItems(packet, [itemId], at);
 }
 
-// ---- Sections (§2.1; the page's section UI is [B3]) ----
+// ---- Sections (the page's section UI is in packet.js) ----
 
 function addSection(packet, title, index) {
     const next = clone(packet);
@@ -421,7 +421,7 @@ function toggleOption(packet, name) {
     return setOption(packet, name, !packet.options[name]);
 }
 
-// Change the paper: one undo step on options alone (§3.1). Rows that no
+// Change the paper: one undo step on options alone. Rows that no
 // longer match read as stale (rowStatus) and packet.js stages them again.
 function setPaper(packet, paper) {
     if (!PAPERS.includes(paper) || packet.options.paper === paper) return packet;
@@ -444,7 +444,7 @@ function itemRefs(item, counts) {
 }
 
 // Page-level edits need explicit refs: write them with the bound stage's key
-// and page count (§3.1). `rows` is the table.
+// and page count. `rows` is the table.
 function materialize(item, rows) {
     if (item.kind !== 'file' || item.pages) return item;
     const row = rows[item.hash];
@@ -672,7 +672,7 @@ function movePages(packet, table, targets, dest) {
     return JSON.stringify(next) === JSON.stringify(packet) ? packet : next;
 }
 
-// ---- Page order and step targets for the Move menus (§2.2) ----
+// ---- Page order and step targets for the Move menus ----
 
 // Every page the packet's items give, in order: [{item, index, section}].
 // Blank items give one page. Generated flags (cover, dividers, padding) are
@@ -857,7 +857,7 @@ function namedHashes(state) {
     return out;
 }
 
-// Can the item's refs be used with this stage? (§3.1 Fit)
+// Can the item's refs be used with this stage?
 function refsFit(item, stage) {
     return !item.pages || (item.key === stage.key && item.src_pages === stage.pages);
 }
@@ -896,8 +896,8 @@ function bindStage(state, hash, stage) {
         name: stage.name || (old && old.name) || '', type: stage.type || (old && old.type) || '',
         status: 'ready', reason: '',
     });
-    // Each page's size for its number ([B7]); an answer without them (an
-    // entry staged before [B7]) leaves the row without, and its pages show
+    // Each page's size for its number; an answer without them (an
+    // entry staged before the server sent sizes) leaves the row without, and its pages show
     // no number.
     const sizes = cleanSizes(stage.sizes, stage.pages);
     if (sizes) table[hash].sizes = sizes;
@@ -916,7 +916,7 @@ function bindStage(state, hash, stage) {
 }
 
 // Stage ids the server says are gone: their rows turn expired. Items keep
-// their places, labels and refs (§3.1 Restore).
+// their places, labels and refs.
 function expireStages(state, stageIds) {
     const gone = new Set(stageIds);
     let table = state.table;
@@ -974,7 +974,7 @@ function commitFrom(state, snapshot) {
     return commit(Object.assign({}, state, { packet: snapshot }), state.packet);
 }
 
-// ============================ Holds (§3.2) ================================
+// ============================ Holds =======================================
 
 // After a change: rows whose hash no packet, past or future names any more
 // are dropped, and their stages released. Returns {state, release, hashes}.
@@ -1033,7 +1033,7 @@ function applyHold(state, answer) {
     return expireStages(state, (answer && answer.gone) || []);
 }
 
-// ============================ Paper (§3.1) ================================
+// ============================ Paper =======================================
 
 // Hashes whose bound row reads stale under the packet's paper.
 function staleHashes(state) {
@@ -1051,10 +1051,10 @@ function paperImpact(state, paper) {
     return { files: hashes.size, edited };
 }
 
-// ============================ Page plan (§3.3) ============================
+// ============================ Page plan ===================================
 
-// ---- The contents page ([B5]) ----
-// Its length depends only on its row count (§3.3): every row is one line,
+// ---- The contents page ----
+// Its length depends only on its row count: every row is one line,
 // a title too wide is cut with an ellipsis, and each contents page holds
 // CONTENTS_ROWS rows on either paper. pdf_ops/packet.py has the same number,
 // pinned by tests/backend/test_packet_pipeline.py.
@@ -1093,8 +1093,8 @@ function contentsRows(packet, plan) {
 // pdf_ops/packet.py page_plan also runs. `counts` maps hash -> page count for
 // ready rows (readyCounts); a file item whose hash has none gives no pages.
 // `contentsPages` is the contents length when options.contents is on; left
-// out, it is measured from the rows (contentsRows), as the build measures it
-// ([B5]). Returns
+// out, it is measured from the rows (contentsRows), as the build measures it.
+// Returns
 //   pages:    [{kind, label, print, section?, item?, hash?, src?, rot?, index?}]
 //             kind is cover | contents | pad | divider | file | blank; label
 //             is the number or null for front matter. File and blank pages
@@ -1196,20 +1196,20 @@ function planPages(packet, counts, contentsPages, o) {
     return { pages, entries: outEntries, total: pages.length, sections, items };
 }
 
-// ======================= Page numbers on the images ([B7]) ================
-// Design §2.1 "Page numbers on the page images" and §3.3 rule 7. Every
+// ======================= Page numbers on the images =======================
+// Every
 // image of a packet page shows its number exactly when the build stamps
 // one, with the plan's label, where the stamp puts it. The place is in PDF
 // points of the page as displayed; its size comes from the stage answer's
-// `sizes` (§4.2 Convert), never from an image.
+// `sizes`, never from an image.
 
 const NUMBER_BASELINE = 30;   // pt above the bottom edge
 const NUMBER_INSET = 50;      // pt in from the left or right edge
 const NUMBER_SIZE = 10;       // Helvetica, pt
 const PAPER_POINTS = { letter: [612, 792], a4: [595.276, 841.89] };
 
-// Where a page number goes on a page shown `width` points wide (§3.3 rule
-// 7): {x, y, align}. pdf_ops/merge.py _number_xy is the same rule, and both
+// Where a page number goes on a page shown `width` points wide:
+// {x, y, align}. pdf_ops/merge.py _number_xy is the same rule, and both
 // run the placement vectors in tests/fixtures/packet-plan.json.
 function numberPlacement(position, width) {
     if (position === 'bottom-left') return { x: NUMBER_INSET, y: NUMBER_BASELINE, align: 'left' };
@@ -1235,7 +1235,7 @@ function cleanSizes(sizes, pages) {
 }
 
 // Source page `src` of a row: {cw, ch, rot, mw, mh}, or null when the row
-// has no sizes (staged before [B7]) or the page is past them.
+// has no sizes (staged before the server sent them) or the page is past them.
 function sourceSize(row, src) {
     if (!row || !Array.isArray(row.sizes)) return null;
     let at = 0;
@@ -1254,7 +1254,7 @@ function quarterTurn(rotation) {
 }
 
 // Every planned page's size as displayed, in points, as the build makes it
-// (§3.3 rule 7, §2.1 Insert pages). One entry per plan page:
+// (blank and pad pages included). One entry per plan page:
 //   file:  {w, h, image: [w, h], turn} or null. `image` is the size the
 //          server's render shows (the visible box with the page's own
 //          /Rotate); `turn` is the user's rotation, applied in the browser;
@@ -1328,7 +1328,7 @@ async function sha256Hex(buffer, subtle) {
     return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// ============================ Drafts (§3.2) ===============================
+// ============================ Drafts ======================================
 
 function draftKey(tabId) {
     return DRAFT_PREFIX + tabId;
@@ -1345,7 +1345,7 @@ function draftTable(table) {
         out[hash] = row.stage_id
             ? { stage_id: row.stage_id, key: row.key, pages: row.pages, bytes: row.bytes, name: row.name, type: row.type, status: 'ready' }
             : { stage_id: null, key: row.key || '', pages: row.pages == null ? null : row.pages, bytes: row.bytes || 0, name: row.name || '', type: row.type || '', status: 'expired' };
-        // The pages' sizes ([B7]) go with a bound row, checked again, since
+        // The pages' sizes go with a bound row, checked again, since
         // a draft comes from storage.
         const sizes = row.stage_id ? cleanSizes(row.sizes, row.pages) : null;
         if (sizes) out[hash].sizes = sizes;
@@ -1385,7 +1385,7 @@ function draftPacketOk(packet) {
 
 // A draft's section and cover text as the page writes it: a missing or null
 // title, divider or cover field becomes '' or false, since the server
-// refuses null (verification-b3 n1). draftPacketOk has checked the types.
+// refuses null. draftPacketOk has checked the types.
 function draftText(packet) {
     const next = clone(packet);
     next.sections.forEach(sec => {
@@ -1474,7 +1474,7 @@ function latestDraft(storage, exceptTabId) {
     return found || null;
 }
 
-// Restore a draft into a fresh state (§3.2 Drafts). The restoring tab keeps
+// Restore a draft into a fresh state. The restoring tab keeps
 // every stage in the draft's table, then lets go of those the packet doesn't
 // name, in one POST /packet/hold. Returns {state, keep, release}: keep is
 // the stages the packet names, release the rest of the draft's stages. The
@@ -1496,7 +1496,8 @@ function restoreDraft(draft) {
     return { state, keep: keepIds(state), release };
 }
 
-// A tab id: 22 characters of the urlsafe alphabet (the holder, §4.2).
+// A tab id, which the server uses as the stages' holder: 22 characters of
+// the urlsafe alphabet.
 function makeTabId(randomBytes) {
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
     return Array.from(randomBytes.slice(0, 22), b => alphabet[b & 63]).join('');

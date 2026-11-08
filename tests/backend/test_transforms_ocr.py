@@ -230,7 +230,7 @@ def test_pdf_to_txt_still_resolves_to_bridge_text_layer(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Language (round prelaunch-fixes, design §4.2): image to text takes
+# Language: image to text takes
 # opts.ocr_language through the shared validator.
 # --------------------------------------------------------------------------
 from converters.options import RenderOptions  # noqa: E402

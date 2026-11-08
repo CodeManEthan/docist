@@ -67,6 +67,9 @@ There is no shared password. Every tool page works without an account:
 | `DOCIST_RATE_LIMIT` | `30` | POST requests allowed per window, per client IP. |
 | `DOCIST_RATE_WINDOW` | `60` | Rate-limit window in seconds. |
 | `DOCIST_OUTPUT_MAX_AGE_MINUTES` | `1440` | Results in `output/` older than this are pruned automatically (check runs at most every 5 minutes, piggybacked on requests). |
+| `DOCIST_STAGING_TTL_MINUTES` | `120` | A file staged in the Packet Builder is deleted this long after its last use. An open Packet Builder tab keeps renewing the files it holds. |
+| `DOCIST_STAGING_MAX_HOURS` | `24` | A staged file is deleted this long after it was added, however often it is renewed. |
+| `DOCIST_COMMIT` | *(unset)* | The deployed commit. `/healthz` reports its first 12 characters as `commit`; when it is unset, Railway's `RAILWAY_GIT_COMMIT_SHA` is used, and with neither `commit` is `null`. Set it where the platform doesn't, e.g. `DOCIST_COMMIT=$(git rev-parse HEAD)` when you start the server. |
 | `FLASK_DEBUG` | off | Dev server debugger/reloader. **Never set in production**: the Werkzeug debugger is remote code execution for anyone who can reach it. |
 
 ### The Word engine
@@ -88,6 +91,42 @@ the call's timeout), and an idle one lives until the container restarts.
 
 `DOCIST_PASSWORD` and `DOCIST_PUBLIC_DEMO` are gone. If `DOCIST_PASSWORD` is
 still set, the app logs a warning at startup and ignores it.
+
+## Disk: results and the Packet Builder's staging
+
+Docist writes to three directories, all gitignored: `instance/` next to
+`app.py`, and `output/` and `staging/` in the directory the server starts in
+(the checkout with `run.sh`, `/app` in the image).
+
+- `instance/` holds the SQLite database (when `DATABASE_URL` is unset) and
+  the generated secret key. Back it up.
+- `output/` holds finished results until `DOCIST_OUTPUT_MAX_AGE_MINUTES`
+  (24 hours by default).
+- `staging/` holds the Packet Builder's staged files: each added file as a
+  PDF, its cached page thumbnails and a small `meta.json`. The upload itself
+  is never kept. A staged file is deleted `DOCIST_STAGING_TTL_MINUTES` after
+  its last use or `DOCIST_STAGING_MAX_HOURS` after it was added, whichever
+  comes first.
+
+Both `output/` and `staging/` are cleaned by janitors that run at most every
+5 minutes, on the back of incoming requests, so an idle server cleans up on
+its next request. The staging janitor also clears temp directories a crash
+left behind (after an hour) and rebuilds its byte ledger from what is on
+disk.
+
+What to watch:
+
+- **`staging/` size.** It is capped at 4 GB in all and 200 MB or 100 files
+  per visitor, counted per verified account or else per client IP (the
+  constants at the top of `utils/staging.py`). At the global cap new files
+  are refused with "Docist is busy, try again later."; at a visitor's cap
+  that visitor is told their staging limit. Size the disk for
+  4 GB of staging plus a day of results, or lower the caps.
+- **`output/` size.** It has no cap beyond the age limit; a busy day's
+  results all sit there for 24 hours.
+- **Ephemeral disks.** On Railway without a volume, a redeploy empties both.
+  A Packet Builder draft restored after that shows its files as expired and
+  asks for them again; results already offered for download are gone.
 
 ## Accounts and email
 
@@ -116,6 +155,26 @@ workers fork.
 | `DOCIST_TRUSTED_PROXIES` | `1` (the default when `RAILWAY_ENVIRONMENT` is set) |
 | `DOCIST_BASE_URL` | the public `https://…` origin |
 | `DOCIST_EMAIL_BACKEND` and its settings | see below |
+| `DOCIST_PASSWORD`, `DOCIST_PUBLIC_DEMO` | removed (left over from the old password gate) |
+
+`/healthz` reports the deployed commit from `RAILWAY_GIT_COMMIT_SHA`, which
+Railway sets on deploys from GitHub; set `DOCIST_COMMIT` only for a deploy
+that doesn't carry it.
+
+The public demo also sets these, to open the tools and the API to guests and
+send real verification email:
+
+| Variable | Value |
+|---|---|
+| `DOCIST_LIMIT_ANON` | `30` |
+| `DOCIST_API_ANONYMOUS` | `1` |
+| `DOCIST_EMAIL_BACKEND` | `resend` |
+| `DOCIST_RESEND_API_KEY` | an API key from your Resend account |
+| `DOCIST_EMAIL_FROM` | an address at a domain you've verified in Resend, e.g. `Docist <no-reply@your-domain>` |
+
+Resend sends only from a verified domain: add the DNS records Resend lists
+for it at your DNS host, and wait for Resend to show the domain as verified
+before the first signup.
 
 The app logs a startup warning when `DATABASE_URL` is set but
 `DOCIST_SECRET_KEY` is not, and when `DATABASE_URL` is set but
@@ -255,7 +314,7 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now docist
-curl -s http://127.0.0.1:5010/healthz   # {"status": "ok", "job_limits": true}
+curl -s http://127.0.0.1:5010/healthz   # {"status": "ok", "job_limits": true, "commit": null}
 ```
 
 The checked-in `units/docist.service` is a user unit for a loopback-only

@@ -12,18 +12,8 @@
     {% include "_csrf_head.html" %}
 </head>
 <body>
-    <nav class="tool-nav">
-        <span class="nav-brand">Docist</span>
-        <a href="/">Merge</a>
-        <a href="/packet">Packet Builder</a>
-        <a href="/convert">Convert Files</a>
-        <a href="/pages">Page Tools</a>
-        <a href="/print">Print Prep</a>
-        <a href="/export" class="active">Export</a>
-        <a href="/security">Watermark &amp; Security</a>
-        <a href="/api">API</a>
-        {% include "_account_nav.html" %}
-    </nav>
+    {% set active = '/export' %}
+    {% include "_nav.html" %}
     <div class="container">
         <h1><span class="h1-icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><defs><linearGradient id="h1-grad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#ff8a3d"/><stop offset="0.5" stop-color="#ff4d5e"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient></defs><g fill="none" stroke="url(#h1-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></g></svg></span>Export</h1>
         <p class="subtitle">Turn a PDF into page images or extract its text.</p>
@@ -34,6 +24,7 @@
             <div class="upload-hint">Single PDF file only</div>
             <input type="file" id="fileInput" accept=".pdf">
         </div>
+        {% include '_where_files_go.html' %}
 
         <div class="file-list">
             <div class="file-item" id="fileName" style="display:none"></div>
@@ -71,7 +62,7 @@
             {% if not ocr_available %}
             <p class="upload-hint" id="ocrHint">OCR is unavailable: requires Tesseract + Ghostscript on the server.</p>
             {% else %}
-            <p class="upload-hint">OCR only runs on pages with no text layer, so pages that already have text are never re-scanned. Pick a second language for documents that mix two.</p>
+            <p class="upload-hint" id="ocrPathsHint">OCR only runs on pages with no text layer, so pages that already have text are never re-scanned. Pick a second language for documents that mix two. To make the PDF itself searchable, use <a href="/pages">Page Tools</a>; to read the text in an image, use <a href="/convert">Convert</a>.</p>
             {% endif %}
         </div>
 
@@ -85,6 +76,7 @@
         <div class="message" id="message"></div>
     </div>
 
+    {% include "_footer.html" %}
     <script src="/static/ocr-langs.js"></script>
     <script src="/static/export.js"></script>
 </body>

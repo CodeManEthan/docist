@@ -67,3 +67,15 @@ docx → pdf → png automatically).
 **Expect:** 400: `The file does not look like a .pdf file (its content
 doesn't match the extension).`
 - [ ] Pass
+
+## C12 ⚡ One download button, always for the current file and target
+a) `sample.md` → `.html` → Convert.
+**Expect:** one **Download Result** button; it fetches `sample.html`.
+b) Change the target to `.txt`.
+**Expect:** the download button is gone.
+c) Convert again.
+**Expect:** one button; it fetches `sample.txt`.
+d) Choose `sample.docx`.
+**Expect:** the button is gone. Pick `.txt` and convert: one button,
+fetching `sample.txt` with the DOCX text (`DOCX-MARKER`).
+- [ ] Pass

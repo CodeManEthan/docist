@@ -21,6 +21,7 @@ from utils.naming import display_name, owner_of, result_name
 from utils.render_opts import RenderOptionsError, from_form, run_in_job, take_notes, with_notes
 from utils.uploads import charge_uploads, merge_large_ok, merge_plan, upload_ext
 from utils.validation import UploadValidationError, validate_upload
+from routes.errors import server_error
 
 bp = Blueprint('merge', __name__)
 
@@ -64,7 +65,7 @@ def upload_files():
     output_folder = current_app.config['OUTPUT_FOLDER']
 
     # Every file's extension is checked before any is saved; one that is
-    # neither a PDF nor convertible refuses the whole request (§13).
+    # neither a PDF nor convertible refuses the whole request.
     try:
         plan = merge_plan(files, get_converter)
     except UploadValidationError as e:
@@ -105,7 +106,7 @@ def upload_files():
 
         try:
             # Convert every file, merge, stamp page numbers and add bookmarks
-            # in the request's job (design launch-hardening §3.5). The result
+            # in the request's job. The result
             # is built in tmpdir and moved to OUTPUT_FOLDER only on success.
             done = run_in_job(
                 lambda: convert_and_merge(items, options, render_opts, merged_path), tmpdir)
@@ -126,8 +127,8 @@ def upload_files():
         except OptionsError as e:
             # e.g. interleave page-count mismatch -> a user-fixable 400.
             return jsonify({'error': str(e)}), 400
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+        except Exception:
+            return server_error('merge failed')
 
 
 @bp.route('/download')

@@ -256,7 +256,7 @@ class TestVerify:
             assert b"expired or has already been used" in response.data
 
     def test_get_shows_a_confirm_page_and_changes_nothing(self, client, outbox):
-        """launch-hardening §12: a scanner that follows the link verifies nothing."""
+        """A scanner that follows the link verifies nothing."""
         _signup(client)
         token = _token_from(outbox, "verify")
         for _ in range(2):
@@ -290,9 +290,10 @@ class TestVerify:
         assert response.status_code == 200
         assert _user("new@x.io").verified_at is not None
 
-    def test_the_critics_sequence_now_fails_at_the_api_key(self, client, outbox):
+    def test_a_scanned_link_then_a_key_request_fails_at_the_api_key(self, client, outbox):
         """The registrant keeps their session; a scanner GETs the link; the
-        registrant asks for an API key and is refused (critic, major 1)."""
+        registrant asks for an API key and is refused, since the scanner's
+        GET verified nothing."""
         _signup(client, email="victim@example.com")
         token = _token_from(outbox, "verify")
         scanner = flask_app_module.app.test_client()

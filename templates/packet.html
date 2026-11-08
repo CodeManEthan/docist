@@ -13,18 +13,8 @@
     {% include "_csrf_head.html" %}
 </head>
 <body class="pk-body">
-    <nav class="tool-nav">
-        <span class="nav-brand">Docist</span>
-        <a href="/">Merge</a>
-        <a href="/packet" class="active">Packet Builder</a>
-        <a href="/convert">Convert Files</a>
-        <a href="/pages">Page Tools</a>
-        <a href="/print">Print Prep</a>
-        <a href="/export">Export</a>
-        <a href="/security">Watermark &amp; Security</a>
-        <a href="/api">API</a>
-        {% include "_account_nav.html" %}
-    </nav>
+    {% set active = '/packet' %}
+    {% include "_nav.html" %}
     <main class="pk-wrap" id="pkApp"
           {% if usage_today and usage_today.limit is not none %}data-ops-left="{{ usage_today.remaining }}"{% endif %}
           data-signed-in="{{ '1' if current_user else '0' }}"
@@ -53,7 +43,7 @@
             <p class="pk-hint" id="pkFormats">Loading supported formats…</p>
             <p class="pk-hint">Up to {{ upload_limit_mb }} MB per file and {{ packet_limit_mb }} MB of files per packet.</p>
             <p class="pk-hint" id="pkEmptyOps"></p>
-            <p class="pk-hint" id="pkRetention"></p>
+            {% with staging = True %}{% include '_where_files_go.html' %}{% endwith %}
         </section>
 
         <div class="pk-work" id="pkWork" hidden>
@@ -113,6 +103,7 @@
             <button type="button" class="pk-btn pk-primary pk-build" id="pkBuild" disabled>Build packet</button>
         </footer>
     </main>
+    {% include "_footer.html" %}
 
     <div class="pk-bulk" id="pkBulk" role="region" aria-label="Selected items" hidden>
         <span id="pkBulkCount"></span>
@@ -165,7 +156,7 @@
         </form>
     </dialog>
 
-    {#- Generated pages: a small form to edit each one's text (§2.1). -#}
+    {#- Generated pages: a small form to edit each one's text. -#}
     <dialog class="pk-movedlg pk-gendlg" id="pkCoverDialog" aria-labelledby="pkCoverHead">
         <form id="pkCoverForm">
             <h2 id="pkCoverHead">Cover page</h2>

@@ -1,4 +1,4 @@
-"""The upload limit, per request and per tier (design prelaunch-fixes v0.4 §7).
+"""The upload limit, per request and per tier.
 
 Every tier but paid gets ``DOCIST_MAX_UPLOAD_MB`` (default 50); paid gets
 ``DOCIST_MAX_UPLOAD_MB_PAID`` (default 90, which keeps the request body at
@@ -13,16 +13,16 @@ after ``identity.load_identity`` and before ``csrf.check_csrf``, the first
 step that may parse the form. It also records ``g.request_started``, the
 moment the request's render budget counts from (utils/render_opts.py).
 
-Rule: the paid limit raises a request's limit only where B2 bounds the work
-it lets through: Merge and Convert, in the browser and on the API, and the
-packet builder's stage, which charges its one file as Merge does
+Rule: the paid limit raises a request's limit only where the request's job
+bounds the work it lets through: Merge and Convert, in the browser and on the
+API, and the packet builder's stage, which charges its one file as Merge does
 (``PAID_ENDPOINTS``). There, only a PDF or a Word file the Word engine will
 render may be over the free limit (the routes check each file with
 :func:`file_limit`), and form text fields never take more memory than the
 free limit allows. Every other endpoint, and every other file, keeps the free
-limit for everyone, so the larger limit doesn't enlarge the resource holes
-the 2026-10-02 critic review found on main (raster and frame bombs, archive
-expansion, split parts, results read into memory).
+limit for everyone, so the larger limit doesn't widen the resource risks
+elsewhere (raster and frame bombs, archive expansion, split parts, results
+read into memory).
 
 Rule: a missed step fails closed. :class:`LimitedRequest` returns the limit
 :func:`apply_limit` stored in the WSGI environ, else ``MAX_CONTENT_LENGTH``,
@@ -61,7 +61,7 @@ class LimitedRequest(Request):
     Each non-file multipart field is capped at ``limits.FORM_FIELD_BYTES``
     (1 MiB). Werkzeug 3.0.6 enforces ``max_form_memory_size`` per field
     (GHSA-q34m-jh98-gwm2); Flask 3.0.0 has no setting for it, so it is set
-    here (design launch-hardening §11).
+    here.
     """
 
     @property
@@ -97,7 +97,7 @@ def upload_ext(upload):
     """An upload's extension, from the name the user sent.
 
     Not from ``secure_filename``, which turns ``отчёт.pdf`` into ``pdf``
-    with no extension (design launch-hardening §13).
+    with no extension.
     """
     return os.path.splitext(upload.filename or '')[1].lower()
 

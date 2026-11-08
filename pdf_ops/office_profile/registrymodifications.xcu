@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Seed for the per-call LibreOffice profile (pdf_ops/office.py, design
-  prelaunch-fixes v0.4 §5.2 step 3). Each conversion copies this file into a
-  fresh profile directory, so no setting a document changes survives the call.
+  Seed for the per-call LibreOffice profile (pdf_ops/office.py). Each conversion
+  copies this file into a fresh profile directory, so no setting a document
+  changes survives the call.
 
   MacroSecurityLevel 3 is "very high": only macros from trusted locations run,
   and none are listed. DisableMacrosExecution turns macros off outright.

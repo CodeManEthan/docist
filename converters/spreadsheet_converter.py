@@ -26,7 +26,6 @@ XLSX parsing
 """
 import csv
 import io
-import os
 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -43,7 +42,7 @@ from xml.sax.saxutils import escape
 
 from pdf_ops import limits, office
 
-from . import ConversionError
+from . import ConversionError, logged_error, upload_name
 from .options import paper_size
 
 EXTENSIONS = ['.csv', '.xlsx']
@@ -86,19 +85,22 @@ def _read_csv_rows(input_path):
 
 
 def check_xlsx(input_path, error_type):
-    """Run the archive check on an ``.xlsx`` before ``openpyxl`` opens it
-    (design launch-hardening §4.2). Raises ``error_type`` with the archive
-    refusal (chained to a LimitError) or the spreadsheet message; the Word
+    """Run the archive check on an ``.xlsx`` before ``openpyxl`` opens it.
+    Raises ``error_type`` with the archive refusal (chained to a LimitError)
+    or the spreadsheet message; the Word
     wording of the check's own errors never reaches a spreadsheet user."""
     try:
         office.check_package(input_path)
     except office.ArchiveError as exc:
         raise error_type(limits.archive_message()) from limits.archive_refusal(exc)
     except office.OfficeError as exc:
-        raise error_type(
-            f"Could not open spreadsheet '{os.path.basename(input_path)}': it is "
-            "damaged or not an .xlsx file."
-        ) from exc
+        raise error_type(unreadable_xlsx_message(input_path)) from exc
+
+
+def unreadable_xlsx_message(input_path):
+    """The message for a file that isn't a readable ``.xlsx``."""
+    return (f"Could not open spreadsheet '{upload_name(input_path)}': it is "
+            "damaged or not an .xlsx file.")
 
 
 def _read_xlsx_sheets(input_path, opts=None):
@@ -117,8 +119,8 @@ def _read_xlsx_sheets(input_path, opts=None):
     try:
         wb = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 - any openpyxl/zip failure -> corrupt
-        raise ConversionError(
-            f"Could not open spreadsheet '{input_path}': {exc}"
+        raise logged_error(
+            ConversionError, unreadable_xlsx_message(input_path), exc
         ) from exc
 
     sheets = []
@@ -220,10 +222,11 @@ def _make_table(rows, usable_width, body_style, header_style):
     return table
 
 
-def _build_pdf(output_path, sections, opts=None):
+def _build_pdf(output_path, sections, opts=None, name='the spreadsheet'):
     """Render ``sections`` (list of ``(heading_or_None, rows)``) to a PDF.
 
-    Chooses landscape orientation when any section is wide.
+    Chooses landscape orientation when any section is wide. ``name`` is the
+    upload's name, for the message when rendering fails.
     """
     styles = getSampleStyleSheet()
     body_style = styles['BodyText'].clone('cellBody')
@@ -269,25 +272,36 @@ def _build_pdf(output_path, sections, opts=None):
     except ConversionError:
         raise
     except Exception as exc:  # noqa: BLE001 - surface any reportlab failure
-        raise ConversionError(f'Failed to render spreadsheet to PDF: {exc}') from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not lay out '{name}' as a PDF. Try saving it again from "
+            "your spreadsheet program.", exc
+        ) from exc
 
 
 def convert(input_path, output_path, opts=None):
     """Convert a .csv or .xlsx file to a PDF written to ``output_path``."""
     lower = input_path.lower()
+    name = upload_name(input_path)
     try:
         if lower.endswith('.xlsx'):
             sheets = _read_xlsx_sheets(input_path, opts)
-            sections = [(name, rows) for name, rows in sheets]
+            sections = [(sheet, rows) for sheet, rows in sheets]
         else:  # treat everything else routed here as CSV
             try:
                 rows = _read_csv_rows(input_path)
             except OSError as exc:
-                raise ConversionError(f'Could not read CSV file: {exc}') from exc
+                raise logged_error(
+                    ConversionError, f"Could not read '{name}'. Try uploading it again.",
+                    exc) from exc
             sections = [(None, rows)] if rows else []
     except (ConversionError, limits.LimitError):
         raise
     except Exception as exc:  # noqa: BLE001
-        raise ConversionError(f'Failed to parse spreadsheet: {exc}') from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not read the rows in '{name}'. It may be damaged, or not "
+            "the kind of file its name says.", exc
+        ) from exc
 
-    _build_pdf(output_path, sections, opts)
+    _build_pdf(output_path, sections, opts, name)

@@ -26,6 +26,7 @@ from pdf_ops.ocr_langs import language_choices
 from utils.render_opts import from_form, run_in_job
 from utils.naming import result_name
 from pypdf import PdfReader
+from routes.errors import server_error
 
 bp = Blueprint('pages', __name__)
 
@@ -217,8 +218,8 @@ def run_operation():
 
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
-    except Exception as exc:  # pragma: no cover - defensive
-        return jsonify({'error': f'Unexpected error: {exc}'}), 500
+    except Exception:
+        return server_error('page tool failed')
 
     return jsonify({
         'success': True,

@@ -24,7 +24,7 @@ from reportlab.graphics import renderPDF
 from reportlab.pdfgen import canvas
 from svglib.svglib import svg2rlg
 
-from . import ConversionError
+from . import ConversionError, logged_error, upload_name
 from .options import paper_size
 
 
@@ -42,19 +42,22 @@ def convert(input_path, output_path, opts=None):
 
     Raises :class:`ConversionError` with a helpful message on failure.
     """
+    name = upload_name(input_path)
     try:
         with open(input_path, 'rb') as fh:
             data = fh.read()
     except OSError as exc:
-        raise ConversionError(
-            f"Could not read SVG file '{input_path}': {exc}"
+        raise logged_error(
+            ConversionError, f"Could not read '{name}'. Try uploading it again.", exc
         ) from exc
 
     try:
         drawing = svg2rlg(io.BytesIO(data))
     except Exception as exc:
-        raise ConversionError(
-            f"Could not parse SVG '{input_path}': {exc}"
+        raise logged_error(
+            ConversionError,
+            f"'{name}' is not a valid SVG. It may be damaged, or not an SVG "
+            "drawing.", exc
         ) from exc
 
     # svg2rlg is lenient: junk / non-SVG XML yields None or an empty, zero-sized
@@ -62,7 +65,7 @@ def convert(input_path, output_path, opts=None):
     if drawing is None or not drawing.width or not drawing.height \
             or drawing.width <= 0 or drawing.height <= 0:
         raise ConversionError(
-            f"'{input_path}' is not a valid SVG (no renderable content found)."
+            f"'{name}' is not a valid SVG (no renderable content found)."
         )
 
     # Fit inside the printable area, preserving aspect ratio; allow limited
@@ -89,6 +92,8 @@ def convert(input_path, output_path, opts=None):
         c.showPage()
         c.save()
     except Exception as exc:
-        raise ConversionError(
-            f"Could not render SVG '{input_path}' to PDF: {exc}"
+        raise logged_error(
+            ConversionError,
+            f"Could not draw '{name}' as a PDF. It may use SVG features the "
+            "converter can't handle.", exc
         ) from exc

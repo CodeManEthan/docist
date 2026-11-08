@@ -13,16 +13,39 @@ like) or None for the defaults. A plugin may leave it out of its signature;
 the registry then drops it, so every callable :func:`get_converter` returns
 takes ``(input_path, output_path, opts=None)``.
 
+A ``ConversionError`` message reaches the visitor as it is. It names the
+upload by :func:`upload_name` (never a path) and says what to do; a library's
+own text goes to the log through :func:`logged_error`, never into the message.
+
 Plugins are discovered automatically at import time — just drop a new
 module in this directory and restart the app.
 """
 import importlib
 import inspect
+import logging
+import os
 import pkgutil
+
+log = logging.getLogger(__name__)
 
 
 class ConversionError(Exception):
     """Raised when a file cannot be converted to PDF."""
+
+
+def upload_name(path):
+    """The name messages give an upload: the file name the route saved it
+    under (the name the visitor sent, made safe), never the server path."""
+    return os.path.basename(path)
+
+
+def logged_error(error_type, message, exc):
+    """``error_type(message)`` for the visitor, with ``exc`` logged at warning
+    level. The message names the upload and says what to do; the library's
+    own text can carry a server path, so it goes to the log, not the client.
+    Raise the result ``from exc``."""
+    log.warning('%s (%s: %s)', message, type(exc).__name__, exc)
+    return error_type(message)
 
 
 _REGISTRY = {}

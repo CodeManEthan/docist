@@ -34,6 +34,7 @@ output/
 staging/
 tests/manual/fixtures/
 *.pdf
+!static/samples/*.pdf
 
 # IDE
 .vscode/
@@ -45,3 +46,9 @@ tests/manual/fixtures/
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent config and browser-session files
+.claude/
+CLAUDE.md
+AGENTS.md
+.playwright-cli/

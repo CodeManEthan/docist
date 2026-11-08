@@ -1,9 +1,9 @@
-"""RenderOptions and utils.render_opts.from_form (round prelaunch-fixes, design §2).
+"""RenderOptions and utils.render_opts.from_form.
 
 from_form validates a field only on a path that consumes it: ``paper`` when
 ``paper=True`` (the default), ``language`` only with ``ocr=True``. Outside a
 request stamped by ``utils.uploads.apply_limit``, ``deadline`` stays ``None``
-(B2 sets it inside one; tests/backend/test_office.py covers that).
+(the tier step sets it inside one; tests/backend/test_office.py covers that).
 """
 import pytest
 from werkzeug.datastructures import MultiDict

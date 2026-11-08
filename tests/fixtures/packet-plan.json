@@ -1,7 +1,6 @@
 {
-  "about": "Shared page-plan vectors for the packet builder (design.md section 3.3). pdf_ops/packet.py page_plan and static/packet-model.js must both turn each vector's packet, page_counts and contents_pages into exactly its expect.",
+  "about": "Shared page-plan vectors for the packet builder. pdf_ops/packet.py page_plan and static/packet-model.js must both turn each vector's packet, page_counts and contents_pages into exactly its expect.",
   "version": 1,
-  "stage_order": ["B6", "B1", "B2", "B3", "B5", "B4", "B7"],
   "consumers": {
     "pipeline": "pdf_ops/packet.py page_plan, run by tests/backend/test_packet_pipeline.py",
     "model": "static/packet-model.js, run by tests/frontend/packet-model.test.js"
@@ -11,15 +10,13 @@
     "model": "static/packet-model.js numberPlacement, run by tests/frontend/packet-model.test.js"
   },
   "rules": [
-    "stage maps each consumer to the stage that builds the vector's feature in that consumer.",
-    "A consumer's tests at stage S run a vector when stage_order puts its tag for that consumer at or before S, and skip it otherwise.",
     "Merge option_defaults under each packet's options before planning.",
     "page_counts holds one entry per hash with a ready row; a hash missing from it is not ready.",
     "contents_pages is the contents page count when options.contents is on; it defaults to 1.",
     "pages lists every physical page in order. index in entries is the 0-based physical page.",
     "label is the printed number or null for front matter; print says whether it is stamped.",
     "entries list each planned section and each file item that gives a page, in plan order; blank items get none.",
-    "placement_vectors (design section 3.3 rule 7, from B7) have their own shape and are not page plans: each gives a number_position and the page's displayed width in points, and expect is the number's anchor x, its baseline y and its align ('left' or 'center'). They carry the same stage tags and follow the same stage_order rule. Compare x to within 1e-6."
+    "placement_vectors have their own shape and are not page plans: each gives a number_position and the page's displayed width in points, and expect is the number's anchor x, its baseline y and its align ('left' or 'center'). Compare x to within 1e-6."
   ],
   "option_defaults": {
     "paper": "letter",
@@ -35,7 +32,6 @@
     {
       "name": "one-file-all-pages",
       "note": "pages: null expands to every page of the bound stage; the implicit section has an empty title.",
-      "stage": {"pipeline": "B6", "model": "B6"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -68,7 +64,6 @@
     {
       "name": "page-edits-across-files",
       "note": "Explicit refs keep their order and rotation; a deleted page is absent; a duplicated page appears twice; one file split into two items.",
-      "stage": {"pipeline": "B6", "model": "B6"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -108,7 +103,6 @@
     {
       "name": "not-ready-and-emptied-items",
       "note": "A file whose hash has no ready row gives no pages; an item with every page deleted gives none; neither gets an entry.",
-      "stage": {"pipeline": "B6", "model": "B6"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -141,7 +135,6 @@
     {
       "name": "blank-items-are-body-pages",
       "note": "A blank item is one body page: it is numbered and prints. It has no contents or outline entry.",
-      "stage": {"pipeline": "B6", "model": "B6"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -177,7 +170,6 @@
     {
       "name": "numbers-off-still-labels",
       "note": "With page_numbers off nothing prints, but labels are still planned for the contents and outline.",
-      "stage": {"pipeline": "B6", "model": "B6"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -211,7 +203,6 @@
     {
       "name": "nothing-to-plan",
       "note": "No item gives a page, so no section is in the plan.",
-      "stage": {"pipeline": "B6", "model": "B6"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -237,7 +228,6 @@
     {
       "name": "sections-in-order",
       "note": "Labels run on across sections; each section's entry points at its first page.",
-      "stage": {"pipeline": "B6", "model": "B3"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -284,7 +274,6 @@
     {
       "name": "empty-section-with-divider-left-out",
       "note": "A section whose items give no pages is left out, divider and all; a divider alone never puts it in. A section with a divider points at its divider.",
-      "stage": {"pipeline": "B6", "model": "B3"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -341,7 +330,6 @@
     {
       "name": "dividers-print-when-numbering-generated",
       "note": "number_generated on: dividers print their label.",
-      "stage": {"pipeline": "B6", "model": "B3"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -385,7 +373,6 @@
     {
       "name": "cover-is-front-matter",
       "note": "The cover comes first, has no label and uses no number.",
-      "stage": {"pipeline": "B6", "model": "B3"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -418,7 +405,6 @@
     {
       "name": "recto-pads-section-starts-only",
       "note": "recto_starts: one pad before an even section start (before its divider if it has one), never inside a section, even where a split file's items meet. Pads use numbers and do not print with number_generated off.",
-      "stage": {"pipeline": "B6", "model": "B3"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -489,7 +475,6 @@
     {
       "name": "recto-pads-print-when-numbering-generated",
       "note": "number_generated on: a recto pad prints its label.",
-      "stage": {"pipeline": "B6", "model": "B3"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -532,7 +517,6 @@
     {
       "name": "recto-after-cover",
       "note": "A pad between the cover and the first section is front matter: no label.",
-      "stage": {"pipeline": "B6", "model": "B3"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -565,7 +549,6 @@
     {
       "name": "contents-after-cover",
       "note": "The contents pages follow the cover; their count comes from contents_pages.",
-      "stage": {"pipeline": "B6", "model": "B5"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -611,7 +594,6 @@
     {
       "name": "contents-recto-with-divider",
       "note": "recto_starts with a cover: the contents and each section start on an odd physical page; pads before the first section are front matter.",
-      "stage": {"pipeline": "B6", "model": "B5"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -661,7 +643,6 @@
     {
       "name": "contents-without-cover",
       "note": "The contents can be the first page; it is still front matter.",
-      "stage": {"pipeline": "B6", "model": "B5"},
       "packet": {
         "version": 1,
         "title": "Vector",
@@ -693,20 +674,20 @@
     }
   ],
   "placement_vectors": [
-    {"name": "bottom-left-letter", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 612.0, "expect": {"x": 50, "y": 30, "align": "left"}},
-    {"name": "bottom-center-letter", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 612.0, "expect": {"x": 306.0, "y": 30, "align": "center"}},
-    {"name": "bottom-right-letter", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 612.0, "expect": {"x": 562.0, "y": 30, "align": "left"}},
-    {"name": "bottom-left-a4", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 595.276, "expect": {"x": 50, "y": 30, "align": "left"}},
-    {"name": "bottom-center-a4", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 595.276, "expect": {"x": 297.638, "y": 30, "align": "center"}},
-    {"name": "bottom-right-a4", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 595.276, "expect": {"x": 545.276, "y": 30, "align": "left"}},
-    {"name": "bottom-left-letter-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 792.0, "expect": {"x": 50, "y": 30, "align": "left"}},
-    {"name": "bottom-center-letter-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 792.0, "expect": {"x": 396.0, "y": 30, "align": "center"}},
-    {"name": "bottom-right-letter-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 792.0, "expect": {"x": 742.0, "y": 30, "align": "left"}},
-    {"name": "bottom-left-a4-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 841.89, "expect": {"x": 50, "y": 30, "align": "left"}},
-    {"name": "bottom-center-a4-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 841.89, "expect": {"x": 420.945, "y": 30, "align": "center"}},
-    {"name": "bottom-right-a4-landscape", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 841.89, "expect": {"x": 791.89, "y": 30, "align": "left"}},
-    {"name": "bottom-left-crop-box", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-left", "width": 400.0, "expect": {"x": 50, "y": 30, "align": "left"}},
-    {"name": "bottom-center-crop-box", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-center", "width": 400.0, "expect": {"x": 200.0, "y": 30, "align": "center"}},
-    {"name": "bottom-right-crop-box", "stage": {"pipeline": "B7", "model": "B7"}, "number_position": "bottom-right", "width": 400.0, "expect": {"x": 350.0, "y": 30, "align": "left"}}
+    {"name": "bottom-left-letter", "number_position": "bottom-left", "width": 612.0, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-letter", "number_position": "bottom-center", "width": 612.0, "expect": {"x": 306.0, "y": 30, "align": "center"}},
+    {"name": "bottom-right-letter", "number_position": "bottom-right", "width": 612.0, "expect": {"x": 562.0, "y": 30, "align": "left"}},
+    {"name": "bottom-left-a4", "number_position": "bottom-left", "width": 595.276, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-a4", "number_position": "bottom-center", "width": 595.276, "expect": {"x": 297.638, "y": 30, "align": "center"}},
+    {"name": "bottom-right-a4", "number_position": "bottom-right", "width": 595.276, "expect": {"x": 545.276, "y": 30, "align": "left"}},
+    {"name": "bottom-left-letter-landscape", "number_position": "bottom-left", "width": 792.0, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-letter-landscape", "number_position": "bottom-center", "width": 792.0, "expect": {"x": 396.0, "y": 30, "align": "center"}},
+    {"name": "bottom-right-letter-landscape", "number_position": "bottom-right", "width": 792.0, "expect": {"x": 742.0, "y": 30, "align": "left"}},
+    {"name": "bottom-left-a4-landscape", "number_position": "bottom-left", "width": 841.89, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-a4-landscape", "number_position": "bottom-center", "width": 841.89, "expect": {"x": 420.945, "y": 30, "align": "center"}},
+    {"name": "bottom-right-a4-landscape", "number_position": "bottom-right", "width": 841.89, "expect": {"x": 791.89, "y": 30, "align": "left"}},
+    {"name": "bottom-left-crop-box", "number_position": "bottom-left", "width": 400.0, "expect": {"x": 50, "y": 30, "align": "left"}},
+    {"name": "bottom-center-crop-box", "number_position": "bottom-center", "width": 400.0, "expect": {"x": 200.0, "y": 30, "align": "center"}},
+    {"name": "bottom-right-crop-box", "number_position": "bottom-right", "width": 400.0, "expect": {"x": 350.0, "y": 30, "align": "left"}}
   ]
 }

@@ -169,6 +169,9 @@ function initSecurityApp() {
     const loading = document.getElementById('loading');
 
     let selectedFile = null;
+    // Bumped whenever the result goes stale, so a run still in flight
+    // when the file or operation changes drops its response.
+    let runToken = 0;
 
     function readState() {
         const op = operationSel.value;
@@ -229,11 +232,13 @@ function initSecurityApp() {
         div.innerHTML = `
             <span class="file-info">${escapeHtml(selectedFile.name)}</span>
             <span class="file-actions">
-                <button class="icon-btn remove-btn" title="Remove">✕</button>
+                <button class="icon-btn remove-btn" title="Remove" aria-label="Remove">✕</button>
             </span>
         `;
         div.querySelector('.remove-btn').addEventListener('click', () => {
             selectedFile = null;
+            clearDownload();
+            message.style.display = 'none';
             displayFile();
             updateRunBtn();
         });
@@ -249,6 +254,7 @@ function initSecurityApp() {
             return;
         }
         selectedFile = file;
+        clearDownload();
         message.style.display = 'none';
         displayFile();
         updateRunBtn();
@@ -279,6 +285,7 @@ function initSecurityApp() {
     });
 
     operationSel.addEventListener('change', () => {
+        clearDownload();
         syncOptionPanels();
         message.style.display = 'none';
     });
@@ -299,6 +306,8 @@ function initSecurityApp() {
         const payload = buildSecurityPayload(state);
         Object.keys(payload).forEach(k => formData.append(k, payload[k]));
 
+        clearDownload();
+        const run = runToken;
         runBtn.disabled = true;
         loading.style.display = 'block';
         message.style.display = 'none';
@@ -309,6 +318,7 @@ function initSecurityApp() {
                 body: formData,
             });
             const result = await response.json();
+            if (run !== runToken) { updateRunBtn(); return; }
             loading.style.display = 'none';
 
             if (response.ok) {
@@ -316,31 +326,47 @@ function initSecurityApp() {
                 message.textContent = result.message;
                 message.style.display = 'block';
 
-                const downloadBtn = document.createElement('button');
-                downloadBtn.className = 'btn download-btn';
-                downloadBtn.textContent = '⬇️ Download PDF';
-                downloadBtn.onclick = () => {
-                    window.location.href = result.download_url;
-                    setTimeout(() => {
-                        downloadBtn.textContent = '✓ Downloaded! Click to download again';
-                    }, 1000);
-                };
-                runBtn.parentNode.insertBefore(downloadBtn, message);
-                runBtn.disabled = false;
+                addDownload(result.download_url);
+                updateRunBtn();
             } else {
                 message.className = 'message error';
                 message.textContent = result.error || 'An error occurred';
                 message.style.display = 'block';
-                runBtn.disabled = false;
+                updateRunBtn();
             }
         } catch (err) {
+            if (run !== runToken) { updateRunBtn(); return; }
             loading.style.display = 'none';
             message.className = 'message error';
             message.textContent = 'Failed to connect to server';
             message.style.display = 'block';
-            runBtn.disabled = false;
+            updateRunBtn();
         }
     });
+
+    // Drop the last run's result: its download button, and the response of
+    // any run still in flight.
+    function clearDownload() {
+        runToken += 1;
+        loading.style.display = 'none';
+        const existing = document.getElementById('downloadBtn');
+        if (existing) existing.remove();
+    }
+
+    function addDownload(url) {
+        clearDownload();
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'btn download-btn';
+        downloadBtn.id = 'downloadBtn';
+        downloadBtn.textContent = '⬇️ Download PDF';
+        downloadBtn.onclick = () => {
+            window.location.href = url;
+            setTimeout(() => {
+                downloadBtn.textContent = '✓ Downloaded! Click to download again';
+            }, 1000);
+        };
+        runBtn.parentNode.insertBefore(downloadBtn, message);
+    }
 
     syncOptionPanels();
     updateRunBtn();

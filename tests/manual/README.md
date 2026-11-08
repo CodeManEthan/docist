@@ -1,9 +1,9 @@
 # Docist manual hand-tests
 
 Checklists for hand-testing every user-facing feature. Automated tests
-(559 pytest + 208 node) cover the logic; these cover what only a human
-can judge — the browser UX, real downloads opened in real viewers, drag
-and drop, and the error messages users actually see.
+(more than 1,700 pytest and 300 node tests) cover the logic; these cover
+what only a person can judge: the browser UX, real downloads opened in real
+viewers, drag and drop, and the error messages users actually see.
 
 ## One-time setup per session
 
@@ -12,7 +12,7 @@ source .venv/bin/activate
 python tests/manual/make_fixtures.py     # writes tests/manual/fixtures/ (~20 MB, gitignored)
 ```
 
-OCR checks (03/P8–P9, 04/E4–E5, 02/C10) need `tesseract` and `gs` on the
+OCR checks (03/P8–P9, 04/E4–E5, 02/C10, 06/A12) need `tesseract` and `gs` on the
 host — the UI greys those controls out if they're missing, and you can
 skip those items.
 
@@ -35,14 +35,14 @@ fires without 30 rapid submits.
 
 ## Checklists (suggested order)
 
-1. `01-merge.md` — Merge & Convert page (12 checks)
-2. `02-convert.md` — Convert Files page (11 checks)
-3. `03-pages.md` — Page Tools (11 checks)
-4. `04-print-export.md` — Print Prep + Export (9 checks)
-5. `05-security.md` — Watermark & Security (10 checks)
-6. `06-api.md` — REST API via curl (8 checks)
+1. `01-merge.md` — Merge & Convert page (13 checks)
+2. `02-convert.md` — Convert Files page (12 checks)
+3. `03-pages.md` — Page Tools (12 checks)
+4. `04-print-export.md` — Print Prep + Export (11 checks)
+5. `05-security.md` — Watermark & Security (11 checks)
+6. `06-api.md` — REST API via curl, every `/api/v1` endpoint (20 checks)
 7. `07-auth-hardening.md` — accounts, daily limits, API keys, owner-bound downloads, CSRF, throttles (16 checks)
-8. `08-packet.md` — Packet Builder at /packet: drag, touch, keyboard, screen reader, card states, drafts, sections, contents, page numbers (15 checks; runs against `packet_fake_server.py` until the packet endpoints land)
+8. `08-packet.md` — Packet Builder at /packet: drag, touch, keyboard, screen reader, card states, drafts, sections, contents, page numbers (15 checks)
 
 Roughly 2–2.5 hours for a full pass.
 

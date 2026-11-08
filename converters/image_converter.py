@@ -11,7 +11,7 @@ import io
 from PIL import Image, ImageSequence
 from pypdf import PdfReader, PdfWriter
 
-from converters import ConversionError
+from converters import ConversionError, logged_error, upload_name
 from converters.options import paper_size
 from pdf_ops import limits
 
@@ -35,11 +35,10 @@ def _has_alpha(frame):
 def _compose_page(frame, page_w, page_h):
     """Fit a single frame onto a centred, white page of ``page_w`` x ``page_h`` px (RGB).
 
-    Rule D: a frame with transparency is pasted onto the white page with its
-    alpha band as the mask, after scaling, instead of building an RGBA copy,
-    a white RGBA background and their composite at full size. At 36
-    megapixels that is about 309 MiB in the job instead of about 695
-    (design launch-hardening §6.2).
+    To bound memory, a frame with transparency is pasted onto the white page
+    with its alpha band as the mask, after scaling, instead of building an
+    RGBA copy, a white RGBA background and their composite at full size. At
+    36 megapixels that is about 309 MiB in the job instead of about 695.
     """
     if _has_alpha(frame):
         img = frame if frame.mode == 'RGBA' else frame.convert('RGBA')
@@ -73,19 +72,23 @@ def _page_pdf(page):
 def convert(input_path, output_path, opts=None):
     """Convert the image at input_path into a PDF written to output_path.
 
-    One frame at a time (Rule D): each frame is checked against
+    One frame at a time, to bound memory: each frame is checked against
     ``FRAME_PIXELS`` after its seek and before it is decoded, composed, saved
     as a one-page PDF and appended to the writer, then dropped. The writer
     holds compressed pages only.
     """
+    name = upload_name(input_path)
     try:
         image = Image.open(input_path)
     except Image.DecompressionBombError as exc:
         # Over Pillow's own limit (about 179 MP), before check_frame runs:
-        # the same ruled sentence as any image over FRAME_PIXELS.
+        # the same sentence as any image over FRAME_PIXELS.
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
-        raise ConversionError(f"Could not open image '{input_path}': {exc}") from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not open '{name}' as an image. It may be damaged, or not "
+            "the kind of image its name says.", exc) from exc
 
     writer = PdfWriter()
     count = 0
@@ -103,13 +106,19 @@ def convert(input_path, output_path, opts=None):
     except Image.DecompressionBombError as exc:
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
-        raise ConversionError(f"Could not process image '{input_path}': {exc}") from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not read the picture in '{name}'. It may be damaged; try "
+            "saving it again from an image editor.", exc) from exc
 
     if not count:
-        raise ConversionError(f"Image '{input_path}' contained no frames to convert.")
+        raise ConversionError(f"'{name}' contained no frames to convert.")
 
     try:
         with open(output_path, 'wb') as fh:
             writer.write(fh)
     except Exception as exc:
-        raise ConversionError(f"Could not write PDF for '{input_path}': {exc}") from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not write the PDF for '{name}'. Try again, or try another file.",
+            exc) from exc

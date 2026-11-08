@@ -30,6 +30,8 @@ import html2text
 import mammoth
 import markdown as _markdown
 
+from converters import logged_error, upload_name
+
 from . import TransformError
 
 
@@ -109,7 +111,10 @@ def _read_text(input_path):
         with open(input_path, 'rb') as fh:
             raw = fh.read()
     except OSError as exc:
-        raise TransformError(f"Could not read '{input_path}': {exc}") from exc
+        raise logged_error(
+            TransformError,
+            f"Could not read '{upload_name(input_path)}'. Try uploading it again.", exc
+        ) from exc
     try:
         return raw.decode('utf-8')
     except UnicodeDecodeError:
@@ -122,8 +127,9 @@ def _write_text(output_path, text):
         with open(output_path, 'w', encoding='utf-8') as fh:
             fh.write(text)
     except OSError as exc:
-        raise TransformError(
-            f"Could not write '{output_path}': {exc}"
+        raise logged_error(
+            TransformError,
+            "Could not save the converted file. Try again, or try another file.", exc
         ) from exc
 
 
@@ -168,43 +174,45 @@ def _html_to_plain_text(html):
 def _read_docx_result(input_path, mammoth_func):
     """Run a mammoth reader on a DOCX path, translating bad input to error.
 
-    The archive check runs first (design launch-hardening §4.2)."""
-    from converters.docx_converter import check_docx
+    The archive check runs first."""
+    from converters.docx_converter import check_docx, invalid_docx_message
     check_docx(input_path, TransformError)
+    name = upload_name(input_path)
     try:
         with open(input_path, 'rb') as docx_file:
             return mammoth_func(docx_file)
     except OSError as exc:
-        raise TransformError(
-            f"Could not read DOCX file '{input_path}': {exc}"
+        raise logged_error(
+            TransformError, f"Could not read '{name}'. Try uploading it again.", exc
         ) from exc
     except (zipfile.BadZipFile, KeyError, ValueError) as exc:
-        raise TransformError(
-            f"'{input_path}' is not a valid .docx file. It may be corrupt, "
-            f"empty, or an older .doc renamed to .docx (original error: "
-            f"{exc})."
-        ) from exc
+        raise logged_error(TransformError, invalid_docx_message(input_path), exc) from exc
     except Exception as exc:  # noqa: BLE001 - surface any mammoth failure
-        raise TransformError(
-            f"Failed to read '{input_path}' as a Word document. It may be "
-            f"corrupt or not a real .docx file (original error: {exc})."
+        raise logged_error(
+            TransformError,
+            f"Could not read '{name}' as a Word document. It may be corrupt "
+            "or not a real .docx file.", exc
         ) from exc
 
 
 # --------------------------------------------------------------------------
 # Markdown <-> HTML / Text
 # --------------------------------------------------------------------------
-def _md_to_html_fragment(text):
+def _md_to_html_fragment(text, input_path):
     try:
         return _markdown.markdown(text, extensions=_MD_EXTENSIONS)
     except Exception as exc:  # noqa: BLE001 - surface markdown failures
-        raise TransformError(f"Failed to render Markdown to HTML: {exc}") from exc
+        raise logged_error(
+            TransformError,
+            f"Could not read the Markdown in '{upload_name(input_path)}'. Check "
+            "that it is a plain-text Markdown file.", exc
+        ) from exc
 
 
 def md_to_html(input_path, output_path):
     """Markdown -> standalone styled HTML document."""
     text = _read_text(input_path)
-    _write_text(output_path, _wrap_html(_md_to_html_fragment(text)))
+    _write_text(output_path, _wrap_html(_md_to_html_fragment(text, input_path)))
 
 
 def md_to_txt(input_path, output_path):
@@ -214,7 +222,7 @@ def md_to_txt(input_path, output_path):
     rather than passing the source through verbatim.
     """
     text = _read_text(input_path)
-    fragment = _md_to_html_fragment(text)
+    fragment = _md_to_html_fragment(text, input_path)
     _write_text(output_path, _html_to_plain_text(fragment))
 
 
@@ -234,15 +242,21 @@ def html_to_txt(input_path, output_path):
 # --------------------------------------------------------------------------
 # DOCX -> HTML / Markdown / Text
 # --------------------------------------------------------------------------
+def _with_style_map(mammoth_func):
+    """A mammoth reader that maps Word's Title and Subtitle to h1 and h2."""
+    from converters.docx_converter import STYLE_MAP
+    return lambda docx_file: mammoth_func(docx_file, style_map=STYLE_MAP)
+
+
 def docx_to_html(input_path, output_path):
     """DOCX -> standalone styled HTML document (via mammoth)."""
-    result = _read_docx_result(input_path, mammoth.convert_to_html)
+    result = _read_docx_result(input_path, _with_style_map(mammoth.convert_to_html))
     _write_text(output_path, _wrap_html(result.value))
 
 
 def docx_to_md(input_path, output_path):
     """DOCX -> Markdown (via mammoth.convert_to_markdown)."""
-    result = _read_docx_result(input_path, mammoth.convert_to_markdown)
+    result = _read_docx_result(input_path, _with_style_map(mammoth.convert_to_markdown))
     _write_text(output_path, result.value or '')
 
 
@@ -263,7 +277,10 @@ def _looks_like_rtf(input_path):
         with open(input_path, 'rb') as fh:
             head = fh.read(16)
     except OSError as exc:
-        raise TransformError(f'Could not read RTF file: {exc}') from exc
+        raise logged_error(
+            TransformError,
+            f"Could not read '{upload_name(input_path)}'. Try uploading it again.", exc
+        ) from exc
     if head.startswith(b'\xef\xbb\xbf'):
         head = head[3:]
     return head.lstrip().startswith(_RTF_MAGIC)
@@ -272,7 +289,7 @@ def _looks_like_rtf(input_path):
 def rtf_to_txt(input_path, output_path):
     """RTF -> plain text (via striprtf), rejecting non-RTF input."""
     if not _looks_like_rtf(input_path):
-        raise TransformError('not an RTF file')
+        raise TransformError(f"'{upload_name(input_path)}' is not an RTF file.")
 
     from striprtf.striprtf import rtf_to_text
 
@@ -285,7 +302,11 @@ def rtf_to_txt(input_path, output_path):
             source = raw.decode('latin-1', errors='replace')
         text = rtf_to_text(source, errors='ignore')
     except Exception as exc:  # noqa: BLE001 - surface any striprtf failure
-        raise TransformError(f'Failed to parse RTF file: {exc}') from exc
+        raise logged_error(
+            TransformError,
+            f"Could not read the text in '{upload_name(input_path)}'. It may be "
+            "damaged; try saving it again as RTF.", exc
+        ) from exc
 
     _write_text(output_path, text)
 

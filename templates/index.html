@@ -12,19 +12,14 @@
     {% include "_csrf_head.html" %}
 </head>
 <body>
-    <nav class="tool-nav">
-        <span class="nav-brand">Docist</span>
-        <a href="/" class="active">Merge</a>
-        <a href="/packet">Packet Builder</a>
-        <a href="/convert">Convert Files</a>
-        <a href="/pages">Page Tools</a>
-        <a href="/print">Print Prep</a>
-        <a href="/export">Export</a>
-        <a href="/security">Watermark &amp; Security</a>
-        <a href="/api">API</a>
-        {% include "_account_nav.html" %}
-    </nav>
+    {% set active = '/' %}
+    {% include "_nav.html" %}
     <div class="container">
+        <section class="intro-strip" id="introStrip">
+            <p>Docist merges, converts, OCRs, stamps and protects documents in your browser: seven tools and a REST API.</p>
+            <p>{% if anon_limit %}No account needed: {{ anon_limit }} operations a day (one operation is one finished tool run).{% else %}No account needed.{% endif %} Uploads to the tools are deleted after processing; results are kept {{ results_kept }} for download, for your session only.</p>
+            <button type="button" class="intro-btn" id="sampleBtn">Try with sample files</button>
+        </section>
         <h1><span class="h1-icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><defs><linearGradient id="h1-grad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#ff8a3d"/><stop offset="0.5" stop-color="#ff4d5e"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient></defs><g fill="none" stroke="url(#h1-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="12" height="15" rx="2"/><path d="M16 21H7a3 3 0 0 1-3-3V7"/><path d="M11.5 10.5h5M14 8v5"/></g></svg></span>Merge &amp; Convert</h1>
         <p class="subtitle">Upload documents and images — we convert them to PDF, then merge and number them in your chosen order. For sections, a cover, a contents page or page-by-page control, use the <a href="/packet">Packet Builder</a>.</p>
 
@@ -34,6 +29,7 @@
             <div class="upload-hint" id="uploadHint">Loading supported formats…</div>
             <input type="file" id="fileInput" multiple accept=".pdf">
         </div>
+        {% include '_where_files_go.html' %}
 
         <div class="file-list" id="fileList"></div>
         {% include '_word_hint.html' %}
@@ -104,6 +100,7 @@
         </div>
     </div>
 
+    {% include "_footer.html" %}
     <script src="/static/paper.js"></script>
     <script src="/static/app.js"></script>
 </body>

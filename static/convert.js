@@ -19,6 +19,19 @@ function buildTargetLabel(ext) {
     return clean.toUpperCase();
 }
 
+// The target's label in the format list: an OCR target says so, 'TXT (OCR)'.
+function targetLabel(target, ocrTargets) {
+    const label = buildTargetLabel(target);
+    return Array.isArray(ocrTargets) && ocrTargets.includes(target) ? `${label} (OCR)` : label;
+}
+
+// The line under the format list once a file's targets are loaded. A PDF
+// source points to Export, which has the DPI choice and OCR.
+function targetsHint(ext, count) {
+    const line = `${count} format(s) available for ${buildTargetLabel(ext)}.`;
+    return getExt(ext) === '.pdf' ? `${line} For DPI choice or OCR, use Export.` : line;
+}
+
 // Escape a string for safe interpolation into HTML.
 function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c => ({
@@ -86,6 +99,9 @@ function initConvertApp() {
     const ocrRow = document.getElementById('ocrRow');
 
     let selectedFile = null;
+    // Bumped whenever the result goes stale, so a run still in flight
+    // when the file or target changes drops its response.
+    let runToken = 0;
     let currentTargets = [];
     let paperTargets = [];
     let ocrTargets = [];
@@ -152,12 +168,11 @@ function initConvertApp() {
             currentTargets.forEach(t => {
                 const opt = document.createElement('option');
                 opt.value = t;
-                opt.textContent = buildTargetLabel(t);
+                opt.textContent = targetLabel(t, ocrTargets);
                 targetSelect.appendChild(opt);
             });
             targetSelect.disabled = false;
-            targetHint.textContent =
-                `${currentTargets.length} format(s) available for ${buildTargetLabel(ext)}.`;
+            targetHint.textContent = targetsHint(ext, currentTargets.length);
             updateRunBtn();
         } catch (err) {
             resetTargets('Error');
@@ -202,6 +217,8 @@ function initConvertApp() {
     });
 
     targetSelect.addEventListener('change', () => {
+        clearDownload();
+        message.style.display = 'none';
         updateRunBtn();
         updateExtras();
     });
@@ -228,14 +245,16 @@ function initConvertApp() {
         if (extras.paper && paperEl) formData.append('paper', paperEl.value);
         if (extras.ocr) formData.append('language', selectedLanguage(document));
 
+        clearDownload();
+        const run = runToken;
         runBtn.disabled = true;
         loading.style.display = 'block';
         message.style.display = 'none';
-        clearDownload();
 
         try {
             const response = await fetch('/convert/run', { method: 'POST', body: formData });
             const result = await response.json();
+            if (run !== runToken) return;
             loading.style.display = 'none';
             if (response.ok && result.success) {
                 showMessage('success', result.message);
@@ -244,6 +263,7 @@ function initConvertApp() {
                 showMessage('error', result.error || 'An error occurred.');
             }
         } catch (err) {
+            if (run !== runToken) return;
             loading.style.display = 'none';
             showMessage('error', 'Failed to connect to server.');
         } finally {
@@ -251,7 +271,11 @@ function initConvertApp() {
         }
     });
 
+    // Drop the last run's result: its download button, and the response of
+    // any run still in flight.
     function clearDownload() {
+        runToken += 1;
+        loading.style.display = 'none';
         const existing = document.getElementById('downloadBtn');
         if (existing) existing.remove();
     }
@@ -326,6 +350,8 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         getExt,
         buildTargetLabel,
+        targetLabel,
+        targetsHint,
         formatMatrix,
         validateConvertState,
         targetOptions,

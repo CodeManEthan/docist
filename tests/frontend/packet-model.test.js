@@ -1,6 +1,6 @@
 'use strict';
 
-// node:test for the packet builder's client model (design.md §6) and the
+// node:test for the packet builder's client model and the
 // page script's client functions, against tests/frontend/fake-packet-server.js.
 
 const { test } = require('node:test');
@@ -11,11 +11,6 @@ const M = require(path.join(__dirname, '..', '..', 'static', 'packet-model.js'))
 const C = require(path.join(__dirname, '..', '..', 'static', 'packet.js'));
 const { createFakeServer, API } = require(path.join(__dirname, 'fake-packet-server.js'));
 const PLAN = require(path.join(__dirname, '..', 'fixtures', 'packet-plan.json'));
-
-// This file's stage: it runs page-plan and placement vectors whose model tag
-// is at or before B7 in the fixture's stage order, and skips later ones by
-// name.
-const STAGE = 'B7';
 
 const HA = 'a'.repeat(64);
 const HB = 'b'.repeat(64);
@@ -142,7 +137,7 @@ test('a change that changes nothing returns the same packet', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Sections, cover and dividers ([B3], §2.1, §3.1)
+// Sections, cover and dividers
 // ---------------------------------------------------------------------------
 
 // Files a (3 pages), b (2) and c (1), bound, in sections s1 'One' (a, b)
@@ -424,20 +419,13 @@ test('rotate, delete and duplicate pages', () => {
 // Page plan: the shared vectors
 // ---------------------------------------------------------------------------
 
-test('the fixture names this stage', () => {
-    assert.ok(PLAN.stage_order.includes(STAGE));
+test('the fixture\'s option defaults are the model\'s', () => {
     const defaults = Object.assign({}, M.defaultOptions('letter'));
     assert.deepEqual(defaults, PLAN.option_defaults);
 });
 
-const atOrBefore = tag => PLAN.stage_order.indexOf(tag) <= PLAN.stage_order.indexOf(STAGE);
 PLAN.vectors.forEach(v => {
-    const name = 'page-plan vector ' + v.name + ' (model ' + v.stage.model + ')';
-    if (!atOrBefore(v.stage.model)) {
-        test(name, { skip: 'model tag ' + v.stage.model + ' is after ' + STAGE }, () => {});
-        return;
-    }
-    test(name, () => {
+    test('page-plan vector ' + v.name, () => {
         const packet = JSON.parse(JSON.stringify(v.packet));
         packet.options = Object.assign({}, PLAN.option_defaults, packet.options);
         const plan = M.pagePlan(packet, v.page_counts, v.contents_pages);
@@ -937,7 +925,7 @@ test('a fresh tab restores from the draft alone, with live and expired stages', 
 });
 
 test('a reload of the same tab releases the stages only its lost undo history named', async () => {
-    // §3.2: a tab holds only stages its packet, past or future names. The
+    // A tab holds only stages its packet, past or future names. The
     // undo stacks aren't saved, so after a reload the stages only they named
     // must be released, or quota relief can never reach them.
     const server = createFakeServer({ capBytes: 2500 });
@@ -1081,7 +1069,7 @@ test('rangeKeys selects from the anchor to the target in view order', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fix round (verification-b3.md)
+// Drops, focus after delete, preview text, drafts, pending actions
 // ---------------------------------------------------------------------------
 
 // A drawn page, top to bottom (heights in px): toolbar 0-60, cover card
@@ -1102,7 +1090,7 @@ function dropLayout() {
     ];
 }
 
-test('M1: every drop height lands in a section, whatever cards sit around it', () => {
+test('every drop height lands in a section, whatever cards sit around it', () => {
     const layout = dropLayout();
     const at = y => C.dropTarget(y, layout).slot;
     assert.deepEqual(at(20), { section: 's1', index: 0 }, 'the toolbar is the start of the first section');
@@ -1123,7 +1111,7 @@ test('M1: every drop height lands in a section, whatever cards sit around it', (
     }
 });
 
-test('M1: the insertion line sits where the files will land', () => {
+test('the insertion line sits where the files will land', () => {
     const layout = dropLayout();
     assert.equal(C.dropTarget(100, layout).line, 300 - 12, 'above the first file card, below the divider');
     assert.equal(C.dropTarget(470, layout).line, 480 + 10, 'after the last card');
@@ -1132,12 +1120,12 @@ test('M1: the insertion line sits where the files will land', () => {
     assert.deepEqual(C.dropTarget(100, []), { slot: null, line: null, open: null }, 'no drawn sections: the end of the packet');
 });
 
-test('M1: a drop into a collapsed section opens it so the new cards show', () => {
+test('a drop into a collapsed section opens it so the new cards show', () => {
     assert.equal(C.dropTarget(775, dropLayout()).open, 's3');
     assert.equal(C.dropTarget(390, dropLayout()).open, null);
 });
 
-test('m1: after Delete section, focus goes to the receiving section or the moved items', () => {
+test('after Delete section, focus goes to the receiving section or the moved items', () => {
     let p = M.addSection(M.addSection(M.emptyPacket(), 'Two'), 'Three');
     p = M.addFiles(p, [{ hash: HA, label: 'a.pdf' }], { section: 's3', index: 0 });
     // Three sections left two: the receiving section's menu.
@@ -1153,7 +1141,7 @@ test('m1: after Delete section, focus goes to the receiving section or the moved
     assert.equal(C.sectionDeleteFocus(M.deleteSection(empty, 's2'), empty, 's2'), null);
 });
 
-test('m2: the preview draws cover and divider text as the PDF prints it', () => {
+test('the preview draws cover and divider text as the PDF prints it', () => {
     assert.equal(M.pdfText('申請書 Ünïcödé — “quotes” €'), '■■■ Ünïcödé — “quotes” €');
     assert.equal(M.pdfText('Ελληνικά'), 'Ελληνικ■', 'Greek prints through Symbol; the accented ά does not');
     assert.equal(M.pdfText('Łódź'), '■ód■');
@@ -1165,7 +1153,7 @@ test('m2: the preview draws cover and divider text as the PDF prints it', () => 
     assert.deepEqual(M.unprintable(['Café “ok” – €5']), []);
 });
 
-test('n1: a draft with null or missing section and cover text restores as text', () => {
+test('a draft with null or missing section and cover text restores as text', () => {
     const s = twoFiles();
     const good = JSON.parse(M.serializeDraft(s.packet, s.table, 5));
     good.packet.sections[0].title = null;
@@ -1181,7 +1169,7 @@ test('n1: a draft with null or missing section and cover text restores as text',
     assert.equal(M.parseDraft(JSON.stringify(typed)), null, 'a wrong type is still refused');
 });
 
-test('n4: a pending action runs once, early on flush or later on its own', () => {
+test('a pending action runs once, early on flush or later on its own', () => {
     const ran = [];
     const pending = C.createPending();
     pending.set(() => ran.push('rename'));
@@ -1196,7 +1184,7 @@ test('n4: a pending action runs once, early on flush or later on its own', () =>
 });
 
 // ---------------------------------------------------------------------------
-// The contents page ([B5])
+// The contents page
 // ---------------------------------------------------------------------------
 
 function contentsPacket(sections, options) {
@@ -1287,15 +1275,10 @@ test('renaming a file card cleans and caps its label, and empty keeps the old on
 
 
 // ---------------------------------------------------------------------------
-// Page numbers on the page images ([B7], design §2.1, §3.3 rule 7)
+// Page numbers on the page images
 // ---------------------------------------------------------------------------
 PLAN.placement_vectors.forEach(v => {
-    const name = 'placement vector ' + v.name + ' (model ' + v.stage.model + ')';
-    if (!atOrBefore(v.stage.model)) {
-        test(name, { skip: 'model tag ' + v.stage.model + ' is after ' + STAGE }, () => {});
-        return;
-    }
-    test(name, () => {
+    test('placement vector ' + v.name, () => {
         const got = M.numberPlacement(v.number_position, v.width);
         assert.ok(Math.abs(got.x - v.expect.x) < 1e-6, got.x + ' vs ' + v.expect.x);
         assert.equal(got.y, v.expect.y);
@@ -1337,7 +1320,7 @@ test('binding keeps a stage answer\'s sizes, checked, and drops bad ones', () =>
         s = M.bindStage(s, HA, stage(HA, 3, { sizes, stage_id: 'z'.repeat(22) })).state;
         assert.equal(s.table[HA].sizes, undefined, JSON.stringify(sizes));
     });
-    // A good answer, then one without sizes (staged before B7): none kept.
+    // A good answer, then one without sizes (an older entry): none kept.
     s = M.bindStage(s, HA, stage(HA, 3, { sizes: [[3, 612, 792, 0, 612, 792]] })).state;
     assert.ok(s.table[HA].sizes);
     s = M.bindStage(s, HA, stage(HA, 3)).state;

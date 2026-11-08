@@ -16,6 +16,7 @@ Pure PDF-processing functions with no Flask dependency.
   how many pages needed OCR. :func:`pdf_to_text` is a thin wrapper over it that
   preserves the historical return value (``output_path``).
 """
+import logging
 import os
 
 import pypdfium2 as pdfium
@@ -26,6 +27,8 @@ from pdf_ops.pdfium_lock import PDFIUM_LOCK
 
 from pdf_ops.ocr import is_available as _ocr_is_available
 from pdf_ops.ocr import validate_language
+
+log = logging.getLogger(__name__)
 
 # Accepted raster formats and the sane DPI window we render within.
 VALID_FORMATS = {"png", "jpg"}
@@ -48,7 +51,7 @@ def pdf_to_images(input_path, output_dir, fmt="png", dpi=150, opts=None, dpi_cho
     rendered at ``scale = dpi / 72``. Raises ``ValueError`` for a bad format or
     an out-of-range DPI.
 
-    Limits (design launch-hardening §7, §10.2): a page over ``FRAME_PIXELS``
+    Limits: a page over ``FRAME_PIXELS``
     at this DPI is refused before it is rendered, with a message that says to
     lower the DPI when the user chose it (``dpi_chosen``; False for a fixed
     resolution such as Convert's, which gets the message without DPI advice);
@@ -128,6 +131,9 @@ def pdf_to_text_report(input_path, output_path, *, ocr_fallback=False, language=
     * ``ocr_pages`` — sorted list of 1-based page numbers whose text was
       recovered via OCR (empty when ``ocr_fallback`` is False or every page
       already had a text layer).
+    * ``empty_pages`` — sorted list of 1-based page numbers whose text is
+      still empty or whitespace-only in the output (with OCR off, every page
+      with no text layer; with OCR on, those OCR couldn't read either).
 
     When ``ocr_fallback`` is True, each page whose extracted text is empty or
     whitespace-only is rasterized at :data:`OCR_DPI`, flattened to RGB and run
@@ -176,7 +182,13 @@ def pdf_to_text_report(input_path, output_path, *, ocr_fallback=False, language=
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write(body)
 
-    return {"output_path": output_path, "pages": len(page_texts), "ocr_pages": ocr_pages}
+    empty_pages = [i for i, t in enumerate(page_texts, start=1) if not t.strip()]
+    return {
+        "output_path": output_path,
+        "pages": len(page_texts),
+        "ocr_pages": ocr_pages,
+        "empty_pages": empty_pages,
+    }
 
 
 def _ocr_render_pages(input_path, page_indices, language):
@@ -189,7 +201,7 @@ def _ocr_render_pages(input_path, page_indices, language):
     import pytesseract
 
     scale = OCR_DPI / 72.0
-    # One page at a time (Rule D, design launch-hardening §7): render it under
+    # One page at a time, to bound memory: render it under
     # the pypdfium2 lock, release the lock, OCR it (Tesseract is slow and
     # runs outside the lock), drop it. A page over FRAME_PIXELS at the fixed
     # OCR resolution is refused with a message that doesn't mention DPI.
@@ -206,7 +218,7 @@ def _ocr_render_pages(input_path, page_indices, language):
             try:
                 results[i] = pytesseract.image_to_string(image, lang=language)
             except pytesseract.TesseractError as exc:
-                raise ValueError(_map_tesseract_error(exc, language))
+                raise ValueError(_map_tesseract_error(exc, language, input_path))
             finally:
                 del image
     finally:
@@ -215,8 +227,9 @@ def _ocr_render_pages(input_path, page_indices, language):
     return results
 
 
-def _map_tesseract_error(exc, language):
-    """Turn a raw ``pytesseract.TesseractError`` into a readable message."""
+def _map_tesseract_error(exc, language, input_path=None):
+    """Turn a raw ``pytesseract.TesseractError`` into a readable message.
+    Tesseract's own text goes to the log, never into the message."""
     msg = str(exc)
     lowered = msg.lower()
     if "failed loading language" in lowered or "error opening data file" in lowered \
@@ -225,4 +238,6 @@ def _map_tesseract_error(exc, language):
             f"OCR language '{language}' is not available on this system. "
             "Install the matching Tesseract language pack, or use 'eng'."
         )
-    return f"OCR failed: {msg}"
+    log.warning('Tesseract failed (%s)', msg)
+    name = f"'{os.path.basename(input_path)}'" if input_path else 'this PDF'
+    return f"OCR could not read {name}. Try again, or try another file."

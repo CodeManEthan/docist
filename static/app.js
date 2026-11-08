@@ -29,6 +29,27 @@ function isAccepted(filename, acceptedExtensions) {
     return acceptedExtensions.includes(getExt(filename));
 }
 
+// Split dropped or picked files into those Merge takes and the names of
+// those it skips: { accepted: [File, ...], rejected: ['data.json', ...] }.
+function splitAccepted(files, acceptedExtensions) {
+    const accepted = [];
+    const rejected = [];
+    for (const file of files) {
+        if (isAccepted(file.name, acceptedExtensions)) accepted.push(file);
+        else rejected.push(file.name);
+    }
+    return { accepted, rejected };
+}
+
+// What Merge says about the files it skipped: "data.json isn't a supported
+// file type." / "a.json and b.exe aren't supported file types." '' for none.
+function rejectedMessage(names) {
+    if (!names.length) return '';
+    if (names.length === 1) return `${names[0]} isn't a supported file type.`;
+    const list = names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    return `${list} aren't supported file types.`;
+}
+
 // "Supported: PDF, MD, ..." hint string. Dedups, strips the leading dot and
 // uppercases each label, preserving first-seen order.
 function buildFormatHint(extensions) {
@@ -179,6 +200,14 @@ function canMerge(state) {
     return count >= 1;
 }
 
+// The files behind "Try with sample files" on / (static/samples/, written by
+// tests/manual/make_samples.py), in the order they join the merge list.
+const SAMPLE_FILES = [
+    { url: '/static/samples/sample-report.pdf', name: 'sample-report.pdf', type: 'application/pdf' },
+    { url: '/static/samples/sample-note.md', name: 'sample-note.md', type: 'text/markdown' },
+    { url: '/static/samples/sample-chart.png', name: 'sample-chart.png', type: 'image/png' },
+];
+
 // ============================== DOM wiring =================================
 
 function initApp() {
@@ -231,7 +260,11 @@ function initApp() {
     syncNumberControls();
 
     document.querySelectorAll('input[name="mergeMode"]').forEach((el) => {
-        el.addEventListener('change', syncModeControls);
+        el.addEventListener('change', () => {
+            clearMergeResult();
+            message.style.display = 'none';
+            syncModeControls();
+        });
     });
 
     // Read the option panel into the shape buildMergeOptions expects.
@@ -256,6 +289,9 @@ function initApp() {
     let selectedFiles = [];
     let acceptedExtensions = ['.pdf'];
     let dragSrcIndex = null;
+    // Bumped whenever the merged result goes stale, so a merge still in
+    // flight when the file list or mode changes drops its response.
+    let mergeToken = 0;
     // File object -> { state: 'loading'|'ready'|'error', url: dataUrl }.
     // Keyed by the File itself so reordering/removal can't desync it.
     const thumbCache = new Map();
@@ -283,10 +319,6 @@ function initApp() {
         uploadHint.textContent = buildFormatHint(acceptedExtensions);
     }
 
-    function fileAccepted(file) {
-        return isAccepted(file.name, acceptedExtensions);
-    }
-
     // ---- Upload via click or drag-drop ----
     uploadArea.addEventListener('click', () => {
         fileInput.click();
@@ -305,25 +337,60 @@ function initApp() {
         e.preventDefault();
         uploadArea.classList.remove('dragover');
         // Only OS files carry data; internal row reordering has none.
-        const files = Array.from(e.dataTransfer.files).filter(fileAccepted);
-        handleFiles(files);
+        takeFiles(e.dataTransfer.files);
     });
 
     fileInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files).filter(fileAccepted);
-        handleFiles(files);
+        takeFiles(e.target.files);
     });
+
+    // Add the files Merge takes and say which ones it skipped.
+    function takeFiles(list) {
+        const { accepted, rejected } = splitAccepted(Array.from(list), acceptedExtensions);
+        handleFiles(accepted);
+        fileInput.value = '';
+        if (rejected.length) {
+            message.className = 'message error';
+            message.textContent = rejectedMessage(rejected);
+            message.style.display = 'block';
+        }
+    }
 
     function handleFiles(files) {
         if (files.length === 0) return;
         // Append new files to existing list instead of replacing
         selectedFiles = [...selectedFiles, ...files];
+        clearMergeResult();
         files.forEach(queueThumb);
         displayFiles();
         updateMergeBtn();
         message.style.display = 'none';
         // Clear the file input so the same files can be selected again if needed
         fileInput.value = '';
+    }
+
+    // ---- Sample files ----
+    // Fetch the three samples and add them as if the visitor had dropped
+    // them, so they take the same path (thumbnail, stale-result reset).
+    const sampleBtn = document.getElementById('sampleBtn');
+    if (sampleBtn) {
+        sampleBtn.addEventListener('click', async () => {
+            sampleBtn.disabled = true;
+            try {
+                const files = await Promise.all(SAMPLE_FILES.map(async (sample) => {
+                    const res = await fetch(sample.url);
+                    if (!res.ok) throw new Error(sample.name);
+                    return new File([await res.blob()], sample.name, { type: sample.type });
+                }));
+                handleFiles(files);
+            } catch (err) {
+                message.className = 'message error';
+                message.textContent = "Couldn't load the sample files. Try again in a moment.";
+                message.style.display = 'block';
+            } finally {
+                sampleBtn.disabled = false;
+            }
+        });
     }
 
     // ---- Thumbnails ----
@@ -375,6 +442,8 @@ function initApp() {
         const next = moveItem(selectedFiles, from, to);
         if (next === selectedFiles) return; // no-op, keep the current render
         selectedFiles = next;
+        clearMergeResult();
+        message.style.display = 'none';
         displayFiles();
     }
 
@@ -384,6 +453,8 @@ function initApp() {
         // Drop the cached preview unless the same File is still in the list
         // (the user can add the very same file twice).
         if (dropped && !selectedFiles.includes(dropped)) thumbCache.delete(dropped);
+        clearMergeResult();
+        message.style.display = 'none';
         displayFiles();
         updateMergeBtn();
     }
@@ -401,9 +472,9 @@ function initApp() {
                 <span class="file-info"><span class="file-number">${index + 1}.</span>${escapeHtml(file.name)}</span>
                 <span class="file-size">${formatFileSize(file.size)}</span>
                 <span class="file-actions">
-                    <button class="icon-btn move-up" title="Move up" ${index === 0 ? 'disabled' : ''}>▲</button>
-                    <button class="icon-btn move-down" title="Move down" ${index === selectedFiles.length - 1 ? 'disabled' : ''}>▼</button>
-                    <button class="icon-btn remove-btn" title="Remove">✕</button>
+                    <button class="icon-btn move-up" title="Move up" aria-label="Move up" ${index === 0 ? 'disabled' : ''}>▲</button>
+                    <button class="icon-btn move-down" title="Move down" aria-label="Move down" ${index === selectedFiles.length - 1 ? 'disabled' : ''}>▼</button>
+                    <button class="icon-btn remove-btn" title="Remove" aria-label="Remove">✕</button>
                 </span>
             `;
 
@@ -482,6 +553,8 @@ function initApp() {
         const paperEl = document.getElementById('paperSelect');
         if (paperEl) formData.append('paper', paperEl.value);
 
+        clearMergeResult();
+        const run = mergeToken;
         mergeBtn.disabled = true;
         loading.style.display = 'block';
         message.style.display = 'none';
@@ -493,6 +566,7 @@ function initApp() {
             });
 
             const result = await response.json();
+            if (run !== mergeToken) return;
 
             loading.style.display = 'none';
 
@@ -501,39 +575,7 @@ function initApp() {
                 message.textContent = result.message;
                 message.style.display = 'block';
 
-                const outputFilename = result.filename;
-
-                const downloadBtn = document.createElement('button');
-                downloadBtn.className = 'btn download-btn';
-                downloadBtn.textContent = '⬇️ Download Merged PDF';
-                downloadBtn.onclick = () => {
-                    window.location.href = '/download?filename=' + encodeURIComponent(outputFilename);
-                    setTimeout(() => {
-                        downloadBtn.textContent = '✓ Downloaded! Click to download again';
-                    }, 1000);
-                };
-
-                const btnContainer = mergeBtn.parentNode;
-                btnContainer.insertBefore(downloadBtn, message);
-
-                mergeBtn.style.display = 'none';
-
-                const resetBtn = document.createElement('button');
-                resetBtn.className = 'btn';
-                resetBtn.textContent = '🔄 Start Over';
-                resetBtn.style.marginTop = '10px';
-                resetBtn.onclick = () => {
-                    downloadBtn.remove();
-                    resetBtn.remove();
-                    mergeBtn.style.display = 'block';
-                    message.style.display = 'none';
-                    selectedFiles = [];
-                    thumbCache.clear();
-                    displayFiles();
-                    updateMergeBtn();
-                    fileInput.value = '';
-                };
-                btnContainer.insertBefore(resetBtn, message);
+                showMergeResult(result.filename);
             } else {
                 message.className = 'message error';
                 message.textContent = result.error || 'An error occurred';
@@ -541,6 +583,7 @@ function initApp() {
                 updateMergeBtn();
             }
         } catch (error) {
+            if (run !== mergeToken) return;
             loading.style.display = 'none';
             message.className = 'message error';
             message.textContent = 'Failed to connect to server';
@@ -548,6 +591,56 @@ function initApp() {
             updateMergeBtn();
         }
     });
+
+    // Drop the merged result: the download and Start Over buttons go, the
+    // Merge button comes back, and a merge still in flight is ignored.
+    function clearMergeResult() {
+        mergeToken += 1;
+        loading.style.display = 'none';
+        ['downloadBtn', 'resetBtn'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        });
+        mergeBtn.style.display = 'block';
+        updateMergeBtn();
+    }
+
+    // After a merge: one download button for this result, Start Over in
+    // place of the Merge button.
+    function showMergeResult(outputFilename) {
+        clearMergeResult();
+        const btnContainer = mergeBtn.parentNode;
+
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'btn download-btn';
+        downloadBtn.id = 'downloadBtn';
+        downloadBtn.textContent = '⬇️ Download Merged PDF';
+        downloadBtn.onclick = () => {
+            window.location.href = '/download?filename=' + encodeURIComponent(outputFilename);
+            setTimeout(() => {
+                downloadBtn.textContent = '✓ Downloaded! Click to download again';
+            }, 1000);
+        };
+        btnContainer.insertBefore(downloadBtn, message);
+
+        mergeBtn.style.display = 'none';
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn';
+        resetBtn.id = 'resetBtn';
+        resetBtn.textContent = '🔄 Start Over';
+        resetBtn.style.marginTop = '10px';
+        resetBtn.onclick = () => {
+            clearMergeResult();
+            message.style.display = 'none';
+            selectedFiles = [];
+            thumbCache.clear();
+            displayFiles();
+            updateMergeBtn();
+            fileInput.value = '';
+        };
+        btnContainer.insertBefore(resetBtn, message);
+    }
 
     // Reflect the initial mode (standard) in the panel + merge button.
     syncModeControls();
@@ -572,6 +665,8 @@ if (typeof module !== 'undefined' && module.exports) {
         formatFileSize,
         getExt,
         isAccepted,
+        splitAccepted,
+        rejectedMessage,
         buildFormatHint,
         dedupeExtensions,
         moveItem,
@@ -587,5 +682,6 @@ if (typeof module !== 'undefined' && module.exports) {
         firstThumb,
         thumbCellHtml,
         THUMB_ENDPOINT,
+        SAMPLE_FILES,
     };
 }

@@ -68,6 +68,8 @@ from PIL import Image, ImageOps, ImageSequence
 
 from pdf_ops import limits
 
+from converters import logged_error, upload_name
+
 from . import TransformError
 # Import ONLY the stable read-only availability helpers. pdf_ops.ocr is being
 # extended concurrently; is_available / tesseract_version are the stable API.
@@ -96,11 +98,13 @@ def _open(input_path):
         raise
     except Image.DecompressionBombError as exc:
         # Over Pillow's own limit (about 179 MP), before check_frame runs:
-        # the same ruled sentence as any image over FRAME_PIXELS.
+        # the same sentence as any image over FRAME_PIXELS.
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
-        raise TransformError(
-            f"Could not open image '{input_path}': {exc}"
+        raise logged_error(
+            TransformError,
+            f"Could not open '{upload_name(input_path)}' as an image. It may be "
+            "damaged, or not the kind of image its name says.", exc
         ) from exc
     return img
 
@@ -118,7 +122,7 @@ def _flatten_to_white(frame):
     if has_alpha:
         # Paste white through the inverted alpha band onto the RGB copy:
         # the same result as compositing onto white, without a full-size
-        # RGBA copy, RGBA background and composite (Rule D, design §6.2).
+        # RGBA copy, RGBA background and composite, to bound memory.
         alpha = (frame if frame.mode in ('RGBA', 'LA') else frame.convert('RGBA')).getchannel('A')
         rgb = frame.convert('RGB')
         rgb.paste((255, 255, 255), None, ImageOps.invert(alpha))
@@ -126,13 +130,17 @@ def _flatten_to_white(frame):
     return frame.convert('RGB')
 
 
-def _ocr_frame(frame, language):
-    """Recognise text in a single (already-flattened) frame -> str."""
+def _ocr_frame(frame, language, name):
+    """Recognise text in a single (already-flattened) frame -> str. ``name``
+    is the upload's name, for the message when Tesseract fails."""
     import pytesseract  # deferred: only needed once Tesseract is confirmed present
     try:
         return pytesseract.image_to_string(frame, lang=language)
     except Exception as exc:
-        raise TransformError(f"OCR failed: {exc}") from exc
+        raise logged_error(
+            TransformError,
+            f"Could not read text in '{name}'. Try again, or try another file.", exc
+        ) from exc
 
 
 def image_to_text(input_path, output_path, opts=None):
@@ -154,17 +162,18 @@ def image_to_text(input_path, output_path, opts=None):
         raise TransformError(str(exc)) from exc
 
     img = _open(input_path)
+    name = upload_name(input_path)
 
-    # One frame at a time (Rule D): check it after its seek and before it is
-    # decoded, flatten it, OCR it and drop it before the next.
+    # One frame at a time, to bound memory: check it after its seek and
+    # before it is decoded, flatten it, OCR it and drop it before the next.
     texts = []
     for frame in ImageSequence.Iterator(img):
         limits.check_frame(frame.width, frame.height)
         flat = _flatten_to_white(frame)
-        texts.append(_ocr_frame(flat, language))
+        texts.append(_ocr_frame(flat, language, name))
         del flat
     if not texts:  # extremely defensive: a decoded image always has >=1 frame
-        texts = [_ocr_frame(_flatten_to_white(img), language)]
+        texts = [_ocr_frame(_flatten_to_white(img), language, name)]
 
     if len(texts) == 1:
         body = texts[0]

@@ -1,4 +1,4 @@
-"""OCR languages (round prelaunch-fixes, design §4): the shared validator, the
+"""OCR languages: the shared validator, the
 per-request cap, OCRmyPDF's job count, the cached language probe and the
 display names. None of these needs Tesseract installed; the real-pack checks
 are at the bottom and skip without it.
