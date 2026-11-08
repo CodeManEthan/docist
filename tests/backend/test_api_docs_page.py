@@ -3,6 +3,7 @@ from the origin the page was requested at, the status list, the health line,
 and a first paragraph that follows DOCIST_API_ANONYMOUS."""
 import html
 import re
+from pathlib import Path
 
 import pytest
 
@@ -135,3 +136,15 @@ def test_keyless_server_names_both_ways(client, config):
     errors = text(section(body, "errors"))
     assert "API key required" not in errors
     assert "Invalid or revoked API key." in errors
+
+
+def test_every_parameter_table_sits_in_a_scrolling_box(client):
+    """On a phone a table wider than its panel scrolls inside the box
+    (static/style.css .api-table-wrap) instead of running past the panel."""
+    body = page(client)
+    tables = re.findall(r"<table\b", body)
+    wrapped = re.findall(r'<div class="api-table-wrap">\s*<table\b', body)
+    assert tables and len(wrapped) == len(tables)
+    css = (Path(__file__).resolve().parents[2] / "static" / "style.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.api-table-wrap\s*\{([^}]*)\}", css)
+    assert rule and "overflow-x: auto" in rule.group(1)
