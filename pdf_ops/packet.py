@@ -1,10 +1,10 @@
 """Packet pipeline: one PDF from a packet document and its staged PDFs.
 
-A packet (design.md section 3.1) is sections of items: file runs that name a
+A packet is sections of items: file runs that name a
 staged PDF by the SHA-256 of the dropped file, and generated pages. This module
 holds the two pieces the build needs:
 
-  * :func:`page_plan` -- the written page-plan spec (design section 3.3): every
+  * :func:`page_plan` -- the page-plan spec: every
     physical page's position, printed label and whether the label is stamped,
     plus the contents/outline entries. It is pure, and ``static/packet-model.js``
     implements the same spec; both run the vectors in
@@ -19,9 +19,8 @@ build route's job. It imports nothing from ``pdf_ops.jobs`` or
 ``pdf_ops.limits``. Staged inputs are already PDFs; it converts nothing.
 
 Cover, divider and contents pages are planned here and drawn by the renderers
-in :data:`_RENDERERS`: stage B3's cover and divider, and stage B5's contents
-page. A planned generated page with no renderer is refused ``unsupported``;
-since B5 every kind the plan makes has one.
+in :data:`_RENDERERS`. A planned generated page with no renderer is refused
+``unsupported``; every kind the plan makes now has one.
 """
 import contextlib
 import io
@@ -41,7 +40,7 @@ MAX_OUTPUT_PAGES = 2000
 
 VALID_ROTATIONS = (0, 90, 180, 270)
 
-# The packet's output options (design section 3.1). The same defaults are
+# The packet's output options. The same defaults are
 # pinned in tests/fixtures/packet-plan.json as ``option_defaults``.
 DEFAULT_OPTIONS = {
     'paper': DEFAULT_PAPER,
@@ -64,15 +63,14 @@ OUT_PART_NAME = 'packet-out.part.pdf'
 # renderer is ``render(writer, page, packet, planned, opts) -> None``: it
 # appends exactly one page to ``writer`` for the plan page ``page``, reading
 # its text from ``packet`` (cover, section titles) and ``planned`` (contents
-# entries and labels), at ``opts['paper']``. The divider and cover renderers
-# are stage B3's, registered below them; the contents renderer is stage B5's
-# (design, Build stages).
+# entries and labels), at ``opts['paper']``. The cover, divider and contents
+# renderers are registered below them.
 _RENDERERS = {}
 
 # What a section with no title is called on its divider and in the outline,
 # as the page calls its heading.
 UNTITLED_SECTION = 'Untitled section'
-# The cover's text fields (design section 3.1); each is a string when given.
+# The cover's text fields; each is a string when given.
 COVER_FIELDS = ('title', 'subtitle', 'date', 'note')
 
 
@@ -120,7 +118,7 @@ def normalize_options(options):
 
 
 # ---------------------------------------------------------------------------
-# Page plan (design section 3.3)
+# Page plan
 # ---------------------------------------------------------------------------
 def _is_index(value):
     return isinstance(value, int) and not isinstance(value, bool)
@@ -201,7 +199,7 @@ def _item_pages(section, item, page_counts, errors):
     if refs is None:
         refs = [{'src': i, 'rot': 0} for i in range(count)]
     else:
-        # Fit (design section 3.1): refs are only good on the page count they
+        # Fit: refs are only good on the page count they
         # were made on. The server re-checks what the client reset.
         if item['src_pages'] != count:
             errors.append({'id': item['id'], 'code': 'stale'})
@@ -215,14 +213,14 @@ def _item_pages(section, item, page_counts, errors):
 
 
 def page_plan(packet, page_counts, contents_pages=None, options=None):
-    """Plan every physical page of ``packet`` (design section 3.3).
+    """Plan every physical page of ``packet``.
 
     ``page_counts`` maps each ready file hash to its staged PDF's page count; a
     hash missing from it is not ready, and its items give no page.
     ``contents_pages`` is the contents page's length when ``contents`` is on;
     None means its measured length, :func:`contents_page_count` of the rows
-    the plan's entries give (design section 3.3: it depends only on the entry
-    count). ``options`` replaces ``packet['options']`` when given.
+    the plan's entries give (it depends only on the entry count).
+    ``options`` replaces ``packet['options']`` when given.
 
     Returns ``{'pages': [...], 'entries': [...]}``. Each page is a dict with a
     ``kind`` (``cover``, ``contents``, ``pad``, ``divider``, ``file`` or
@@ -313,7 +311,7 @@ def _plan(packet, page_counts, contents_pages, opts):
 
 
 # ---------------------------------------------------------------------------
-# Pipeline (design section 4.8)
+# Pipeline
 # ---------------------------------------------------------------------------
 @contextlib.contextmanager
 def _reading(item_ids):
@@ -396,8 +394,8 @@ _DISPLAY_TO_USER = {
 def visible_box(page):
     """The part of ``page`` a viewer shows: its crop box clipped to its media
     box, as ``(left, bottom, width, height)`` in user space. pdfium renders
-    the same box, so the page images and the stamp agree (design packet-builder
-    §3.3 rule 7, §4.2 Convert ``sizes``). A crop box that misses the media box
+    the same box, so the page images, their page sizes and the stamp agree.
+    A crop box that misses the media box
     entirely leaves the media box."""
     media = page.mediabox
     crop = page.cropbox
@@ -415,12 +413,12 @@ def visible_box(page):
 def _stamp_upright(page, label, position):
     """Stamp ``label`` with the merge overlay, upright in the page as displayed.
 
-    Design section 4.8: the number goes in the displayed orientation. The page
+    The number goes in the displayed orientation. The page
     keeps its /Rotate and its content; the overlay is drawn at the displayed
     size of the visible box (:func:`visible_box`) and merged through the
     inverse of the display rotation, so nothing already on the page moves,
-    links and form fields included. Where in the displayed page is §3.3
-    rule 7 (``_number_xy``).
+    links and form fields included. Where in the displayed page it goes is
+    ``pdf_ops.merge._number_xy``.
     """
     left, bottom, width, height = visible_box(page)
     rotation = int(page.rotation) % 360
@@ -437,7 +435,7 @@ def _stamp_upright(page, label, position):
 
 
 def _add_outline(writer, plan, packet):
-    """Bookmarks from the plan's entries (design section 3.3 rule 6).
+    """Bookmarks from the plan's entries.
 
     With more than one section in the packet, each planned section is a
     bookmark at its first page (its divider when it has one) and its file
@@ -457,7 +455,7 @@ def _add_outline(writer, plan, packet):
 
 
 # ---------------------------------------------------------------------------
-# Generated pages: cover and divider (stage B3)
+# Generated pages: cover and divider
 # ---------------------------------------------------------------------------
 _MARGIN = 72
 _LEADING = 1.25
@@ -472,7 +470,7 @@ _TEXT_CUT = 2000
 
 def _clean(text):
     """``text`` on one line: runs of whitespace and control characters become
-    one space. The fields are short single lines (design section 2.1)."""
+    one space. The fields are short single lines."""
     return ' '.join(''.join(ch if ch.isprintable() else ' ' for ch in str(text or '')).split())
 
 
@@ -582,9 +580,9 @@ _RENDERERS['cover'] = _render_cover
 
 
 # ---------------------------------------------------------------------------
-# Generated pages: contents (stage B5)
+# Generated pages: contents
 # ---------------------------------------------------------------------------
-# Design section 3.3: the contents page's length depends only on its entry
+# The contents page's length depends only on its entry
 # count. Every row is one line of one height, so each contents page holds
 # the same number of rows on either paper; a title too wide for its line is
 # cut with an ellipsis, never wrapped. static/packet-model.js carries the
@@ -600,8 +598,8 @@ _CONTENTS_GAP = 12          # between a title and its leader or label
 # The rows start below the heading: the top margin, the heading's leading
 # and a gap. 30 rows end at the bottom margin on Letter, the shorter paper.
 _CONTENTS_TOP = _MARGIN + _CONTENTS_HEAD_SIZE * _LEADING + 18
-# The label width the measuring layout reserves (design section 4.8: render
-# once with placeholder labels of fixed width). The layout cuts titles to
+# The label width the measuring layout reserves (render once with
+# placeholder labels of fixed width). The layout cuts titles to
 # fit beside any label, so the measure and the final render agree.
 _CONTENTS_PLACEHOLDER = '0000'
 
@@ -613,7 +611,7 @@ def contents_page_count(rows):
 
 
 def contents_rows(planned, packet):
-    """The rows the contents page lists, in order (design section 3.3 rule 6).
+    """The rows the contents page lists, in order.
 
     Each entry of ``planned`` is a row, by the page's heading rule (as the
     outline nests): when the packet has more than one section, each planned
@@ -726,8 +724,8 @@ def _render_contents(writer, page, packet, planned, opts):
 
 
 def _add_contents_links(writer, planned, packet, opts):
-    """Link each contents row to the physical page of its first page (design
-    section 3.3 rule 6). Added to the finished writer after the numbers are
+    """Link each contents row to the physical page of its first page.
+    Added to the finished writer after the numbers are
     stamped, so the link and its target are the pages the PDF keeps."""
     width, height = PAPER_SIZES[opts['paper']]
     first = _first_contents(planned)
@@ -800,7 +798,7 @@ def _phase1(packet, plan, readers, opts, work_dir):
 def packet_pipeline(plan, staged_paths, options, work_dir, out_path):
     """Build the packet PDF and write it to ``out_path``.
 
-    ``plan`` is the validated packet document (design section 3.1).
+    ``plan`` is the validated packet document.
     ``staged_paths`` maps each file item's ``hash`` to its staged PDF's path.
     ``options`` are the packet's output options (``plan['options']`` when
     None); when given they replace the packet's options as a whole, and keys

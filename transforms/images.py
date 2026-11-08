@@ -97,14 +97,14 @@ def _open(input_path):
     """Open + decode the first frame, raising TransformError on bad input."""
     try:
         img = Image.open(input_path)
-        # Its one frame is checked before it is decoded (design §6.1).
+        # Its one frame is checked before it is decoded.
         limits.check_frame(img.width, img.height)
         img.load()  # force a real decode so truncated/corrupt data fails here
     except limits.LimitError:
         raise
     except Image.DecompressionBombError as exc:
         # Over Pillow's own limit (about 179 MP), before check_frame runs:
-        # the same ruled sentence as any image over FRAME_PIXELS.
+        # the same sentence as any image over FRAME_PIXELS.
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
         raise logged_error(
@@ -127,7 +127,8 @@ def _flatten_to_rgb(img):
 
     White is pasted through the inverted alpha band onto the RGB copy, the
     same result as compositing onto white without a full-size RGBA copy, RGBA
-    background and composite (Rule D; as ``ocr_text._flatten_to_white``).
+    background and composite, to bound memory (as
+    ``ocr_text._flatten_to_white``).
     """
     if _has_alpha(img):
         source = img if img.mode in ('RGBA', 'LA') else img.convert('RGBA')
@@ -176,7 +177,7 @@ def _convert(input_path, output_path, target_fmt):
             # libwebp's VP8_ENC_ERROR_OUT_OF_MEMORY (1): the encoder ran out of
             # the job's memory, but Pillow 12.3 reports it as a plain
             # ValueError ("encoding error 1"; OSError too, to be safe). Give
-            # the ruled memory refusal, not Pillow's text and a server path.
+            # the memory refusal, not Pillow's text and a server path.
             raise limits.LimitError(limits.memory_message(), kind='memory') from exc
         raise logged_error(TransformError, _unwritable(input_path, target_fmt), exc) from exc
     except Exception as exc:

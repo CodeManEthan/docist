@@ -122,7 +122,7 @@ def _stream_path(path, download_name=None):
     memory. The open handle outlives the TemporaryDirectory's removal (POSIX
     keeps an unlinked file's data until its last handle closes), and the
     response closes the handle when it has been sent. Every endpoint answers
-    with it (design launch-hardening §10.4, Rule F)."""
+    with it."""
     name = download_name or os.path.basename(path)
     mimetype = mimetypes.guess_type(name)[0] or 'application/octet-stream'
     handle = open(path, 'rb')
@@ -314,7 +314,7 @@ def api_merge():
         raise ApiError(str(exc))
 
     # Every file's extension is checked before any is saved; one that is
-    # neither a PDF nor convertible refuses the whole request (§13).
+    # neither a PDF nor convertible refuses the whole request.
     try:
         plan = merge_plan(files, get_converter)
     except UploadValidationError as exc:

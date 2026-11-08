@@ -118,7 +118,7 @@ def run_export():
             input_path = os.path.join(tmpdir, filename)
             upload.save(input_path)
             # Built here, outside the job directory; moved to OUTPUT_FOLDER
-            # only after the job returns (design launch-hardening §10.3).
+            # only after the job returns.
             out_path = os.path.join(tmpdir, 'result' + out_ext)
 
             def work():

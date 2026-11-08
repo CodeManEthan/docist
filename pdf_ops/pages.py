@@ -168,7 +168,7 @@ def split_pdf(input_path, output_dir, mode, value, opts=None):
     Output files are named ``<base>_part1.pdf``, ``<base>_part2.pdf``, ...
     inside ``output_dir``. Returns the created file paths in order.
 
-    Limits (design launch-hardening §8): more than ``SPLIT_PARTS`` parts is
+    Limits: more than ``SPLIT_PARTS`` parts is
     refused before any range is parsed (in ``ranges`` mode, before the PDF is
     read too); each part's bytes count against ``RESULT_BYTES`` across the
     split (``opts.written`` when given). Both raise :class:`limits.LimitError`.

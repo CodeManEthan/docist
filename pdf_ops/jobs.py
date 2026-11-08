@@ -1,6 +1,6 @@
 """Jobs: every request's work on an upload runs in a forked child with hard limits.
 
-No Flask here (design launch-hardening v0.4 §3). The web layer passes the
+No Flask here. The web layer passes the
 deadline in; :func:`utils.render_opts.run_in_job` is the request-side wrapper.
 
 A job obeys seven invariants, and the code below is arranged so each holds
@@ -10,7 +10,7 @@ J1, every process is capped. The forked child, before running the work,
     sets ``RLIMIT_DATA`` soft to its own ``VmData`` plus ``JOB_MEM_BYTES``
     (hard unchanged) and ``RLIMIT_FSIZE`` soft and hard to ``RESULT_BYTES``
     with ``SIGXFSZ`` ignored. Every descendant inherits both. LibreOffice is
-    the exception: ``office._limits`` lifts ``RLIMIT_DATA`` and applies B2's
+    the exception: ``office._limits`` lifts ``RLIMIT_DATA`` and applies its
     own ``RLIMIT_AS`` and ``RLIMIT_CPU``.
 J2, the child decides what happened. It walks the exception's cause chain
     itself and sends a tagged outcome: ``('ok', value)``, ``('limit', kind,
@@ -110,7 +110,7 @@ def _set_memory_cap(mem_bytes):
 
 
 def lift_memory_cap():
-    """``RLIMIT_DATA`` soft back to its hard value (J3; LibreOffice, §3.4)."""
+    """``RLIMIT_DATA`` soft back to its hard value (J3; LibreOffice)."""
     _soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
     resource.setrlimit(resource.RLIMIT_DATA, (hard, hard))
 

@@ -1,10 +1,11 @@
 # Docist: the PDF toolkit, served by gunicorn on 127.0.0.1:5010.
 #
-# ADAPTED FROM DEPLOYMENT.md's systemd template, not invented. Four changes, each because
-# this is a USER unit on this box rather than the system unit the doc describes:
-#   * no `User=docist` -- a `systemctl --user` unit already runs as the operator, and a
-#     User= line in a user unit is an error, not a no-op.
-#   * WorkingDirectory and the gunicorn path move from /opt/docist to the real tree.
+# An example systemd USER unit, adapted from DEPLOYMENT.md's system unit. Copy it to
+# ~/.config/systemd/user/ and adjust the paths. Four changes, each because this is a user
+# unit rather than the system unit the doc describes:
+#   * no `User=docist` -- a `systemctl --user` unit already runs as the user who owns it,
+#     and a User= line in a user unit is an error, not a no-op.
+#   * WorkingDirectory and the gunicorn path move from /opt/docist to a checkout in ~.
 #   * no `Environment=DOCIST_SECRET_KEY=change-me`. Baking a placeholder credential into a
 #     checked-in unit is how placeholders reach production. EnvironmentFile below picks
 #     settings up from a gitignored .env if one is ever written. With none set, the tools
@@ -13,14 +14,10 @@
 #     stated here rather than left to be discovered.
 #   * WantedBy=multi-user.target dropped entirely -- see the note at the bottom.
 #
-# ON-DEMAND. Installed and registered but NOT enabled; the registry row is PAUSED, which
-# says the identity is known and is not expected up. Stopped is its normal state.
+# ON-DEMAND. Installed but NOT enabled; stopped is its normal state.
 #
-#   overseer service start docist docist
-#   overseer service stop  docist docist
-#
-# NO HEARTBEAT PATCH, deliberately: a paused row is never read for freshness. systemd's
-# ActiveState, shown beside the heartbeat by `overseer service status`, carries the truth.
+#   systemctl --user start docist
+#   systemctl --user stop docist
 #
 # Logs: journalctl --user -u docist
 
@@ -35,9 +32,9 @@ StartLimitBurst=5
 [Service]
 Type=simple
 WorkingDirectory=%h/projects/Docist
-# The project venv's gunicorn binary, which exists and imports the app cleanly (verified
-# 2026-08-26). Not run.sh: that wrapper pip-installs on a missing import, and a unit that
-# might install packages on start is a unit that can hang on a start.
+# The project venv's gunicorn binary. Not run.sh: that wrapper pip-installs on a missing
+# import, and a unit that might install packages on start is a unit that can hang on a
+# start.
 #
 # No proxy trust. Docist now reads X-Forwarded-For itself, and only when
 # DOCIST_TRUSTED_PROXIES > 0; the doc's unit sets it to 1 for nginx. It is left unset
@@ -68,5 +65,5 @@ TimeoutStopSec=20
 NoNewPrivileges=yes
 
 # NO [Install] SECTION, deliberately. The doc's WantedBy=multi-user.target belongs to a
-# system service that should be up whenever the box is; this is an on-demand tool an
-# operator starts through the registry. `systemctl --user enable` refusing is correct.
+# system service that should be up whenever the machine is; this is an on-demand tool
+# started by hand. `systemctl --user enable` refusing is correct.

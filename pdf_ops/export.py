@@ -51,7 +51,7 @@ def pdf_to_images(input_path, output_dir, fmt="png", dpi=150, opts=None, dpi_cho
     rendered at ``scale = dpi / 72``. Raises ``ValueError`` for a bad format or
     an out-of-range DPI.
 
-    Limits (design launch-hardening §7, §10.2): a page over ``FRAME_PIXELS``
+    Limits: a page over ``FRAME_PIXELS``
     at this DPI is refused before it is rendered, with a message that says to
     lower the DPI when the user chose it (``dpi_chosen``; False for a fixed
     resolution such as Convert's, which gets the message without DPI advice);
@@ -201,7 +201,7 @@ def _ocr_render_pages(input_path, page_indices, language):
     import pytesseract
 
     scale = OCR_DPI / 72.0
-    # One page at a time (Rule D, design launch-hardening §7): render it under
+    # One page at a time, to bound memory: render it under
     # the pypdfium2 lock, release the lock, OCR it (Tesseract is slow and
     # runs outside the lock), drop it. A page over FRAME_PIXELS at the fixed
     # OCR resolution is refused with a message that doesn't mention DPI.

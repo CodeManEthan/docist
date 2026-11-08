@@ -35,11 +35,10 @@ def _has_alpha(frame):
 def _compose_page(frame, page_w, page_h):
     """Fit a single frame onto a centred, white page of ``page_w`` x ``page_h`` px (RGB).
 
-    Rule D: a frame with transparency is pasted onto the white page with its
-    alpha band as the mask, after scaling, instead of building an RGBA copy,
-    a white RGBA background and their composite at full size. At 36
-    megapixels that is about 309 MiB in the job instead of about 695
-    (design launch-hardening §6.2).
+    To bound memory, a frame with transparency is pasted onto the white page
+    with its alpha band as the mask, after scaling, instead of building an
+    RGBA copy, a white RGBA background and their composite at full size. At
+    36 megapixels that is about 309 MiB in the job instead of about 695.
     """
     if _has_alpha(frame):
         img = frame if frame.mode == 'RGBA' else frame.convert('RGBA')
@@ -73,7 +72,7 @@ def _page_pdf(page):
 def convert(input_path, output_path, opts=None):
     """Convert the image at input_path into a PDF written to output_path.
 
-    One frame at a time (Rule D): each frame is checked against
+    One frame at a time, to bound memory: each frame is checked against
     ``FRAME_PIXELS`` after its seek and before it is decoded, composed, saved
     as a one-page PDF and appended to the writer, then dropped. The writer
     holds compressed pages only.
@@ -83,7 +82,7 @@ def convert(input_path, output_path, opts=None):
         image = Image.open(input_path)
     except Image.DecompressionBombError as exc:
         # Over Pillow's own limit (about 179 MP), before check_frame runs:
-        # the same ruled sentence as any image over FRAME_PIXELS.
+        # the same sentence as any image over FRAME_PIXELS.
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
         raise logged_error(

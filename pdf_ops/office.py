@@ -1,12 +1,12 @@
 """The Word engine: LibreOffice Writer, headless, one process group per call.
 
 Paid users' ``.docx`` files are rendered by LibreOffice, which keeps the
-document's own layout and page size (design prelaunch-fixes v0.4 §5). Free
+document's own layout and page size. Free
 users keep the mammoth reflow in ``converters/docx_converter.py``, which is
 also the fallback when this module raises :class:`OfficeError`.
 
-Rendering an upload makes no network request (round [Q6], ruled 2026-10-02,
-round note [C1]: remote content in Word files is dropped). Two guards each
+Rendering an upload makes no network request: remote content in Word files
+is dropped. Two guards each
 hold that on their own, and the tests check each with the other turned off:
 
   * the strip: every relationship whose target lies outside the package is
@@ -27,7 +27,7 @@ kernel's OOM killer, or ``docker stop`` past its grace period), every process
 in the group carries ``RLIMIT_CPU`` at three times the call's wall timeout and
 ``RLIMIT_AS`` at ``DOCIST_OFFICE_MEM_MB`` (default 1536). An orphan that
 spins hits the CPU limit; one that sits idle lives until the container
-restarts (design §9).
+restarts.
 
 No Flask here: the web layer passes the deadline in.
 """
@@ -200,7 +200,7 @@ _EOCD64_SIZE = 56
 
 def check_central_directory(path):
     """Refuse a zip whose central directory is over ``MAX_CENTRAL_DIR_BYTES``,
-    before ``zipfile`` reads it (design launch-hardening §4.1, Rule B(b)).
+    before ``zipfile`` reads it.
 
     Reads the end-of-central-directory record the way ``zipfile`` finds it
     (the last 64 KiB plus 22 bytes, the last signature), and the Zip64 record
@@ -552,8 +552,8 @@ def _limits(timeout, mem_mb):
 
     def apply():
         # Inside a job (pdf_ops/jobs.py) RLIMIT_DATA is capped for the job's
-        # own processes; LibreOffice keeps B2's RLIMIT_AS instead (design
-        # launch-hardening §3.4), so its soft limit goes back to the hard one.
+        # own processes; LibreOffice keeps its own RLIMIT_AS
+        # instead, so its soft limit goes back to the hard one.
         _soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
         resource.setrlimit(resource.RLIMIT_DATA, (hard, hard))
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
@@ -582,7 +582,7 @@ def _child_env(tmpdir):
     env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': tmpdir,
            'LANG': os.environ.get('LANG', 'C.UTF-8'),
            # Inside a job this is the job directory, so LibreOffice's own
-           # temp files go when the job does (launch-hardening J5).
+           # temp files go when the job does (pdf_ops/jobs.py, J5).
            'TMPDIR': tempfile.gettempdir()}
     return env
 

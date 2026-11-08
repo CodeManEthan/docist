@@ -1,4 +1,4 @@
-"""Packet staging endpoints: stage, hold, and page renders (design §4.2, §4.3).
+"""Packet staging endpoints: stage, hold, and page renders.
 
 Blueprint ``packet_stage``, apart from the page (``routes/packet.py``) and
 the build (``routes/packet_build.py``). Nothing here is metered
@@ -9,7 +9,7 @@ Every refusal is JSON ``{error, code}`` with the codes in
 ``tests/fixtures/packet-api.json``. A ``LimitError`` from a route's own job
 is answered here with a code, ahead of the app-wide handler, which has none.
 
-Work on upload content runs in the request's job (launch-hardening Rule A):
+Work on upload content runs in the request's job:
 the stage's conversion, page count and first thumbnails, and every render
 that isn't already cached. The request's temp directory sits under the
 store's ``.tmp/`` so a finished entry or thumbnail moves in with one rename.
@@ -72,7 +72,7 @@ def subject():
 
 
 def packet_limit_bytes(user):
-    """The per-build cap (§4.6): the tier's request limit."""
+    """The per-build cap: the tier's request limit."""
     return limit_bytes(user, STAGE_ENDPOINT)
 
 
@@ -140,8 +140,8 @@ def _stage_body(meta, name=None):
         'stage_id': meta['id'], 'pages': meta['pages'], 'name': name or meta['name'],
         'type': meta['type'], 'key': meta['key'], 'bytes': meta['bytes'],
     }
-    # Each page's size for its number on the page images (design §4.2
-    # Convert, from packet [B7]). An entry staged before [B7] has none.
+    # Each page's size, for its number on the page images. An entry staged
+    # by an older version has none.
     if 'sizes' in meta:
         body['sizes'] = meta['sizes']
     return body

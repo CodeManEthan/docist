@@ -172,7 +172,7 @@ def _pil_from_xobject(obj):
     try:
         w = int(obj["/Width"])
         h = int(obj["/Height"])
-        # The declared size, before any byte is decoded (design §6.1): an
+        # The declared size, before any byte is decoded: an
         # image over FRAME_PIXELS is left alone, like one it can't open.
         if not limits.frame_ok(w, h):
             return None

@@ -85,7 +85,7 @@ def _pdf_to_image(input_path, output_path, fmt, opts=None):
         with tempfile.TemporaryDirectory() as tmp:
             try:
                 # Convert has no DPI control: the fixed-resolution
-                # refusal, without DPI advice (design §7, ruled wording).
+                # refusal, without DPI advice.
                 images = pdf_to_images(input_path, tmp, fmt=fmt, dpi=IMAGE_DPI, opts=opts,
                                        dpi_chosen=False)
             except ValueError:
@@ -129,7 +129,7 @@ def pdf_to_png(input_path, output_path, opts=None):
     """.pdf -> .png (150 DPI). Single page: PNG; multi-page: zip of PNGs.
 
     ``opts`` carries the request's running total of bytes written, so a
-    pivot's second half shares it (design launch-hardening §10.2)."""
+    pivot's second half shares it."""
     return _pdf_to_image(input_path, output_path, "png", opts)
 
 

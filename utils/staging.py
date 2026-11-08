@@ -1,6 +1,6 @@
 """The packet staging store: staged PDFs, their holds, caps, lanes and janitor.
 
-Design packet-builder v0.16 §4.2. No Flask here: the routes
+No Flask here: the routes
 (``routes/packet_stage.py``, ``routes/packet_build.py``) build a
 :class:`Store` from the app config and call it.
 
@@ -25,7 +25,7 @@ Layout under ``root``::
     <stage_id>/thumb-<w>-<n>.png  cached thumbnails, counted in the entry's bytes
     <stage_id>/meta.json          owner, subject, key, name, type, pages, bytes,
                                   created, holders {holder: last renewal},
-                                  sizes (from packet [B7]; see page_sizes)
+                                  sizes (see page_sizes)
     <stage_id>/.lock              the use lock: shared while a build or render
                                   reads the entry, exclusive to remove it
     <stage_id>/.meta.lock         held while meta.json is read and replaced
@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 
 MIB = 1024 * 1024
 
-# The ruled numbers (round note [C5]; design Q5 as ruled): per subject 200 MB
+# The default caps: per subject 200 MB
 # and 100 files, a global cap of 4 GB, a 2-hour TTL from the last renewal and
 # a 24-hour maximum age. The app config can override each one.
 SUBJECT_CAP_BYTES = 200 * MIB
@@ -257,7 +257,7 @@ class Store:
 
     def temp_dir(self):
         """A request's temp directory on the store's file system, removed on
-        every exit (launch-hardening Rule E)."""
+        every exit."""
         return tempfile.TemporaryDirectory(prefix='req-', dir=self.tmp_root)
 
     def read_meta(self, stage_id):
@@ -367,7 +367,7 @@ class Store:
         return self._with_room(subject, nbytes, 1)
 
     def usage(self, subject, holder):
-        """The numbers a ``staging_quota`` refusal carries (design §4.2)."""
+        """The numbers a ``staging_quota`` refusal carries."""
         with self._ledger() as ledger:
             row = ledger['subjects'].get(subject) or {'bytes': 0, 'files': 0, 'entries': {}}
             ids = list(row.get('entries', {}))
@@ -679,8 +679,7 @@ _PLACEHOLDER_FILL = (226, 228, 232)
 _PLACEHOLDER_TEXT = (90, 96, 108)
 _LETTER_RATIO = 792.0 / 612.0
 # A tEXt chunk the page script looks for, so a page whose image is this tile
-# shows no number on it (design packet-builder §2.1 Page numbers on the page
-# images; verification v0.20 m4): the tile's shape is not the page's.
+# shows no number on it: the tile's shape is not the page's.
 PLACEHOLDER_TEXT = ('docist', 'placeholder')
 
 
@@ -734,8 +733,7 @@ def _render_page_png(doc, index, width, out_path):
 
 
 def page_sizes(reader):
-    """Each page's displayed size, for placing its number on the page images
-    (design packet-builder §4.2 Convert ``sizes``, §3.3 rule 7).
+    """Each page's displayed size, for placing its number on the page images.
 
     A list of runs ``[count, crop_w, crop_h, rotate, media_w, media_h]`` in
     page order, whose counts add up to the page count. ``crop`` is the visible
@@ -767,7 +765,7 @@ def _cant_convert(upload_path):
 
 
 def stage_work(upload_path, ext, render_opts, entry_dir):
-    """One stage request's work, run in its job (design §4.2 Convert).
+    """One stage request's work, run in its job.
 
     Converts a non-PDF with its converter and the request's RenderOptions, or
     copies the uploaded PDF, into ``entry_dir/doc.pdf``; opens that PDF with
@@ -821,10 +819,10 @@ def stage_work(upload_path, ext, render_opts, entry_dir):
         raise
     except Exception as exc:
         raise StageRefusal('unreadable', "This PDF is damaged and can't be read.") from exc
-    # The pages' sizes for their numbers ([B7]). A page whose boxes or
-    # /Rotate can't be read doesn't fail the stage (§4.2: one damaged page
-    # never fails a stage); the file then has no sizes, and its pages show no
-    # number (§2.1). Memory and launch-hardening's limits still pass through.
+    # The pages' sizes for their numbers. A page whose boxes or /Rotate
+    # can't be read doesn't fail the stage (one damaged page never fails a
+    # stage); the file then has no sizes, and its pages show no number.
+    # Memory and the per-request limits still pass through.
     try:
         sizes = page_sizes(reader) if pages else None
     except (MemoryError, LimitError):
