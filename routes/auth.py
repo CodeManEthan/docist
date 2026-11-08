@@ -317,8 +317,8 @@ def logout():
 def verify(token):
     """GET changes nothing: it shows a page whose button POSTs back here, so a
     mail scanner that follows the link can't verify the account. The POST,
-    under the app-wide CSRF check, uses the token (design launch-hardening
-    §12, the same shape as /reset/<token>)."""
+    under the app-wide CSRF check, uses the token (the same shape as
+    /reset/<token>)."""
     if request.method == 'GET':
         user = EmailToken.peek(token, 'verify')
         if user is None:

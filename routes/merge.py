@@ -65,7 +65,7 @@ def upload_files():
     output_folder = current_app.config['OUTPUT_FOLDER']
 
     # Every file's extension is checked before any is saved; one that is
-    # neither a PDF nor convertible refuses the whole request (§13).
+    # neither a PDF nor convertible refuses the whole request.
     try:
         plan = merge_plan(files, get_converter)
     except UploadValidationError as e:
@@ -106,7 +106,7 @@ def upload_files():
 
         try:
             # Convert every file, merge, stamp page numbers and add bookmarks
-            # in the request's job (design launch-hardening §3.5). The result
+            # in the request's job. The result
             # is built in tmpdir and moved to OUTPUT_FOLDER only on success.
             done = run_in_job(
                 lambda: convert_and_merge(items, options, render_opts, merged_path), tmpdir)

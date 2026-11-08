@@ -134,12 +134,12 @@ def normalize_options(options):
 
 def _number_xy(position, page_width):
     """Where a page number goes: ``(x, y, align)`` in points on a page shown
-    ``page_width`` wide (design packet-builder §3.3 rule 7).
+    ``page_width`` wide.
 
     The baseline is 30 pt above the bottom edge. ``bottom-left`` starts the
     number 50 pt from the left edge and ``bottom-right`` 50 pt from the right
     edge, both left-aligned. ``bottom-center`` centres it on the vertical
-    midline (``align`` is ``'center'``); before packet [B7] it started there
+    midline (``align`` is ``'center'``); older versions started it there
     instead, a half-width right of centre. ``static/packet-model.js``
     ``numberPlacement`` is the same rule, and both run the placement vectors
     in ``tests/fixtures/packet-plan.json``.

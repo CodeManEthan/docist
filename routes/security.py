@@ -78,7 +78,7 @@ def run():
             except UploadValidationError as exc:
                 return jsonify({'error': str(exc)}), 400
             # Built here, outside the job directory; moved to OUTPUT_FOLDER
-            # only after the job returns (design launch-hardening §10.3).
+            # only after the job returns.
             output_path = os.path.join(tmpdir, 'result.pdf')
 
             if operation == 'watermark':

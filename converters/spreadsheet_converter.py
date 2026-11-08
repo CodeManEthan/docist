@@ -85,9 +85,9 @@ def _read_csv_rows(input_path):
 
 
 def check_xlsx(input_path, error_type):
-    """Run the archive check on an ``.xlsx`` before ``openpyxl`` opens it
-    (design launch-hardening §4.2). Raises ``error_type`` with the archive
-    refusal (chained to a LimitError) or the spreadsheet message; the Word
+    """Run the archive check on an ``.xlsx`` before ``openpyxl`` opens it.
+    Raises ``error_type`` with the archive refusal (chained to a LimitError)
+    or the spreadsheet message; the Word
     wording of the check's own errors never reaches a spreadsheet user."""
     try:
         office.check_package(input_path)

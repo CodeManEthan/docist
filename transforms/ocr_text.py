@@ -98,7 +98,7 @@ def _open(input_path):
         raise
     except Image.DecompressionBombError as exc:
         # Over Pillow's own limit (about 179 MP), before check_frame runs:
-        # the same ruled sentence as any image over FRAME_PIXELS.
+        # the same sentence as any image over FRAME_PIXELS.
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
         raise logged_error(
@@ -122,7 +122,7 @@ def _flatten_to_white(frame):
     if has_alpha:
         # Paste white through the inverted alpha band onto the RGB copy:
         # the same result as compositing onto white, without a full-size
-        # RGBA copy, RGBA background and composite (Rule D, design §6.2).
+        # RGBA copy, RGBA background and composite, to bound memory.
         alpha = (frame if frame.mode in ('RGBA', 'LA') else frame.convert('RGBA')).getchannel('A')
         rgb = frame.convert('RGB')
         rgb.paste((255, 255, 255), None, ImageOps.invert(alpha))
@@ -164,8 +164,8 @@ def image_to_text(input_path, output_path, opts=None):
     img = _open(input_path)
     name = upload_name(input_path)
 
-    # One frame at a time (Rule D): check it after its seek and before it is
-    # decoded, flatten it, OCR it and drop it before the next.
+    # One frame at a time, to bound memory: check it after its seek and
+    # before it is decoded, flatten it, OCR it and drop it before the next.
     texts = []
     for frame in ImageSequence.Iterator(img):
         limits.check_frame(frame.width, frame.height)

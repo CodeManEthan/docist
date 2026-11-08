@@ -1,18 +1,18 @@
-"""The launch-hardening limits, their refusal messages, and the frame check.
+"""The per-request limits, their refusal messages, and the frame check.
 
 No Flask here. Every limit is a module constant, so a test patches it down
-here (the one place it is read) and uses a small fixture; nothing in this
-round builds a full-size bomb (design launch-hardening v0.4 §2, §15).
+here (the one place it is read) and uses a small fixture; no test builds a
+full-size bomb.
 
-Rule A bounds memory, time and file size by the job each request's work runs
-in (:mod:`pdf_ops.jobs`). The up-front counts here exist only where the user
+Each request's work runs in a job (:mod:`pdf_ops.jobs`) that bounds its
+memory, time and file size. The up-front counts here exist only where the user
 can act on the number (pixels per frame, split parts) or where a small file
 would otherwise hold a worker until the deadline (table cells, a zip's
-central directory) (Rule B).
+central directory).
 
 Every refusal is a :class:`LimitError`, a ``ValueError``, so a route that
-already answers ``ValueError`` with a 400 keeps doing so. The messages are
-the ruled wording (round note [C3]) with the ruled numbers ([C2]).
+already answers ``ValueError`` with a 400 keeps doing so. The messages below are
+the exact wording users see, with the numbers taken from the constants.
 """
 import math
 
@@ -29,7 +29,7 @@ DEFAULT_BUDGET = 90                  # seconds, when no request set a deadline
 
 
 class LimitError(ValueError):
-    """A request went over one of the round's limits. Routes answer 400 with
+    """A request went over one of these limits. Routes answer 400 with
     the message. ``kind`` names the limit ('memory', 'file', 'time', 'died',
     'frame', 'split', 'cells', 'archive', ...)."""
 
@@ -57,7 +57,7 @@ def _megapixels(pixels):
 
 
 # ---------------------------------------------------------------------------
-# Messages (design-records.md, "Refusal wording", ruled [C3])
+# Messages
 # ---------------------------------------------------------------------------
 def memory_message():
     return ('This file needs more memory to convert than Docist allows for one '
@@ -168,7 +168,7 @@ def render_page(page, scale, *, page_number, dpi=None):
 
 
 def charge_written(opts, nbytes):
-    """Count ``nbytes`` a request wrote against ``RESULT_BYTES`` (Rule C, per
+    """Count ``nbytes`` a request wrote against ``RESULT_BYTES`` (per
     request). ``opts`` is anything with a ``written`` attribute (a
     RenderOptions, or :class:`WriteTotal`)."""
     opts.written += int(nbytes)

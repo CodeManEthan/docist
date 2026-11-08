@@ -174,7 +174,7 @@ def _html_to_plain_text(html):
 def _read_docx_result(input_path, mammoth_func):
     """Run a mammoth reader on a DOCX path, translating bad input to error.
 
-    The archive check runs first (design launch-hardening §4.2)."""
+    The archive check runs first."""
     from converters.docx_converter import check_docx, invalid_docx_message
     check_docx(input_path, TransformError)
     name = upload_name(input_path)

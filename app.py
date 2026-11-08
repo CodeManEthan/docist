@@ -125,11 +125,11 @@ def _read_key(path):
 def _persisted_secret_key(path):
     """Read the key at ``path``, creating it first if absent or unusable.
 
-    Rule I (design launch-hardening §14): no reader sees the file before its
-    bytes are complete and on disk. A new key is written to a temporary file
-    in the same directory, fsynced, and os.replace()d onto ``path`` under an
-    exclusive flock on ``path + '.lock'``, so a reader without the lock sees
-    no file, the whole old one or the whole new one. An empty or partial file
+    No reader sees the file before its bytes are complete and on disk. A new
+    key is written to a temporary file in the same directory, fsynced, and
+    os.replace()d onto ``path`` under an exclusive flock on
+    ``path + '.lock'``, so a reader without the lock sees no file, the whole
+    old one or the whole new one. An empty or partial file
     left by older code is replaced at the next start (which signs everyone
     out; a key never fully written was never in use). Old code wrote
     token_hex(32), 64 hex characters, so its keys are kept.
@@ -285,7 +285,7 @@ if (os.environ.get('DATABASE_URL')
 # Every upload's work runs in a forked job (pdf_ops/jobs.py). Modules a job
 # would otherwise import on first use are imported here, so --preload loads
 # them once in the master and no job pays for them or counts them against
-# its memory cap (design launch-hardening §3.3).
+# its memory cap.
 try:
     import ocrmypdf  # noqa: F401
     import pytesseract  # noqa: F401

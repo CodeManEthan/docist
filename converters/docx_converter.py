@@ -1,8 +1,8 @@
 """Converter plugin: Word documents (.docx) -> PDF.
 
-Two engines. With ``opts.word_engine == 'libreoffice'`` (paid users, design
-prelaunch-fixes v0.4 §5) LibreOffice renders the file and keeps its own
-layout and page size (:mod:`pdf_ops.office`). When that raises
+Two engines. With ``opts.word_engine == 'libreoffice'`` (paid users)
+LibreOffice renders the file and keeps its own layout and page size
+(:mod:`pdf_ops.office`). When that raises
 :class:`pdf_ops.office.OfficeError` (a file it can't open, a file that isn't
 Word, a timeout, or no time left in the request), the reflow below runs on
 ``opts.paper`` and :data:`FALLBACK_NOTE` is appended to ``opts.notes``.
@@ -137,7 +137,7 @@ def convert(input_path, output_path, opts=None):
     engine ``opts.word_engine`` names (see the module docstring)."""
     opts = resolve(opts)
     if opts.word_engine == 'libreoffice':
-        # Rule: nothing B2 adds opens a Word file before it passes the
+        # Rule: nothing on this path opens a Word file before it passes the
         # archive-expansion check, and one that fails it is refused, not
         # handed to the reflow (which has no such check of its own).
         try:
@@ -196,8 +196,8 @@ def _reflow(input_path, output_path, opts):
     ``.doc`` renamed).
     """
     # Rule: nothing opens a Word file before it passes the archive check
-    # (B2's check_package, after the central-directory check), on every
-    # engine (design launch-hardening §4.2). What mammoth and xhtml2pdf then
+    # (office.check_package, after the central-directory check), on every
+    # engine. What mammoth and xhtml2pdf then
     # build is held by the request's job.
     check_docx(input_path, ConversionError)
 

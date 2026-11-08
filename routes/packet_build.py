@@ -1,18 +1,18 @@
-"""The packet build endpoint: packet JSON in, one PDF result out (design §4.3).
+"""The packet build endpoint: packet JSON in, one PDF result out.
 
 Blueprint ``packet_build`` holds only this endpoint, so metering can name it
 alone: ``METERED_BLUEPRINTS`` includes ``packet_build``, and one successful
-build costs one operation (§4.4). Metering's ``check()`` refuses at the daily
+build costs one operation. Metering's ``check()`` refuses at the daily
 limit before any of this runs.
 
 The build renews the caller's holder on every staged entry the packet names
 and holds each entry's use lock shared until the job is done, so the janitor
 can't remove one mid-build. It checks the packet's shape, each file item's
 stage (owner, liveness, the key's hash) and the fit of explicit page refs,
-then the per-build byte cap (§4.6), then runs ``packet_pipeline`` in one job
+then the per-build byte cap, then runs ``packet_pipeline`` in one job
 under the work lane. The result is written in the request's temp directory,
 outside the job directory, and moved to ``OUTPUT_FOLDER`` after the job
-succeeds (launch-hardening §10.3); ``/download`` serves it.
+succeeds; ``/download`` serves it.
 
 Every refusal is ``{error, code, items}`` (``tests/fixtures/packet-api.json``,
 ``build_refusal``): ``code`` is the first item's when ``items`` isn't empty.
@@ -53,7 +53,7 @@ def _malformed():
 
 
 def _friendly_name(packet):
-    """``<cover title or packet title>.pdf``, else ``packet.pdf`` (§2.1)."""
+    """``<cover title or packet title>.pdf``, else ``packet.pdf``."""
     for title in ((packet.get('cover') or {}).get('title'), packet.get('title')):
         if isinstance(title, str):
             safe = secure_filename(title)[:100]
@@ -68,7 +68,7 @@ def _file_items(packet):
 
 
 def _fit_code(item, meta):
-    """None when an item's explicit refs fit its stage (§3.1 Fit), else the code."""
+    """None when an item's explicit refs fit its stage, else the code."""
     refs = item.get('pages')
     if refs is None:
         return None

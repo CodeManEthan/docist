@@ -106,9 +106,9 @@ def render_thumbnails(input_path, max_pages=MAX_THUMBS, width=TARGET_WIDTH):
                         page, _scale_for(page.get_width(), width), page_number=i + 1)
                 except limits.LimitError:
                     # A page over FRAME_PIXELS at thumbnail scale (a very tall
-                    # or wide MediaBox) isn't rendered (design launch-hardening
-                    # §7, [R7]). A neutral tile keeps its slot, so every later
-                    # thumbnail keeps its position and its page label.
+                    # or wide MediaBox) isn't rendered. A neutral tile keeps
+                    # its slot, so every later thumbnail keeps its position
+                    # and its page label.
                     thumbs.append(_placeholder(width))
                     continue
                 thumbs.append(_to_data_url(bitmap.to_pil().convert("RGB")))

@@ -178,7 +178,7 @@ def _rows_to_records(rows):
 # XLSX reading
 # --------------------------------------------------------------------------
 def _open_workbook(input_path):
-    check_xlsx(input_path, TransformError)   # before openpyxl (§4.2)
+    check_xlsx(input_path, TransformError)   # before openpyxl opens it
     try:
         return openpyxl.load_workbook(input_path, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 - any openpyxl/zip failure
@@ -210,8 +210,8 @@ def _load_json(input_path):
         with open(input_path, encoding='utf-8') as fh:
             return json.load(fh)
     except RecursionError as exc:
-        # Nesting deeper than the interpreter allows: the ruled "couldn't
-        # convert" sentence, not a 500 (build verification MINOR-2).
+        # Nesting deeper than the interpreter allows: the "couldn't
+        # convert" sentence, not a 500.
         raise TransformError(limits.died_message()) from exc
     except json.JSONDecodeError as exc:
         raise logged_error(
@@ -379,7 +379,7 @@ def yaml_to_json(input_path, output_path):
     held by the request's job (memory cap, ``RLIMIT_FSIZE``); a recursive
     alias (``json.dump``'s "Circular reference detected") or nesting deeper
     than the interpreter allows is a ``TransformError`` with
-    ``limits.YAML_MESSAGE`` (design launch-hardening §5).
+    ``limits.YAML_MESSAGE``.
     """
     try:
         with open(input_path, encoding='utf-8') as fh:

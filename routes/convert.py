@@ -158,7 +158,7 @@ def run_convert():
             def work():
                 # In the request's job: the result lands in tmpdir, outside
                 # the job directory, and is moved to OUTPUT_FOLDER only after
-                # the job returns ok (design launch-hardening §10.3).
+                # the job returns ok.
                 path = transform(input_path, requested_output, render_opts)
                 return {'path': path, 'notes': list(render_opts.notes)}
 
