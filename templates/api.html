@@ -49,13 +49,25 @@
     <div class="container">
         <h1><span class="h1-icon"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><defs><linearGradient id="h1-grad" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22"><stop offset="0" stop-color="#ff8a3d"/><stop offset="0.5" stop-color="#ff4d5e"/><stop offset="1" stop-color="#ff5fa8"/></linearGradient></defs><g fill="none" stroke="url(#h1-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5"/><path d="m16 7 5 5-5 5"/><path d="m14 4-4 16"/></g></svg></span>REST API</h1>
         <p class="subtitle">
-            Every tool, scriptable. Send a multipart form to
-            <code>/api/v1/…</code> and the finished <strong>file comes straight
-            back in the response body</strong> — no polling, no download step,
-            nothing left on the server. Errors are always JSON
-            <code>{"error": "…"}</code> with status <code>400</code> (something
-            to fix in your request) or <code>500</code> (something went wrong
-            here).
+            Every one-file tool, scriptable. The Packet Builder is browser-only.
+            Send a multipart form to <code>{{ api_origin }}/api/v1/…</code> and
+            the finished <strong>file comes straight back in the response
+            body</strong>: no polling, no download step, nothing left on the
+            server.
+            {% if api_anonymous -%}
+            On this server you can call it with an API key from your
+            <a href="/account">account page</a>, counted against your
+            account's daily limit, or with no key at all, counted against your
+            IP at the guest limit of
+            {% if guest_limit %}{{ guest_limit }} operations a day{% else %}no daily cap{% endif %}.
+            For a keyless call, leave out the <code>Authorization</code> line
+            in the examples below.
+            {%- else -%}
+            On this server every POST needs an API key: sign in, verify your
+            email, and create one on your <a href="/account">account page</a>.
+            {%- endif %}
+            Errors are JSON; every status is listed under
+            <a href="#errors">Errors</a>.
         </p>
 
         <div class="api-endpoint">
@@ -85,7 +97,7 @@
                 <tr><td><code>paper</code></td><td>no</td>
                     <td><code>letter</code> (default) or <code>a4</code>: the page size for converted files. PDFs keep their own pages, and a duplex blank matches the page before it.</td></tr>
             </table>
-<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/merge \
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/merge \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "files[]=@chapter1.pdf" \
   -F "files[]=@chapter2.pdf" \
@@ -118,7 +130,7 @@
             <p>If the server has to tell you something about how it made the file,
                the response carries an <code>X-Docist-Notes</code> header (plain ASCII text),
                for example when a Word file was converted with the basic converter.</p>
-<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/convert \
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/convert \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@diagram.png" \
   -F "target=.jpg" \
@@ -128,14 +140,15 @@
         <div class="api-endpoint">
             <h2><span class="verb">POST</span>/api/v1/pages/extract</h2>
             <p>Keep only the pages you name, in a new PDF. Page numbers are
-               1-based and inclusive.</p>
+               1-based and inclusive. Returns <code>application/pdf</code>,
+               named <code>&lt;name&gt;_extracted.pdf</code>.</p>
             <table>
                 <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
                 <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
                 <tr><td><code>ranges</code></td><td>yes</td>
                     <td>Comma-separated pages and ranges, e.g. <code>1-3,5,8-10</code>. Out-of-range or malformed specs return a 400.</td></tr>
             </table>
-<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/pages/extract \
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/pages/extract \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@report.pdf" \
   -F "ranges=1-3,5" \
@@ -155,7 +168,7 @@
                     <td>With <code>every_n</code>: pages per part, e.g. <code>2</code>.
                         With <code>ranges</code>: <code>;</code>-separated specs, e.g. <code>1-2;3-5</code> — one file per spec.</td></tr>
             </table>
-<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/pages/split \
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/pages/split \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@report.pdf" \
   -F "mode=every_n" \
@@ -164,9 +177,139 @@
         </div>
 
         <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/pages/rotate</h2>
+            <p>Rotate pages clockwise. The turn adds to any rotation a page
+               already has. Returns <code>application/pdf</code>, named
+               <code>&lt;name&gt;_rotated.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>angle</code></td><td>yes</td>
+                    <td><code>90</code>, <code>180</code> or <code>270</code> degrees.</td></tr>
+                <tr><td><code>ranges</code></td><td>no</td>
+                    <td>The pages to turn, e.g. <code>1-3,5</code>. Blank turns every page.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/pages/rotate \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@scan.pdf" \
+  -F "angle=90" \
+  -F "ranges=2,4" \
+  -o rotated.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/pages/remove</h2>
+            <p>Drop the pages you name and keep the rest. Returns
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;_trimmed.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>ranges</code></td><td>yes</td>
+                    <td>The pages to remove, e.g. <code>2,4-5</code>. At least one page must remain.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/pages/remove \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@report.pdf" \
+  -F "ranges=2,4-5" \
+  -o trimmed.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/pages/compress</h2>
+            <p>Shrink a PDF by recompressing its images. A file that would
+               come out larger comes back unchanged. Returns
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;_compressed.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>image_quality</code></td><td>no</td>
+                    <td>JPEG quality, <code>10</code> to <code>95</code> (default <code>60</code>).</td></tr>
+                <tr><td><code>image_max_dpi</code></td><td>no</td>
+                    <td>Images sharper than this are scaled down, <code>72</code> to <code>300</code> (default <code>150</code>).</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/pages/compress \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@scan.pdf" \
+  -F "image_quality=50" \
+  -o compressed.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/pages/ocr</h2>
+            <p>Add an invisible text layer to scanned pages, so the PDF can be
+               searched and copied from. Pages that already have text pass
+               through unless <code>force</code> is on. Returns
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;_searchable.pdf</code>. A server without
+               Tesseract and Ghostscript answers 400.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>language</code></td><td>no</td>
+                    <td>A code from <code>ocr_languages</code> (default <code>eng</code>), or two joined with <code>+</code>, e.g. <code>eng+spa</code>.</td></tr>
+                <tr><td><code>deskew</code></td><td>no</td>
+                    <td>Flag: straighten crooked scans first (default off).</td></tr>
+                <tr><td><code>force</code></td><td>no</td>
+                    <td>Flag: OCR every page, including ones that already have text (default off).</td></tr>
+            </table>
+            <p>A flag is on for <code>1</code>, <code>true</code>,
+               <code>on</code> or <code>yes</code>, and off for anything else.</p>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/pages/ocr \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@scan.pdf" \
+  -F "language=eng" \
+  -F "deskew=true" \
+  -o searchable.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/print/nup</h2>
+            <p>Print 2 or 4 pages on each sheet. 2-up sheets are landscape,
+               4-up sheets portrait. Returns <code>application/pdf</code>,
+               named <code>&lt;name&gt;_2up.pdf</code> or
+               <code>&lt;name&gt;_4up.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>n</code></td><td>yes</td>
+                    <td>Pages per sheet: <code>2</code> or <code>4</code>.</td></tr>
+                <tr><td><code>paper</code></td><td>no</td>
+                    <td>The sheet size: <code>letter</code> (default) or <code>a4</code>.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/print/nup \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@slides.pdf" \
+  -F "n=4" \
+  -F "paper=a4" \
+  -o handout.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/print/booklet</h2>
+            <p>Lay the pages out as a folded booklet, padded with blank pages
+               to a multiple of 4. Print it double-sided, flipping on the short
+               edge, and fold the stack in half. Returns
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;_booklet.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>paper</code></td><td>no</td>
+                    <td>The sheet size: <code>letter</code> (default) or <code>a4</code>.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/print/booklet \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@zine.pdf" \
+  -o booklet.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
             <h2><span class="verb">POST</span>/api/v1/watermark</h2>
             <p>Stamp text across every page. Returns
-               <code>application/pdf</code>.</p>
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;-watermarked.pdf</code>.</p>
             <table>
                 <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
                 <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
@@ -179,7 +322,7 @@
                 <tr><td><code>rotation</code></td><td>no</td>
                     <td>Degrees, <code>center</code> position only (default <code>45</code>).</td></tr>
             </table>
-<pre class="api-curl">curl -X POST http://localhost:5010/api/v1/watermark \
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/watermark \
   -H "Authorization: Bearer $DOCIST_API_KEY" \
   -F "file=@contract.pdf" \
   -F "text=CONFIDENTIAL" \
@@ -189,10 +332,146 @@
         </div>
 
         <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/stamp/header-footer</h2>
+            <p>Put text in the page margins, up to three slots at the top and
+               three at the bottom. In any slot, <code>{page}</code> and
+               <code>{pages}</code> become the page number and the page count.
+               Returns <code>application/pdf</code>, named
+               <code>&lt;name&gt;-stamped.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>header_left</code>, <code>header_center</code>, <code>header_right</code>,
+                        <code>footer_left</code>, <code>footer_center</code>, <code>footer_right</code></td>
+                    <td>at least one</td>
+                    <td>The text for each slot (default empty). At least one must be non-blank.</td></tr>
+                <tr><td><code>font_size</code></td><td>no</td><td>Points (default <code>9</code>).</td></tr>
+                <tr><td><code>color</code></td><td>no</td>
+                    <td>Hex <code>#rgb</code> or <code>#rrggbb</code> (default <code>#444444</code>).</td></tr>
+                <tr><td><code>margin</code></td><td>no</td>
+                    <td>Distance from the page edge, in points (default <code>36</code>).</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/stamp/header-footer \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@report.pdf" \
+  -F "header_left=Quarterly report" \
+  -F "footer_center=Page {page} of {pages}" \
+  -o stamped.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/stamp/bates</h2>
+            <p>Number every page with a Bates label: a prefix and a
+               zero-padded counter, such as <code>ACME000007</code>. Returns
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;-bates.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>prefix</code></td><td>no</td><td>Text before the number (default empty).</td></tr>
+                <tr><td><code>start</code></td><td>no</td>
+                    <td>The first page's number, a whole number ≥ 0 (default <code>1</code>).</td></tr>
+                <tr><td><code>digits</code></td><td>no</td>
+                    <td>The counter's width, <code>3</code> to <code>10</code> (default <code>6</code>).</td></tr>
+                <tr><td><code>position</code></td><td>no</td>
+                    <td><code>bottom-right</code> (default), <code>bottom-left</code>, <code>top-right</code> or <code>top-left</code>.</td></tr>
+                <tr><td><code>font_size</code></td><td>no</td><td>Points (default <code>9</code>).</td></tr>
+                <tr><td><code>color</code></td><td>no</td>
+                    <td>Hex <code>#rgb</code> or <code>#rrggbb</code> (default <code>#000000</code>).</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/stamp/bates \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@exhibit.pdf" \
+  -F "prefix=ACME" \
+  -F "start=7" \
+  -o bates.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/export</h2>
+            <p>Get a PDF's pages as images, or its text. With
+               <code>operation=images</code> it returns
+               <code>application/zip</code>, named
+               <code>&lt;name&gt;_images.zip</code>, holding
+               <code>page_001.png</code>, <code>page_002.png</code>, … With
+               <code>operation=text</code> it returns
+               <code>text/plain; charset=utf-8</code>, named
+               <code>&lt;name&gt;.txt</code>: each page starts with a
+               <code>--- Page N ---</code> line, and a form feed separates the
+               pages. A scanned page has no text unless
+               <code>ocr_fallback</code> is on.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>operation</code></td><td>yes</td>
+                    <td><code>images</code> or <code>text</code>.</td></tr>
+                <tr><td><code>fmt</code></td><td>no</td>
+                    <td>Images only: <code>png</code> (default) or <code>jpg</code>.</td></tr>
+                <tr><td><code>dpi</code></td><td>no</td>
+                    <td>Images only: <code>30</code> to <code>600</code> (default <code>150</code>).</td></tr>
+                <tr><td><code>ocr_fallback</code></td><td>no</td>
+                    <td>Text only. Flag: OCR the pages that have no text layer (default off). A server without Tesseract answers 400.</td></tr>
+                <tr><td><code>language</code></td><td>no</td>
+                    <td>Text with <code>ocr_fallback</code> only: a code from <code>ocr_languages</code> (default <code>eng</code>), or two joined with <code>+</code>.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/export \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@report.pdf" \
+  -F "operation=images" \
+  -F "dpi=100" \
+  -o pages.zip
+
+curl -X POST {{ api_origin }}/api/v1/export \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@report.pdf" \
+  -F "operation=text" \
+  -o report.txt</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/protect</h2>
+            <p>Encrypt a PDF with AES-256. The same password opens the file
+               and owns it. The password is never logged or sent back. Returns
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;-protected.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A <code>.pdf</code> upload.</td></tr>
+                <tr><td><code>password</code></td><td>yes</td><td>The password to set. It can't be empty.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/protect \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@contract.pdf" \
+  -F "password=$PDF_PASSWORD" \
+  -o protected.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
+            <h2><span class="verb">POST</span>/api/v1/unlock</h2>
+            <p>Write a copy of a password-protected PDF with the password
+               removed. A wrong password, or a PDF that has none, is a 400.
+               The password is never logged or sent back. Returns
+               <code>application/pdf</code>, named
+               <code>&lt;name&gt;-unlocked.pdf</code>.</p>
+            <table>
+                <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
+                <tr><td><code>file</code></td><td>yes</td><td>A password-protected <code>.pdf</code>.</td></tr>
+                <tr><td><code>password</code></td><td>yes</td><td>The PDF's password.</td></tr>
+            </table>
+<pre class="api-curl">curl -X POST {{ api_origin }}/api/v1/unlock \
+  -H "Authorization: Bearer $DOCIST_API_KEY" \
+  -F "file=@protected.pdf" \
+  -F "password=$PDF_PASSWORD" \
+  -o unlocked.pdf</pre>
+        </div>
+
+        <div class="api-endpoint">
             <h2><span class="verb">GET</span>/api/v1/formats</h2>
             <p>Discovery, as JSON — no upload needed:</p>
             <table>
                 <tr><th>Key</th><th>Contents</th></tr>
+                <tr><td><code>operations</code></td>
+                    <td>The path of every <code>POST</code> endpoint on this page.</td></tr>
                 <tr><td><code>merge_extensions</code></td>
                     <td>Everything <code>/api/v1/merge</code> accepts (<code>.pdf</code> plus every convertible format).</td></tr>
                 <tr><td><code>convert_sources</code></td>
@@ -204,29 +483,62 @@
                 <tr><td><code>ocr_languages</code></td>
                     <td><code>[{"code": "eng", "name": "English"}, …]</code> — the OCR languages installed, English first.</td></tr>
             </table>
-<pre class="api-curl">curl http://localhost:5010/api/v1/formats</pre>
+<pre class="api-curl">curl {{ api_origin }}/api/v1/formats</pre>
         </div>
 
         <div class="api-note">
             <h2>Authentication</h2>
-            <p>Every <code>POST /api/v1/…</code> call needs an API key. Sign in,
-               verify your email, and create a key on your
-               <a href="/account">account page</a>. The key is shown once, so
+            <p>To get an API key, sign in, verify your email, and create one
+               on your <a href="/account">account page</a>. The key is shown once, so
                copy it then. Send it as a bearer token:</p>
 <pre class="api-curl">-H "Authorization: Bearer $DOCIST_API_KEY"</pre>
             <p>Keys are stored hashed and create no session; each request stands
                alone. The browser session cookie is ignored here, so a signed-in
                browser tab cannot be used to call the API. <code>GET
-               /api/v1/formats</code> and this page need no key.</p>
-            <p>A missing key gives <code>401</code>
-               <code>{"error": "API key required. Create one at /account."}</code>.
-               A wrong or revoked key, or one whose account is disabled, gives
-               <code>401</code> <code>{"error": "Invalid or revoked API key."}</code>.
-               Revoke a key from the account page; resetting your password
-               revokes every key.</p>
+               /api/v1/formats</code> and this page need no key. Revoke a key
+               from the account page; resetting your password revokes every
+               key.</p>
+            {% if api_anonymous %}
+            <p>This server also takes keyless calls
+               (<code>DOCIST_API_ANONYMOUS=1</code>). They are counted against
+               the caller's IP at the guest limit. A key you do send must be
+               valid: a wrong one is refused, never treated as keyless.</p>
+            {% else %}
             <p>The operator can allow keyless calls with
-               <code>DOCIST_API_ANONYMOUS=1</code>. They are then counted
-               against the caller's IP at the guest limit.</p>
+               <code>DOCIST_API_ANONYMOUS=1</code>, counted against the
+               caller's IP at the guest limit. This server doesn't, so a POST
+               without a key is refused.</p>
+            {% endif %}
+        </div>
+
+        <div class="api-note" id="errors">
+            <h2>Errors</h2>
+            <p>Every error is JSON, with one of these statuses:</p>
+            <ul>
+                <li><code>400</code> <code>{"error": "…"}</code>: something to
+                    fix in the request, such as a missing file or field, a bad
+                    option, an upload that isn't what its extension says, or a
+                    wrong password. The message says which.</li>
+                <li><code>401</code>
+                    {% if not api_anonymous %}<code>{"error": "API key required. Create one at /account."}</code>
+                    for a POST without a key, or {% endif %}<code>{"error": "Invalid or revoked API key."}</code>
+                    for a wrong or revoked key, or one whose account is
+                    disabled.</li>
+                <li><code>413</code>
+                    <code>{"error": "…", "code": "upload_too_large", "limit_mb": N}</code>:
+                    the request body is over the upload limit that applied to
+                    it, given in <code>limit_mb</code>.</li>
+                <li><code>429</code> with a <code>Retry-After</code> header in
+                    seconds: <code>{"error": "…"}</code> from the per-IP rate
+                    limit, or <code>{"error": "…", "code": "daily_limit",
+                    "limit": N, "used": N, "signup_url": "/signup"}</code> at
+                    the daily limit, where <code>Retry-After</code> runs to
+                    midnight UTC.</li>
+                <li><code>500</code>
+                    <code>{"error": "{{ server_error_message }}", "code": "server_error"}</code>:
+                    something went wrong on the server. The message is always
+                    this one.</li>
+            </ul>
         </div>
 
         <div class="api-note">
@@ -235,30 +547,25 @@
                 <li><strong>Rate limit:</strong> POSTs are capped per client IP —
                     <code>DOCIST_RATE_LIMIT</code> requests (default <strong>30</strong>)
                     per <code>DOCIST_RATE_WINDOW</code> seconds (default
-                    <strong>60</strong>). Over the cap you get
-                    <code>429</code> with a JSON error and a
-                    <code>Retry-After</code> header telling you how many seconds
-                    to wait. GETs are never limited. This short-window cap is
-                    separate from the daily limit below.</li>
+                    <strong>60</strong>). Over the cap you get a
+                    <code>429</code>. GETs are never limited. This short-window
+                    cap is separate from the daily limit below.</li>
                 <li><strong>Daily limit:</strong> each successful call costs one
                     operation from the key owner's daily allowance, shared with
                     their browser use: <code>DOCIST_LIMIT_FREE</code> (default
                     <strong>50</strong>) for a free account, unlimited on a paid
-                    plan. Failed calls (<code>4xx</code>/<code>5xx</code>) cost
+                    plan.{% if api_anonymous %} A keyless call costs one from the
+                    caller's IP's guest allowance, <code>DOCIST_LIMIT_ANON</code>
+                    ({% if guest_limit %}<strong>{{ guest_limit }}</strong> on this server{% else %}unlimited on this server{% endif %}).{% endif %} Failed calls cost
                     nothing. The day is the UTC date. Every counted response
                     carries <code>X-Docist-Usage-Limit</code> (a number, or
                     <code>unlimited</code>) and
-                    <code>X-Docist-Usage-Remaining</code>. At the limit you get
-                    <code>429</code> with a <code>Retry-After</code> header
-                    (seconds until midnight UTC) and
-                    <code>{"error": "…", "code": "daily_limit", "limit": N,
-                    "used": N, "signup_url": "/signup"}</code>.</li>
+                    <code>X-Docist-Usage-Remaining</code>. Past the limit you get
+                    a <code>429</code>.</li>
                 <li><strong>Upload size:</strong> a request whose total body is
                     larger than your account's upload limit
                     (<code>DOCIST_MAX_UPLOAD_MB</code>, default <strong>50 MB</strong>)
-                    is rejected with <code>413</code> and
-                    <code>{"error": "…", "code": "upload_too_large", "limit_mb": N}</code>,
-                    where <code>limit_mb</code> is the limit that applied to the request.</li>
+                    is refused with a <code>413</code>.</li>
                 <li><strong>Nothing is stored:</strong> API uploads and results
                     live in a temporary directory for the length of the request
                     only — unlike the web UI, no file is left in the server's
@@ -267,7 +574,15 @@
                     their extension, so a renamed file (a ZIP called
                     <code>.pdf</code>) is refused with a <code>400</code>.</li>
                 <li><strong>Health:</strong> <code>GET /healthz</code> needs no
-                    auth and returns <code>{"status": "ok"}</code>.</li>
+                    auth and returns
+                    <code>{"status": "ok", "job_limits": true, "commit": "…"}</code>.
+                    <code>job_limits</code> is <code>false</code> when the
+                    start-up check found that the per-job memory cap doesn't
+                    hold on this platform. <code>commit</code> is the first 12
+                    characters of the deployed commit
+                    (<code>DOCIST_COMMIT</code>, else Railway's
+                    <code>RAILWAY_GIT_COMMIT_SHA</code>), or <code>null</code>
+                    when neither is set.</li>
             </ul>
         </div>
     </div>

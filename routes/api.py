@@ -32,7 +32,7 @@ import os
 import tempfile
 import zipfile
 
-from flask import Blueprint, jsonify, render_template, request, send_file
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 from pypdf import PdfReader
 from werkzeug.utils import secure_filename
 
@@ -81,7 +81,7 @@ from utils.uploads import (
     upload_ext,
 )
 from utils.validation import UploadValidationError, validate_upload
-from routes.errors import server_error
+from routes.errors import SERVER_ERROR_MESSAGE, server_error
 
 bp = Blueprint('api', __name__)
 
@@ -256,8 +256,17 @@ def _handle_api_error(exc):
 # ---------------------------------------------------------------------------
 @bp.route('/api')
 def api_docs():
-    """Human-readable documentation for the /api/v1 endpoints."""
-    return render_template('api.html')
+    """Human-readable documentation for the /api/v1 endpoints. The curl
+    examples use the origin this page was requested at, and the first
+    paragraph says whether this server also takes keyless calls."""
+    config = current_app.config
+    return render_template(
+        'api.html',
+        api_origin=request.host_url.rstrip('/'),
+        api_anonymous=bool(config.get('API_ANONYMOUS')),
+        guest_limit=config['LIMIT_ANON'],
+        server_error_message=SERVER_ERROR_MESSAGE,
+    )
 
 
 # ---------------------------------------------------------------------------
