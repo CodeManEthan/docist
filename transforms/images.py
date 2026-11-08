@@ -57,6 +57,8 @@ from PIL import Image, ImageOps
 
 from pdf_ops import limits
 
+from converters import logged_error, upload_name
+
 from . import TransformError
 
 
@@ -105,8 +107,10 @@ def _open(input_path):
         # the same ruled sentence as any image over FRAME_PIXELS.
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
-        raise TransformError(
-            f"Could not open image '{input_path}': {exc}"
+        raise logged_error(
+            TransformError,
+            f"Could not open '{upload_name(input_path)}' as an image. It may be "
+            "damaged, or not the kind of image its name says.", exc
         ) from exc
     return img
 
@@ -174,13 +178,15 @@ def _convert(input_path, output_path, target_fmt):
             # ValueError ("encoding error 1"; OSError too, to be safe). Give
             # the ruled memory refusal, not Pillow's text and a server path.
             raise limits.LimitError(limits.memory_message(), kind='memory') from exc
-        raise TransformError(
-            f"Could not write '{output_path}' as {target_fmt}: {exc}"
-        ) from exc
+        raise logged_error(TransformError, _unwritable(input_path, target_fmt), exc) from exc
     except Exception as exc:
-        raise TransformError(
-            f"Could not write '{output_path}' as {target_fmt}: {exc}"
-        ) from exc
+        raise logged_error(TransformError, _unwritable(input_path, target_fmt), exc) from exc
+
+
+def _unwritable(input_path, target_fmt):
+    """The message when the converted image can't be saved."""
+    return (f"Could not save '{upload_name(input_path)}' as {target_fmt}. Try "
+            "another format, or try another file.")
 
 
 def _make_transform(target_fmt):

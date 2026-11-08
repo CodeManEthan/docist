@@ -6,7 +6,7 @@ default), preserving line breaks and wrapping long lines. Multi-page output is h
 from reportlab.lib.units import inch
 from reportlab.pdfbase.pdfmetrics import stringWidth
 
-from . import ConversionError
+from . import ConversionError, logged_error, upload_name
 from .options import paper_size
 
 EXTENSIONS = ['.txt']
@@ -59,16 +59,24 @@ def _wrap_line(line, max_width, font_name, font_size):
 
 def convert(input_path, output_path, opts=None):
     """Render the text file at input_path to a PDF at output_path."""
+    name = upload_name(input_path)
+    try:
+        text = _read_text(input_path)
+    except OSError as exc:
+        raise logged_error(
+            ConversionError, f"Could not read '{name}'. Try uploading it again.", exc
+        ) from exc
+    render_text(text, output_path, opts, name)
+
+
+def render_text(text, output_path, opts, name):
+    """Render ``text`` to a PDF at ``output_path``; ``name`` is the upload's
+    name, for the message when rendering fails."""
     # reportlab's Courier is a Latin-1 (WinAnsi) core font. Characters
     # outside that range are dropped by the PDF renderer, so substitute a
     # replacement for anything it cannot encode to keep output faithful.
     def _safe(text):
         return text.encode('latin-1', errors='replace').decode('latin-1')
-
-    try:
-        text = _read_text(input_path)
-    except OSError as exc:
-        raise ConversionError(f'Could not read text file: {exc}') from exc
 
     try:
         from reportlab.pdfgen import canvas
@@ -97,4 +105,7 @@ def convert(input_path, output_path, opts=None):
     except ConversionError:
         raise
     except Exception as exc:  # noqa: BLE001 - surface any reportlab failure
-        raise ConversionError(f'Failed to render text to PDF: {exc}') from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not make a PDF from '{name}'. Try again, or try another file.", exc
+        ) from exc

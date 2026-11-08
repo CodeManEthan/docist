@@ -56,7 +56,10 @@ def _run(func, input_path, output_path, opts):
 def _composed(to_pdf, from_pdf):
     def transform(input_path, output_path, opts=None):
         with tempfile.TemporaryDirectory() as tmp:
-            mid = os.path.join(tmp, 'pivot.pdf')
+            # The PDF between the halves keeps the upload's file name (in its
+            # own directory), so a message from the second half names the
+            # upload the visitor sent, not a file they never saw.
+            mid = os.path.join(tmp, os.path.basename(input_path))
             mid = _run(to_pdf, input_path, mid, opts)
             return _run(from_pdf, mid, output_path, opts)
     return transform

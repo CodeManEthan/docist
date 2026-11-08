@@ -11,7 +11,7 @@ import io
 from PIL import Image, ImageSequence
 from pypdf import PdfReader, PdfWriter
 
-from converters import ConversionError
+from converters import ConversionError, logged_error, upload_name
 from converters.options import paper_size
 from pdf_ops import limits
 
@@ -78,6 +78,7 @@ def convert(input_path, output_path, opts=None):
     as a one-page PDF and appended to the writer, then dropped. The writer
     holds compressed pages only.
     """
+    name = upload_name(input_path)
     try:
         image = Image.open(input_path)
     except Image.DecompressionBombError as exc:
@@ -85,7 +86,10 @@ def convert(input_path, output_path, opts=None):
         # the same ruled sentence as any image over FRAME_PIXELS.
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
-        raise ConversionError(f"Could not open image '{input_path}': {exc}") from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not open '{name}' as an image. It may be damaged, or not "
+            "the kind of image its name says.", exc) from exc
 
     writer = PdfWriter()
     count = 0
@@ -103,13 +107,19 @@ def convert(input_path, output_path, opts=None):
     except Image.DecompressionBombError as exc:
         raise limits.LimitError(limits.image_message(), kind='frame') from exc
     except Exception as exc:
-        raise ConversionError(f"Could not process image '{input_path}': {exc}") from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not read the picture in '{name}'. It may be damaged; try "
+            "saving it again from an image editor.", exc) from exc
 
     if not count:
-        raise ConversionError(f"Image '{input_path}' contained no frames to convert.")
+        raise ConversionError(f"'{name}' contained no frames to convert.")
 
     try:
         with open(output_path, 'wb') as fh:
             writer.write(fh)
     except Exception as exc:
-        raise ConversionError(f"Could not write PDF for '{input_path}': {exc}") from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not write the PDF for '{name}'. Try again, or try another file.",
+            exc) from exc

@@ -49,7 +49,8 @@ import re
 import openpyxl
 import yaml
 
-from converters.spreadsheet_converter import check_xlsx
+from converters import logged_error, upload_name
+from converters.spreadsheet_converter import check_xlsx, unreadable_xlsx_message
 from pdf_ops import limits
 
 from . import TransformError
@@ -181,8 +182,8 @@ def _open_workbook(input_path):
     try:
         return openpyxl.load_workbook(input_path, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001 - any openpyxl/zip failure
-        raise TransformError(
-            f"Could not open spreadsheet '{input_path}': {exc}"
+        raise logged_error(
+            TransformError, unreadable_xlsx_message(input_path), exc
         ) from exc
 
 
@@ -212,8 +213,24 @@ def _load_json(input_path):
         # Nesting deeper than the interpreter allows: the ruled "couldn't
         # convert" sentence, not a 500 (build verification MINOR-2).
         raise TransformError(limits.died_message()) from exc
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
-        raise TransformError(f'Invalid JSON input: {exc}') from exc
+    except json.JSONDecodeError as exc:
+        raise logged_error(
+            TransformError,
+            f"'{upload_name(input_path)}' is not valid JSON (line {exc.lineno}, "
+            f"column {exc.colno}).", exc
+        ) from exc
+    except (UnicodeDecodeError, OSError) as exc:
+        raise _unreadable_text(input_path, exc) from exc
+
+
+def _unreadable_text(input_path, exc):
+    """The TransformError for a text upload that can't be read or decoded."""
+    name = upload_name(input_path)
+    if isinstance(exc, UnicodeDecodeError):
+        message = f"'{name}' is not UTF-8 text. Save it as UTF-8 and try again."
+    else:
+        message = f"Could not read '{name}'. Try uploading it again."
+    return logged_error(TransformError, message, exc)
 
 
 def _dump_json(data, output_path):
@@ -369,12 +386,18 @@ def yaml_to_json(input_path, output_path):
             data = yaml.safe_load(fh)
     except RecursionError as exc:
         raise TransformError(limits.YAML_MESSAGE) from exc
-    except (yaml.YAMLError, UnicodeDecodeError) as exc:
-        raise TransformError(f'Invalid YAML input: {exc}') from exc
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, 'problem_mark', None)
+        where = f' (line {mark.line + 1}, column {mark.column + 1})' if mark else ''
+        raise logged_error(
+            TransformError, f"'{upload_name(input_path)}' is not valid YAML{where}.", exc
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise _unreadable_text(input_path, exc) from exc
     except OSError as exc:
         if exc.errno == errno.EFBIG:
             raise
-        raise TransformError(f'Invalid YAML input: {exc}') from exc
+        raise _unreadable_text(input_path, exc) from exc
     try:
         _dump_json(data, output_path)
     except RecursionError as exc:

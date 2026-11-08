@@ -7,7 +7,7 @@ PDF with ``xhtml2pdf`` (pisa).
 import markdown as _markdown
 from xhtml2pdf import pisa
 
-from . import ConversionError
+from . import ConversionError, logged_error, upload_name
 from .options import paper_css
 from .safe_links import link_callback
 
@@ -138,6 +138,8 @@ def convert(input_path, output_path, opts=None):
 
     Raises ``ConversionError`` with a helpful message on failure.
     """
+    name = upload_name(input_path)
+    unreadable = f"Could not read '{name}'. Try uploading it again."
     try:
         with open(input_path, 'r', encoding='utf-8') as fh:
             text = fh.read()
@@ -147,19 +149,17 @@ def convert(input_path, output_path, opts=None):
             with open(input_path, 'r', encoding='utf-8', errors='replace') as fh:
                 text = fh.read()
         except OSError as exc:
-            raise ConversionError(
-                f"Could not read Markdown file '{input_path}': {exc}"
-            ) from exc
+            raise logged_error(ConversionError, unreadable, exc) from exc
     except OSError as exc:
-        raise ConversionError(
-            f"Could not read Markdown file '{input_path}': {exc}"
-        ) from exc
+        raise logged_error(ConversionError, unreadable, exc) from exc
 
     try:
         body_html = _markdown.markdown(text, extensions=_MD_EXTENSIONS)
     except Exception as exc:
-        raise ConversionError(
-            f"Failed to render Markdown to HTML: {exc}"
+        raise logged_error(
+            ConversionError,
+            f"Could not read the Markdown in '{name}'. Check that it is a "
+            "plain-text Markdown file.", exc
         ) from exc
 
     document = _HTML_TEMPLATE.format(css=_page_css(opts), body=body_html)
@@ -171,16 +171,19 @@ def convert(input_path, output_path, opts=None):
                 link_callback=link_callback,
             )
     except OSError as exc:
-        raise ConversionError(
-            f"Could not write PDF to '{output_path}': {exc}"
+        raise logged_error(
+            ConversionError,
+            f"Could not write the PDF for '{name}'. Try again, or try another file.", exc
         ) from exc
     except Exception as exc:
-        raise ConversionError(
-            f"Failed to render PDF from Markdown: {exc}"
+        raise logged_error(
+            ConversionError,
+            f"Could not make a PDF from '{name}'. It may use markup the "
+            "converter can't handle.", exc
         ) from exc
 
     if result.err:
         raise ConversionError(
             f"PDF rendering reported {result.err} error(s) while converting "
-            f"'{input_path}'."
+            f"'{name}'."
         )

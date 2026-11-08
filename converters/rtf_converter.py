@@ -3,19 +3,16 @@
 ``striprtf`` extracts the *plain text* from the RTF document; all formatting
 (fonts, bold/italic, colours, tables) is intentionally lost -- only the
 textual content survives. The extracted text is then rendered through the
-existing plain-text pipeline (:func:`converters.text_converter.convert`) so
+existing plain-text pipeline (:func:`converters.text_converter.render_text`) so
 RTF output looks and paginates exactly like a ``.txt`` conversion.
 
 Garbage/non-RTF input: a real RTF file begins with the control word
 ``{\\rtf``. Files that do not are rejected with ``ConversionError`` before
 any parsing is attempted (striprtf would otherwise silently emit garbage).
 """
-import os
-import tempfile
-
 from striprtf.striprtf import rtf_to_text
 
-from . import ConversionError
+from . import ConversionError, logged_error, upload_name
 from . import text_converter
 
 EXTENSIONS = ['.rtf']
@@ -30,7 +27,10 @@ def _looks_like_rtf(input_path):
         with open(input_path, 'rb') as fh:
             head = fh.read(16)
     except OSError as exc:
-        raise ConversionError(f'Could not read RTF file: {exc}') from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not read '{upload_name(input_path)}'. Try uploading it again.", exc
+        ) from exc
     # Tolerate a UTF-8 BOM and leading whitespace before the brace.
     if head.startswith(b'\xef\xbb\xbf'):
         head = head[3:]
@@ -40,8 +40,9 @@ def _looks_like_rtf(input_path):
 
 def convert(input_path, output_path, opts=None):
     """Convert an RTF file to a PDF written to ``output_path``."""
+    name = upload_name(input_path)
     if not _looks_like_rtf(input_path):
-        raise ConversionError('not an RTF file')
+        raise ConversionError(f"'{name}' is not an RTF file.")
 
     try:
         with open(input_path, 'rb') as fh:
@@ -54,16 +55,11 @@ def convert(input_path, output_path, opts=None):
     except ConversionError:
         raise
     except Exception as exc:  # noqa: BLE001 - surface any striprtf failure
-        raise ConversionError(f'Failed to parse RTF file: {exc}') from exc
+        raise logged_error(
+            ConversionError,
+            f"Could not read the text in '{name}'. It may be damaged; try "
+            "saving it again as RTF.", exc
+        ) from exc
 
     # Reuse the plain-text -> PDF pipeline by handing it the extracted text.
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix='.txt')
-    try:
-        with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmp:
-            tmp.write(text)
-        text_converter.convert(tmp_path, output_path, opts)
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
+    text_converter.render_text(text, output_path, opts, name)
