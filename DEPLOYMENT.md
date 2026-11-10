@@ -161,6 +161,10 @@ workers fork.
 Railway sets on deploys from GitHub; set `DOCIST_COMMIT` only for a deploy
 that doesn't carry it.
 
+`railway.json` sets `drainingSeconds` to 35: Railway waits that long between
+SIGTERM and SIGKILL, a little over gunicorn's 30 s graceful timeout, so
+requests in flight can finish.
+
 The public demo also sets these, to open the tools and the API to guests and
 send real verification email:
 
