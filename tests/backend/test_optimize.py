@@ -13,7 +13,7 @@ from PIL import Image
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from pypdf import PdfReader
-from pypdf.generic import ArrayObject, NameObject, NumberObject
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject, NullObject, NumberObject
 
 from pdf_ops.optimize import compress_pdf
 
@@ -459,3 +459,53 @@ def test_compress_chained_jpeg_over_frame_limit_is_never_decoded(tmp_path, monke
 
     assert stats["images_recompressed"] == 0
     assert decoded == []
+
+
+def _crypt_identity(image):
+    image[NameObject("/Filter")] = ArrayObject(
+        [NameObject("/Crypt"), NameObject("/DCTDecode")]
+    )
+    image[NameObject("/DecodeParms")] = ArrayObject([
+        DictionaryObject({
+            NameObject("/Type"): NameObject("/CryptFilterDecodeParms"),
+            NameObject("/Name"): NameObject("/Identity"),
+        }),
+        NullObject(),
+    ])
+
+
+def _flate_label(image):
+    # A broken writer: the stream says Flate then DCT but holds the JPEG as is.
+    image[NameObject("/Filter")] = ArrayObject(
+        [NameObject("/FlateDecode"), NameObject("/DCTDecode")]
+    )
+
+
+@pytest.mark.parametrize("relabel", [_crypt_identity, _flate_label],
+                         ids=["identity-crypt", "flate-label-on-raw-jpeg"])
+def test_compress_chain_that_fails_to_decode_falls_back_to_stored_jpeg(tmp_path, relabel):
+    from pypdf.filters import decode_stream_data
+
+    jpeg = _noisy_jpeg()
+    src = _make_jpeg_pdf(tmp_path / "plain.pdf", jpeg)
+
+    def edit(writer, image):
+        image._data = jpeg
+        relabel(image)
+
+    edited = _edit_images(src, tmp_path / "chain.pdf", edit)
+    (stored,) = _images(edited)
+    try:
+        decoded = decode_stream_data(stored)
+    except Exception:
+        decoded = None
+    assert not (decoded or b"").startswith(b"\xff\xd8")   # the chain gives no JPEG
+    out = tmp_path / "out.pdf"
+
+    stats = compress_pdf(str(edited), str(out), image_quality=50, image_max_dpi=100)
+
+    assert stats["images_recompressed"] == 1
+    (image,) = _images(out)
+    assert _filters(image) == ["/DCTDecode"]
+    assert len(image._data) < len(jpeg)
+    assert int(image["/Width"]) < 1200

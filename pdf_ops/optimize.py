@@ -24,8 +24,10 @@ Two passes are applied by :func:`compress_pdf`:
    writer such as reportlab wraps each JPEG in ``/ASCII85Decode`` text), and
    what comes out is opened as the JPEG. When there is such a wrapper, the
    declared ``/Width`` x ``/Height`` is checked against the frame limit before
-   any byte is decoded. A list that has ``/DCTDecode`` anywhere but last is
-   not a JPEG we can read and is skipped.
+   any byte is decoded. If the filters fail to decode, or what they give
+   doesn't open, the stored bytes themselves are tried as the JPEG. A list
+   that has ``/DCTDecode`` anywhere but last is not a JPEG we can read and
+   is skipped.
 
    On replacement, an image whose colour space is DeviceGray, DeviceRGB,
    CalGray, CalRGB or a 1- or 3-component ICCBased profile, and whose new
@@ -159,31 +161,34 @@ def _filter_names(obj):
     return [str(filt)]
 
 
-def _jpeg_bytes(obj, filters):
-    """The JPEG bytes of an image whose filter list ends in ``/DCTDecode``.
+def _jpeg_candidates(obj, filters):
+    """The byte strings to try, in order, as the JPEG of an image whose
+    filter list ends in ``/DCTDecode``.
 
     A bare ``/DCTDecode`` (or a one-element list) stores the JPEG as is. A
     longer list is decoded through the filters before ``/DCTDecode``, after
     the declared ``/Width`` x ``/Height`` passes ``limits.frame_ok``, so an
-    oversized image is never decoded. Returns ``None`` when the image is to
-    be left alone: declared size missing, not a number or over the limit, or
-    a filter that fails to decode.
+    oversized image is never decoded. The stored bytes follow as a second
+    try, for a chain pypdf can't decode (a ``/Crypt`` step it doesn't run)
+    or one a writer mislabelled (raw JPEG bytes declared as Flate, which
+    pypdf decodes to nothing). Returns ``[]`` when the image is to be left
+    alone: declared size missing, not a number or over the limit.
     """
     if len(filters) == 1:
-        return obj._data
+        return [obj._data]
     try:
         w = int(obj["/Width"])
         h = int(obj["/Height"])
     except Exception:
-        return None
+        return []
     if not limits.frame_ok(w, h):
-        return None
+        return []
     try:
         # Unlike get_data(), this doesn't cache the decoded copy on the
         # object. Its /DCTDecode step hands the JPEG bytes back unchanged.
-        return decode_stream_data(obj)
+        return [decode_stream_data(obj), obj._data]
     except Exception:
-        return None
+        return [obj._data]
 
 
 def _pil_from_xobject(obj):
@@ -191,7 +196,7 @@ def _pil_from_xobject(obj):
 
     Only the plainly re-encodable cases are handled: 8-bit DeviceRGB /
     DeviceGray rasters (``/FlateDecode`` etc.) and JPEG images, whose filter
-    list ends in ``/DCTDecode`` (see :func:`_jpeg_bytes`). Anything with an
+    list ends in ``/DCTDecode`` (see :func:`_jpeg_candidates`). Anything with an
     alpha soft mask, a raster in another colour space or depth, or a filter
     list with ``/DCTDecode`` anywhere but last returns ``None`` so the caller
     skips it.
@@ -210,17 +215,19 @@ def _pil_from_xobject(obj):
     if "/DCTDecode" in filters:
         if filters[-1] != "/DCTDecode":
             return None   # the JPEG is wrapped in a later filter: left alone
-        data = _jpeg_bytes(obj, filters)
-        if data is None:
-            return None
-        try:
-            im = Image.open(io.BytesIO(data))
+        for data in _jpeg_candidates(obj, filters):
+            try:
+                im = Image.open(io.BytesIO(data))
+            except Exception:
+                continue   # not an image: try the next candidate
             if not limits.frame_ok(im.width, im.height):
                 return None   # over FRAME_PIXELS: left alone, like one it can't open
-            im.load()
-            return im
-        except Exception:
-            return None
+            try:
+                im.load()
+                return im
+            except Exception:
+                continue
+        return None
 
     # Raw raster: only handle 8-bit gray / RGB.
     if bpc is not None and int(bpc) != 8:
