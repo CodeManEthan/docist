@@ -81,6 +81,43 @@ def test_static_csrf_js_served(client):
     assert "X-CSRF-Token" in body
 
 
+# Every page that includes _csrf_head.html and answers a plain GET. The
+# message page is reached through a dead reset link.
+HEAD_PAGES = ("/", "/packet", "/convert", "/pages", "/print", "/export",
+              "/security", "/api", "/login", "/signup", "/forgot",
+              "/reset/not-a-token")
+HEAD_SCRIPTS = ("/static/csrf.js", "/static/upload-limit.js", "/static/usage.js")
+
+
+def test_every_page_loads_the_fetch_wrappers_in_order(client):
+    # Each script wraps window.fetch; usage.js comes last so it sees the
+    # response every other wrapper returns, the synthesized 413 included.
+    for path in HEAD_PAGES:
+        body = client.get(path).get_data(as_text=True)
+        tags = re.findall(r'<script src="(/static/[^"]+)"', body)
+        head = [src for src in tags if src in HEAD_SCRIPTS]
+        assert head == list(HEAD_SCRIPTS), path
+
+
+def test_static_usage_js_served(client):
+    resp = client.get("/static/usage.js")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "__docistUsage" in body
+    assert "X-Docist-Usage-Remaining" in body
+    assert "X-Docist-Usage-Limit" in body
+
+
+def test_usage_js_text_matches_the_nav(client):
+    # The script writes the same words the template renders.
+    nav = re.search(r'<span class="nav-usage">([^<]*)</span>',
+                    client.get("/").get_data(as_text=True))
+    assert nav, "an anonymous visitor has a daily limit"
+    assert re.fullmatch(r"\d+ of \d+ left today", nav.group(1))
+    script = client.get("/static/usage.js").get_data(as_text=True)
+    assert "' of ' + usage.limit + ' left today'" in script
+
+
 def test_packet_page_serves_with_its_assets(client):
     resp = client.get("/packet")
     assert resp.status_code == 200

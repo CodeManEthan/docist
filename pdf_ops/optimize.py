@@ -11,19 +11,36 @@ Two passes are applied by :func:`compress_pdf`:
    Document metadata is carried over onto the writer.
 
 2. **Image pass (best-effort)** — each page's ``/Resources /XObject`` image
-   objects are walked. For images we can safely rasterise (8-bit DeviceRGB /
-   DeviceGray, whether stored as ``/DCTDecode`` JPEG or ``/FlateDecode`` raw
-   raster) the pixels are decoded with Pillow, optionally *downsampled* so the
-   effective on-page resolution does not exceed ``image_max_dpi`` (the display
-   size is recovered by tracking the CTM through the page content stream), and
-   re-encoded as JPEG at ``image_quality``. The XObject stream is then rewritten
-   in place to ``/DCTDecode``.
+   objects are walked. Two kinds are handled: JPEG images and 8-bit
+   DeviceRGB / DeviceGray raw rasters (``/FlateDecode`` and the like). The
+   pixels are decoded with Pillow, optionally *downsampled* so the effective
+   on-page resolution does not exceed ``image_max_dpi`` (the display size is
+   recovered by tracking the CTM through the page content stream), and
+   re-encoded as JPEG at ``image_quality``. The XObject stream is then
+   rewritten in place to a single ``/DCTDecode`` filter.
 
-   This pass is deliberately conservative: any image that is not plainly
-   RGB/gray 8-bit, that carries a soft mask / alpha (``/SMask``), that uses an
-   indexed or CMYK colour space, or that fails to decode for any reason is left
-   **untouched** — one stubborn image never fails the whole run. Only images
-   that come out *smaller* after re-encoding are actually replaced.
+   A JPEG image is one whose filter list ends in ``/DCTDecode``. Its stored
+   bytes are run back through every filter before that last one (a PDF
+   writer such as reportlab wraps each JPEG in ``/ASCII85Decode`` text), and
+   what comes out is opened as the JPEG. When there is such a wrapper, the
+   declared ``/Width`` x ``/Height`` is checked against the frame limit before
+   any byte is decoded. If the filters fail to decode, or what they give
+   doesn't open, the stored bytes themselves are tried as the JPEG. A list
+   that has ``/DCTDecode`` anywhere but last is not a JPEG we can read and
+   is skipped.
+
+   On replacement, an image whose colour space is DeviceGray, DeviceRGB,
+   CalGray, CalRGB or a 1- or 3-component ICCBased profile, and whose new
+   JPEG has that many components, keeps its colour space and any ``/Decode``
+   array. Any other image gets DeviceRGB or DeviceGray to match the new JPEG,
+   and a CMYK JPEG, which is converted to RGB, also loses its ``/Decode``
+   array, since that array describes four components.
+
+   This pass is deliberately conservative: a raw raster that is not plainly
+   RGB/gray 8-bit, any image that carries a soft mask / alpha (``/SMask``),
+   or one that fails to decode for any reason is left **untouched** — one
+   stubborn image never fails the whole run. Only images that come out
+   *smaller* than their stored bytes after re-encoding are actually replaced.
 
 **Why the XObject streams are mutated directly.** Replacement is done on the
 underlying XObject ``StreamObject`` (``obj._data`` plus the ``/Filter`` /
@@ -48,7 +65,8 @@ import re
 import shutil
 
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import NameObject, NumberObject
+from pypdf.filters import decode_stream_data
+from pypdf.generic import ArrayObject, NameObject, NumberObject
 
 from pdf_ops import limits
 
@@ -132,16 +150,61 @@ def _content_display_sizes(page):
     return sizes
 
 
+def _filter_names(obj):
+    """The stream's ``/Filter`` as a list of names (``[]`` when there is none)."""
+    filt = obj.get("/Filter")
+    if filt is None:
+        return []
+    filt = filt.get_object()
+    if isinstance(filt, ArrayObject):
+        return [str(f.get_object()) for f in filt]
+    return [str(filt)]
+
+
+def _jpeg_candidates(obj, filters):
+    """The byte strings to try, in order, as the JPEG of an image whose
+    filter list ends in ``/DCTDecode``.
+
+    A bare ``/DCTDecode`` (or a one-element list) stores the JPEG as is. A
+    longer list is decoded through the filters before ``/DCTDecode``, after
+    the declared ``/Width`` x ``/Height`` passes ``limits.frame_ok``, so an
+    oversized image is never decoded. The stored bytes follow as a second
+    try, for a chain pypdf can't decode (a ``/Crypt`` step it doesn't run)
+    or one a writer mislabelled (raw JPEG bytes declared as Flate, which
+    pypdf decodes to nothing). Returns ``[]`` when the image is to be left
+    alone: declared size missing, not a number or over the limit.
+    """
+    if len(filters) == 1:
+        return [obj._data]
+    try:
+        w = int(obj["/Width"])
+        h = int(obj["/Height"])
+    except Exception:
+        return []
+    if not limits.frame_ok(w, h):
+        return []
+    try:
+        # Unlike get_data(), this doesn't cache the decoded copy on the
+        # object. Its /DCTDecode step hands the JPEG bytes back unchanged.
+        return [decode_stream_data(obj), obj._data]
+    except Exception:
+        return [obj._data]
+
+
 def _pil_from_xobject(obj):
     """Decode an image XObject into a Pillow image, or ``None`` if unsupported.
 
     Only the plainly re-encodable cases are handled: 8-bit DeviceRGB /
-    DeviceGray rasters (``/FlateDecode`` etc.) and baseline JPEG
-    (``/DCTDecode``). Anything with an alpha soft mask, an indexed / CMYK
-    colour space, or a non-8-bit depth returns ``None`` so the caller skips it.
+    DeviceGray rasters (``/FlateDecode`` etc.) and JPEG images, whose filter
+    list ends in ``/DCTDecode`` (see :func:`_jpeg_candidates`). Anything with an
+    alpha soft mask, a raster in another colour space or depth, or a filter
+    list with ``/DCTDecode`` anywhere but last returns ``None`` so the caller
+    skips it.
     """
-    filt = obj.get("/Filter")
-    filt_s = str(filt)
+    try:
+        filters = _filter_names(obj)
+    except Exception:
+        return None
     color = obj.get("/ColorSpace")
     bpc = obj.get("/BitsPerComponent")
 
@@ -149,16 +212,22 @@ def _pil_from_xobject(obj):
     if "/SMask" in obj or "/Mask" in obj:
         return None
 
-    if "/DCTDecode" in filt_s:
-        # Already JPEG-encoded: let Pillow parse the raw stream bytes.
-        try:
-            im = Image.open(io.BytesIO(obj._data))
+    if "/DCTDecode" in filters:
+        if filters[-1] != "/DCTDecode":
+            return None   # the JPEG is wrapped in a later filter: left alone
+        for data in _jpeg_candidates(obj, filters):
+            try:
+                im = Image.open(io.BytesIO(data))
+            except Exception:
+                continue   # not an image: try the next candidate
             if not limits.frame_ok(im.width, im.height):
                 return None   # over FRAME_PIXELS: left alone, like one it can't open
-            im.load()
-            return im
-        except Exception:
-            return None
+            try:
+                im.load()
+                return im
+            except Exception:
+                continue
+        return None
 
     # Raw raster: only handle 8-bit gray / RGB.
     if bpc is not None and int(bpc) != 8:
@@ -178,6 +247,34 @@ def _pil_from_xobject(obj):
             return None
         raw = obj.get_data()  # applies the stream filters -> raw pixels
         return Image.frombytes(mode, (w, h), raw)
+    except Exception:
+        return None
+
+
+_DEVICE_SPACES = {"/DeviceGray": 1, "/DeviceRGB": 3}
+_CAL_SPACES = {"/CalGray": 1, "/CalRGB": 3}
+_MODE_COMPONENTS = {"L": 1, "RGB": 3}
+
+
+def _space_components(color):
+    """Component count of a colour space whose samples a re-encoded JPEG with
+    that many components still matches: 1 or 3 for DeviceGray / DeviceRGB,
+    CalGray / CalRGB, or an ICCBased stream with ``/N`` 1 or 3. ``None`` for
+    every other space, or when there is none."""
+    if color is None:
+        return None
+    try:
+        color = color.get_object()
+        if isinstance(color, ArrayObject):
+            if not color:
+                return None
+            family = str(color[0].get_object())
+            if family == "/ICCBased" and len(color) > 1:
+                n = color[1].get_object().get("/N")
+                n = int(n) if n is not None else None
+                return n if n in (1, 3) else None
+            return _CAL_SPACES.get(family)
+        return _DEVICE_SPACES.get(str(color))
     except Exception:
         return None
 
@@ -206,6 +303,7 @@ def _recompress_page_images(page, display_sizes, image_quality, image_max_dpi):
         if pil is None:
             continue
 
+        source_bands = len(pil.getbands())
         if pil.mode not in ("RGB", "L"):
             pil = pil.convert("RGB")
 
@@ -248,11 +346,18 @@ def _recompress_page_images(page, display_sizes, image_quality, image_max_dpi):
             obj[NameObject("/Filter")] = NameObject("/DCTDecode")
             obj[NameObject("/Width")] = NumberObject(pil.width)
             obj[NameObject("/Height")] = NumberObject(pil.height)
-            obj[NameObject("/ColorSpace")] = NameObject(
-                "/DeviceRGB" if pil.mode == "RGB" else "/DeviceGray"
-            )
+            # A space the new samples still match keeps its object (an
+            # ICCBased profile, a CalRGB calibration) and any /Decode array.
+            if _space_components(obj.get("/ColorSpace")) != _MODE_COMPONENTS[pil.mode]:
+                obj[NameObject("/ColorSpace")] = NameObject(
+                    "/DeviceRGB" if pil.mode == "RGB" else "/DeviceGray"
+                )
             obj[NameObject("/BitsPerComponent")] = NumberObject(8)
-            for key in ("/DecodeParms", "/DecodeParams", "/SMask"):
+            stale = ["/DecodeParms", "/DecodeParams", "/SMask"]
+            if source_bands != len(pil.getbands()):
+                # Converted (CMYK to RGB): /Decode describes the old components.
+                stale.append("/Decode")
+            for key in stale:
                 if key in obj:
                     del obj[NameObject(key)]
             replaced += 1

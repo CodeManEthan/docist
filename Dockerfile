@@ -47,4 +47,5 @@ EXPOSE 5010
 # --preload imports the app once in the master, so the secret key and the
 # schema are set up before the workers fork. Proxy trust is ProxyFix's job
 # (DOCIST_TRUSTED_PROXIES), not gunicorn's.
-CMD gunicorn --preload --workers 2 --timeout 120 --bind "0.0.0.0:${PORT}" app:app
+# The shell execs gunicorn so gunicorn becomes PID 1 and gets the stop signal.
+CMD ["sh", "-c", "exec gunicorn --preload --workers 2 --timeout 120 --bind \"0.0.0.0:${PORT}\" app:app"]
