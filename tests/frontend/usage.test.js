@@ -11,7 +11,7 @@ const {
     usageFromHeaders,
     usageText,
     applyUsage,
-    wrapFetch,
+    wrapFetchForUsage,
     installUsageFetch,
 } = require(path.join(__dirname, '..', '..', 'static', 'usage.js'));
 
@@ -41,7 +41,7 @@ function fakeFetch(response) {
 }
 
 function wrap(origFetch, el) {
-    return wrapFetch(origFetch, () => el, () => ORIGIN);
+    return wrapFetchForUsage(origFetch, () => el, () => ORIGIN);
 }
 
 // --------------------------------------------------------------------------
@@ -164,13 +164,13 @@ test('a rejected fetch rejects as before and changes nothing', async () => {
 
 test('a span lookup that throws never fails the fetch', async () => {
     const res = usageResponse('6', '10');
-    const wrapped = wrapFetch(fakeFetch(res), () => { throw new Error('boom'); }, () => ORIGIN);
+    const wrapped = wrapFetchForUsage(fakeFetch(res), () => { throw new Error('boom'); }, () => ORIGIN);
     assert.equal(await wrapped('/merge'), res);
 });
 
 test('the span is looked up per response, not at install', async () => {
     let el = null;
-    const wrapped = wrapFetch(fakeFetch(usageResponse('3', '10')), () => el, () => ORIGIN);
+    const wrapped = wrapFetchForUsage(fakeFetch(usageResponse('3', '10')), () => el, () => ORIGIN);
     el = span();
     await wrapped('/merge');
     assert.equal(el.textContent, '3 of 10 left today');

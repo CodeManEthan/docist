@@ -43,7 +43,7 @@ function usageText(usage) {
     return usage.remaining + ' of ' + usage.limit + ' left today';
 }
 
-function isSameOrigin(url, pageOrigin) {
+function usageIsSameOrigin(url, pageOrigin) {
     try {
         return new URL(String(url), pageOrigin).origin === pageOrigin;
     } catch (e) {
@@ -60,13 +60,13 @@ function applyUsage(span, response) {
 
 // Wrap a fetch function. `getSpan` and `pageOrigin` are read per response, so
 // a span rendered after this script loads is still found.
-function wrapFetch(origFetch, getSpan, pageOrigin) {
+function wrapFetchForUsage(origFetch, getSpan, pageOrigin) {
     const wrapped = function (input, init) {
         const isRequest = typeof Request !== 'undefined' && input instanceof Request;
         const url = isRequest ? input.url : input;
         return origFetch.call(this, input, init).then((response) => {
             try {
-                if (isSameOrigin(url, pageOrigin())) applyUsage(getSpan(), response);
+                if (usageIsSameOrigin(url, pageOrigin())) applyUsage(getSpan(), response);
             } catch (e) {
                 // The counter is a courtesy; never fail the caller's fetch over it.
             }
@@ -82,7 +82,7 @@ function wrapFetch(origFetch, getSpan, pageOrigin) {
 function installUsageFetch(win) {
     const origFetch = win.fetch;
     if (!origFetch || origFetch.__docistUsage) return;
-    win.fetch = wrapFetch(
+    win.fetch = wrapFetchForUsage(
         origFetch,
         () => win.document.querySelector('.nav-usage'),
         () => win.location.origin,
@@ -102,7 +102,7 @@ if (typeof module !== 'undefined' && module.exports) {
         usageFromHeaders,
         usageText,
         applyUsage,
-        wrapFetch,
+        wrapFetchForUsage,
         installUsageFetch,
     };
 }
